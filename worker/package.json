@@ -1,0 +1,10 @@
+{
+  "name": "@orbit/worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@orbit/shared": "workspace:*",
+    "pino": "10.3.1",
+    "tsx": "4.23.15"
+  }
+}
