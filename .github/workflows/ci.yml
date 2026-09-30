@@ -33,6 +33,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker compose -f template/compose.yml up -d --build --wait
+      - name: Both databases exist and each login reaches its own (DEP-1)
+        run: |
+          dbs=$(docker compose -f template/compose.yml exec -T postgres psql -U postgres -tAc "select datname from pg_database where datname in ('orbit','paperclip') order by 1")
+          test "$dbs" = "$(printf 'orbit\npaperclip')" || { echo "unexpected databases: $dbs"; exit 1; }
+          o=$(docker compose -f template/compose.yml exec -T -e PGPASSWORD="$ORBIT_DB_PASSWORD" postgres psql -h 127.0.0.1 -U orbit_app -d orbit -tAc "select current_database()")
+          test "$o" = orbit || { echo "orbit_app login failed: $o"; exit 1; }
+          p=$(docker compose -f template/compose.yml exec -T -e PGPASSWORD="$PAPERCLIP_DB_PASSWORD" postgres psql -h 127.0.0.1 -U paperclip_app -d paperclip -tAc "select current_database()")
+          test "$p" = paperclip || { echo "paperclip_app login failed: $p"; exit 1; }
       - run: curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:8081/healthz
       - if: always()
         run: docker compose -f template/compose.yml down -v
