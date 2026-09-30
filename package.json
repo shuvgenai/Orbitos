@@ -7,10 +7,15 @@
   "scripts": {
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
+    "test:db": "vitest run --project db",
+    "db:up": "docker compose -f compose.dev.yml up -d --wait",
+    "db:down": "docker compose -f compose.dev.yml down -v",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "24.19.0",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
     "typescript": "7.0.2",
     "vitest": "5.0.3"
   }

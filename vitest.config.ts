@@ -13,6 +13,13 @@ export default defineConfig({
           include: ['shared/**/*.test.ts', 'design/**/*.test.ts', 'ops/**/*.test.ts', 'template/test/compose.test.ts'],
         },
       },
+      {
+        test: {
+          name: 'db',
+          include: ['template/test/postgres-logins.test.ts'],
+          fileParallelism: false,
+        },
+      },
     ],
   },
 });
