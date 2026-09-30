@@ -322,3 +322,73 @@ model RetentionPolicy {
 
   @@map("retention_policies")
 }
+
+enum JobKind {
+  draft_poll
+  verdict_poll
+  notice
+  digest
+  send
+  ack_send
+
+  @@map("job_kind")
+}
+
+enum JobState {
+  pending
+  running
+  done
+  failed
+  dead
+
+  @@map("job_state")
+}
+
+enum TimerKind {
+  reminder_2h
+  void_72h
+  digest_daily
+  ack_cap_window
+
+  @@map("timer_kind")
+}
+
+// Frozen (PRD §18). Postgres rows are the record; Bull only executes (§6, E3-T4).
+model Job {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  kind        JobKind
+  state       JobState  @default(pending)
+  runAt       DateTime  @default(now()) @map("run_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5) @map("max_attempts")
+  lockedBy    String?   @map("locked_by")
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(3)
+  dedupeKey   String    @unique @map("dedupe_key")
+  leadId      String?   @map("lead_id") @db.Uuid
+  approvalId  String?   @map("approval_id") @db.Uuid
+  payload     Json      @default("{}")
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([state, runAt])
+  @@map("jobs")
+}
+
+// FD-4: timers survive restart and restore because they are rows.
+model Timer {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  kind        TimerKind
+  fireAt      DateTime  @map("fire_at") @db.Timestamptz(3)
+  firedAt     DateTime? @map("fired_at") @db.Timestamptz(3)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  dedupeKey   String    @unique @map("dedupe_key")
+  approvalId  String?   @map("approval_id") @db.Uuid
+  payload     Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([fireAt])
+  @@map("timers")
+}
