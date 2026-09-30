@@ -93,9 +93,10 @@ export async function failJob(
 // Called by the reconciler: jobs whose worker died on their last attempt become dead
 // (and alert, in Stage 1) instead of staying in running forever.
 export async function markStuckJobsDead(prisma: PrismaClient): Promise<number> {
-  const { count } = await prisma.job.updateMany({
-    where: { state: 'running', lockedUntil: { lt: new Date() }, attempts: { gte: prisma.job.fields.maxAttempts } },
-    data: { state: 'dead', lastError: 'lease expired on final attempt', lockedBy: null, lockedUntil: null },
-  });
-  return count;
+  // Compared against the database clock, the same one claimDueJobs used to set the lease.
+  return prisma.$executeRaw`
+    UPDATE jobs
+    SET state = 'dead', last_error = 'lease expired on final attempt',
+        locked_by = NULL, locked_until = NULL, updated_at = now()
+    WHERE state = 'running' AND locked_until < now() AND attempts >= max_attempts`;
 }
