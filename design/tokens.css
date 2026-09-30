@@ -1,0 +1,25 @@
+/* Orbitcrew design tokens. DESIGN.md is the source; this file must match it. */
+:root {
+  --color-ink: #000000;
+  --color-paper: #ffffff;
+  --color-canvas: #f4f4f5;
+  --color-muted: #52525b;
+  --color-line: #e4e4e7;
+  --color-danger: #b91c1c;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-size-body: 16px;
+  --radius-button: 10px;
+  --border-divider: 1px;
+  --focus-ring: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ink: #fafafa;
+    --color-paper: #1c1c1f;
+    --color-canvas: #111113;
+    --color-muted: #a1a1aa;
+    --color-line: #2e2e33;
+    --color-danger: #f87171;
+  }
+}
