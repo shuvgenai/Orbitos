@@ -63,3 +63,17 @@ test('rejects an oversized comment before parsing', () => {
   const r = parseAgentComment('x'.repeat(MAX_COMMENT_CHARS + 1), 'draft');
   expect(r).toEqual({ ok: false, error: `comment longer than ${MAX_COMMENT_CHARS} characters` });
 });
+
+test.each([0x0a, 0x0d, 0x0b, 0x0c, 0x09, 0x85, 0x2028, 0x2029, 0x202e, 0x200b])(
+  "rejects a reason containing control/separator U+%s",
+  (cp) => {
+    const reason = "line one" + String.fromCodePoint(cp) + "line two";
+    expect(parseAgentComment(fence({ ...draft, reason }), "draft").ok).toBe(false);
+    expect(parseAgentComment(fence({ ...verdict, reason }), "verdict").ok).toBe(false);
+  },
+);
+
+test("a multi-line draft body is still accepted", () => {
+  const r = parseAgentComment(fence({ ...draft, draft: ["Hi Maya,", "", "Thanks.", "", "Best"].join(String.fromCharCode(10)) }), "draft");
+  expect(r.ok).toBe(true);
+});
