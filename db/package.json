@@ -4,7 +4,9 @@
   "type": "module",
   "exports": {
     "./client": "./src/client.ts",
-    "./approvals": "./src/approvals.ts"
+    "./approvals": "./src/approvals.ts",
+    "./jobs": "./src/jobs.ts",
+    "./timers": "./src/timers.ts"
   },
   "dependencies": {
     "@orbit/shared": "workspace:*",
