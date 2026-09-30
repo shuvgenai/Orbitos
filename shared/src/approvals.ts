@@ -15,6 +15,9 @@ const ALLOWED: Record<ApprovalState, readonly ApprovalState[]> = {
   void: [],
 };
 
+// Total: callers pass untrusted values (queue payloads, database rows). Own-key check so
+// 'constructor', '__proto__' and friends never resolve through Object.prototype.
 export function canTransition(from: ApprovalState, to: ApprovalState): boolean {
+  if (!Object.hasOwn(ALLOWED, from)) return false;
   return ALLOWED[from].includes(to);
 }
