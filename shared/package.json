@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./health": "./src/health.ts"
+    "./health": "./src/health.ts",
+    "./approvals": "./src/approvals.ts",
+    "./jobs": "./src/jobs.ts",
+    "./events": "./src/events.ts",
+    "./agent-output": "./src/agent-output.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
   }
 }
