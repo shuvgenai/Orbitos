@@ -11,8 +11,9 @@ const oneLine = z
   .trim()
   .min(1)
   .max(200)
-  // Rejects CR, LF, U+2028 (line separator) and U+2029 (paragraph separator).
-  .regex(/^[^\r\n\u2028\u2029]+$/, 'must be a single line');
+  // One line only: rejects all control chars (Cc: CR, LF, tab, VT, FF, NEL), line/paragraph separators
+  // (Zl, Zp) and format chars (Cf: bidi overrides such as U+202E, zero-width) that could spoof what the owner reads.
+  .regex(/^[^\p{Cc}\p{Zl}\p{Zp}\p{Cf}]+$/u, 'must be a single line');
 
 export const DRAFT_FLAGS = [
   'price',
