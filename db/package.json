@@ -1,0 +1,17 @@
+{
+  "name": "@orbit/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./approvals": "./src/approvals.ts"
+  },
+  "dependencies": {
+    "@orbit/shared": "workspace:*",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0"
+  },
+  "devDependencies": {
+    "prisma": "7.10.0"
+  }
+}

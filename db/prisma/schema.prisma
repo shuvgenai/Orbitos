@@ -1,0 +1,324 @@
+// ORBIT database (`orbit`). One workspace per instance (DEP-6).
+// Partitioned ledger tables live in the `ledger` schema, outside Prisma (migration *_ledger).
+// Rule: migrations are generated with `prisma migrate diff` and applied with `migrate deploy`.
+// Never run `prisma migrate dev` against this database.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Authority {
+  approve_routine
+  approve_decline_refer
+  approve_board_level
+
+  @@map("authority")
+}
+
+enum LeadState {
+  received
+  filtered
+  classifying
+  not_lead
+  awaiting_verdict
+  drafting
+  draft_failed
+  awaiting_owner
+  sent
+  discarded
+  void
+  resolved
+
+  @@map("lead_state")
+}
+
+enum Classification {
+  lead
+  not_lead
+  unsure
+  failed
+
+  @@map("classification")
+}
+
+enum ApprovalState {
+  issued
+  sending
+  sent
+  failed
+  void
+
+  @@map("approval_state")
+}
+
+enum ApprovalCategory {
+  routine
+  decline_refer
+  board_level
+
+  @@map("approval_category")
+}
+
+enum DecisionAction {
+  send
+  send_edited
+  discard
+
+  @@map("decision_action")
+}
+
+enum DiscardReason {
+  not_a_lead
+  reply_myself
+  draft_wrong
+
+  @@map("discard_reason")
+}
+
+enum AckVariant {
+  with_name
+  without_name
+
+  @@map("ack_variant")
+}
+
+enum SendState {
+  sending
+  sent
+  failed
+
+  @@map("send_state")
+}
+
+enum RetentionMethod {
+  partition_drop
+  purge
+  file_delete
+  keep
+
+  @@map("retention_method")
+}
+
+model Workspace {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  users               User[]
+  contacts            Contact[]
+  leads               Lead[]
+  ackTemplateVersions AckTemplateVersion[]
+  acks                Ack[]
+  approvals           Approval[]
+
+  @@map("workspaces")
+}
+
+model User {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  email       String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace         Workspace            @relation(fields: [workspaceId], references: [id])
+  authorities       UserAuthority[]
+  sessions          Session[]
+  signInLinks       SignInLink[]
+  decisions         Decision[]
+  approvedTemplates AckTemplateVersion[]
+
+  @@unique([workspaceId, email])
+  @@map("users")
+}
+
+// AUTH-1: authorities are stored apart from roles and checked at decision time.
+model UserAuthority {
+  userId    String    @map("user_id") @db.Uuid
+  authority Authority
+  grantedAt DateTime  @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, authority])
+  @@map("user_authorities")
+}
+
+// SIGN-2: 30-day session; board-level actions need fresh_at within 24 h.
+model Session {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  freshAt   DateTime  @default(now()) @map("fresh_at") @db.Timestamptz(3)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// SIGN-1: single-use magic link, 15-minute expiry.
+model SignInLink {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  redirectPath String?   @map("redirect_path")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt       DateTime? @map("used_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sign_in_links")
+}
+
+// FD-1a: known-contact index, from headers only.
+model Contact {
+  workspaceId String   @map("workspace_id") @db.Uuid
+  email       String
+  firstSeenAt DateTime @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt  DateTime @map("last_seen_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@id([workspaceId, email])
+  @@map("contacts")
+}
+
+model Lead {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String          @map("workspace_id") @db.Uuid
+  messageId        String          @map("message_id")
+  gmailMessageId   String          @map("gmail_message_id")
+  gmailThreadId    String          @map("gmail_thread_id")
+  fromEmail        String          @map("from_email")
+  fromName         String?         @map("from_name")
+  subject          String
+  receivedAt       DateTime        @map("received_at") @db.Timestamptz(3)
+  state            LeadState       @default(received)
+  classification   Classification?
+  confidence       Decimal?        @db.Decimal(4, 3)
+  paperclipIssueId String?         @map("paperclip_issue_id")
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id])
+  body      EmailBody?
+  ack       Ack?
+  approvals Approval[]
+
+  @@unique([workspaceId, messageId])
+  @@index([workspaceId, state])
+  @@map("leads")
+}
+
+// Raw bodies are kept apart so the 90-day purge (DAT-3) deletes rows, not columns.
+model EmailBody {
+  leadId     String   @id @map("lead_id") @db.Uuid
+  rawBody    String   @map("raw_body")
+  cleanBody  String?  @map("clean_body")
+  receivedAt DateTime @map("received_at") @db.Timestamptz(3)
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([receivedAt])
+  @@map("email_bodies")
+}
+
+// ACK-4, ACK-7: versioned template; approved_at is the standing template approval (AUTH-0).
+model AckTemplateVersion {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  version          Int
+  withNameText     String    @map("with_name_text")
+  withoutNameText  String    @map("without_name_text")
+  approvedByUserId String?   @map("approved_by_user_id") @db.Uuid
+  approvedAt       DateTime? @map("approved_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id])
+  approvedBy User?     @relation(fields: [approvedByUserId], references: [id])
+  acks       Ack[]
+
+  @@unique([workspaceId, version])
+  @@map("ack_template_versions")
+}
+
+model Ack {
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String     @map("workspace_id") @db.Uuid
+  leadId            String     @unique @map("lead_id") @db.Uuid
+  toEmail           String     @map("to_email")
+  templateVersionId String     @map("template_version_id") @db.Uuid
+  variant           AckVariant
+  state             SendState  @default(sending)
+  gmailMessageId    String?    @map("gmail_message_id")
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt            DateTime?  @map("sent_at") @db.Timestamptz(3)
+
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id])
+  lead            Lead               @relation(fields: [leadId], references: [id])
+  templateVersion AckTemplateVersion @relation(fields: [templateVersionId], references: [id])
+
+  @@index([workspaceId, toEmail, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("acks")
+}
+
+// Frozen (PRD §18). The approval ID is the sole authority to send a full reply (SEC-3).
+model Approval {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId    String           @map("workspace_id") @db.Uuid
+  leadId         String           @map("lead_id") @db.Uuid
+  category       ApprovalCategory
+  state          ApprovalState    @default(issued)
+  draftText      String           @map("draft_text")
+  reason         String
+  issuedAt       DateTime         @default(now()) @map("issued_at") @db.Timestamptz(3)
+  expiresAt      DateTime         @map("expires_at") @db.Timestamptz(3)
+  sendingAt      DateTime?        @map("sending_at") @db.Timestamptz(3)
+  sentAt         DateTime?        @map("sent_at") @db.Timestamptz(3)
+  gmailMessageId String?          @map("gmail_message_id")
+  sendAttempts   Int              @default(0) @map("send_attempts")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  lead      Lead      @relation(fields: [leadId], references: [id])
+  decision  Decision?
+
+  @@index([workspaceId, state])
+  @@map("approvals")
+}
+
+// AUTH-1, AUTH-10, WAIT-3: one decision per approval; the unique key makes the first one win.
+model Decision {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  approvalId    String         @unique @map("approval_id") @db.Uuid
+  userId        String         @map("user_id") @db.Uuid
+  authorityUsed Authority      @map("authority_used")
+  action        DecisionAction
+  finalText     String?        @map("final_text")
+  discardReason DiscardReason? @map("discard_reason")
+  decidedAt     DateTime       @default(now()) @map("decided_at") @db.Timestamptz(3)
+
+  approval Approval @relation(fields: [approvalId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@map("decisions")
+}
+
+// DAT-3: retention is configuration. keep_days NULL means "keep" (life of the customer).
+model RetentionPolicy {
+  dataClass String          @id @map("data_class")
+  keepDays  Int?            @map("keep_days")
+  method    RetentionMethod
+
+  @@map("retention_policies")
+}

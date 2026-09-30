@@ -16,7 +16,8 @@ export default defineConfig({
       {
         test: {
           name: 'db',
-          include: ['template/test/postgres-logins.test.ts'],
+          include: ['db/test/**/*.test.ts', 'template/test/postgres-logins.test.ts'],
+          globalSetup: ['db/test/global-setup.ts'],
           fileParallelism: false,
         },
       },
