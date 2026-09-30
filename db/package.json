@@ -6,7 +6,8 @@
     "./client": "./src/client.ts",
     "./approvals": "./src/approvals.ts",
     "./jobs": "./src/jobs.ts",
-    "./timers": "./src/timers.ts"
+    "./timers": "./src/timers.ts",
+    "./ledger": "./src/ledger.ts"
   },
   "dependencies": {
     "@orbit/shared": "workspace:*",
