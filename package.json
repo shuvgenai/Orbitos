@@ -12,13 +12,16 @@
     "db:down": "docker compose -f compose.dev.yml down -v",
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "pnpm --filter @orbit/db exec prisma generate",
-    "db:migrate": "pnpm --filter @orbit/db exec prisma migrate deploy"
+    "db:migrate": "pnpm --filter @orbit/db exec prisma migrate deploy",
+    "stack:up": "docker compose -f template/compose.yml up -d --build --wait",
+    "stack:down": "docker compose -f template/compose.yml down -v"
   },
   "devDependencies": {
     "@types/node": "24.19.0",
     "@types/pg": "8.23.1",
     "pg": "8.23.1",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "yaml": "2.9.1"
   }
 }

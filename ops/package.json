@@ -1,0 +1,9 @@
+{
+  "name": "@orbit/ops",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "resend": "6.31.0",
+    "tsx": "4.23.15"
+  }
+}

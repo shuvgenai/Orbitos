@@ -18,3 +18,21 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm typecheck
       - run: pnpm test
+
+  compose-smoke:
+    runs-on: ubuntu-24.04
+    env:
+      POSTGRES_PASSWORD: smoke
+      ORBIT_DB_PASSWORD: smoke
+      PAPERCLIP_DB_PASSWORD: smoke
+      RESEND_API_KEY: smoke
+      GMAIL_CLIENT_ID: smoke
+      GMAIL_CLIENT_SECRET: smoke
+      TOKEN_ENCRYPTION_KEY: smoke
+      ANTHROPIC_API_KEY: smoke
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose -f template/compose.yml up -d --build --wait
+      - run: curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:8081/healthz
+      - if: always()
+        run: docker compose -f template/compose.yml down -v
