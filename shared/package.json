@@ -1,0 +1,8 @@
+{
+  "name": "@orbit/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./health": "./src/health.ts"
+  }
+}
