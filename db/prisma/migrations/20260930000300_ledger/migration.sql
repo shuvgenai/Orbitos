@@ -76,6 +76,8 @@ DECLARE
   part    text;
   created integer := 0;
 BEGIN
+  -- Serialise concurrent callers: the exists-check below is not atomic with CREATE.
+  PERFORM pg_advisory_xact_lock(hashtext('ledger.ensure_month_partitions'));
   FOREACH t IN ARRAY ARRAY['events', 'llm_calls', 'decision_calls'] LOOP
     FOR i IN 0 .. p_months - 1 LOOP
       m := (date_trunc('month', p_from) + make_interval(months => i))::date;
