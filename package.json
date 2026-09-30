@@ -10,7 +10,9 @@
     "test:db": "vitest run --project db",
     "db:up": "docker compose -f compose.dev.yml up -d --wait",
     "db:down": "docker compose -f compose.dev.yml down -v",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "db:generate": "pnpm --filter @orbit/db exec prisma generate",
+    "db:migrate": "pnpm --filter @orbit/db exec prisma migrate deploy"
   },
   "devDependencies": {
     "@types/node": "24.19.0",
