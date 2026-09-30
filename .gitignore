@@ -9,3 +9,7 @@ landing/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Dependencies and generated code
+node_modules/
+**/generated/

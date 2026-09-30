@@ -1,0 +1,8 @@
+packages:
+  - shared
+  - db
+  - api
+  - web
+  - worker
+  - frontdesk
+  - ops
