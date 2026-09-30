@@ -1,0 +1,11 @@
+# Landing page lives in its own repo
+landing/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
