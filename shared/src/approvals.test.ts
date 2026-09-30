@@ -30,3 +30,33 @@ test('sent and void are terminal', () => {
     expect(canTransition('void', to)).toBe(false);
   }
 });
+
+test('an unknown from state is rejected instead of throwing', () => {
+  const untrusted = ['', 'ISSUED', 'queued', ' issued', 'issued '] as unknown as ApprovalState[];
+  for (const from of untrusted) {
+    expect(canTransition(from, 'sending'), `${JSON.stringify(from)} -> sending`).toBe(false);
+  }
+});
+
+test('prototype keys as from are rejected, not resolved through Object.prototype', () => {
+  const keys = ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'] as unknown as ApprovalState[];
+  for (const from of keys) {
+    for (const to of APPROVAL_STATES) {
+      expect(canTransition(from, to), `${from} -> ${to}`).toBe(false);
+    }
+  }
+});
+
+test('an unknown to state is rejected for every known from', () => {
+  const tos = ['nope', '', 'constructor', '__proto__', 'length'] as unknown as ApprovalState[];
+  for (const from of APPROVAL_STATES) {
+    for (const to of tos) {
+      expect(canTransition(from, to), `${from} -> ${to}`).toBe(false);
+    }
+  }
+});
+
+test('non-string values are rejected', () => {
+  const junk = [undefined, null, 0, {}, []] as unknown as ApprovalState[];
+  for (const from of junk) expect(canTransition(from, 'sending')).toBe(false);
+});
