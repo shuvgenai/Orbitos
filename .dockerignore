@@ -1,9 +1,10 @@
 **/node_modules
 **/generated
-.git
-.env*
+**/.git
+**/.env*
+!**/.env.example
 landing
 archive
 docs
-*.md
 .superpowers
+**/*.md
