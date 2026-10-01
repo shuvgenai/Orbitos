@@ -12,7 +12,7 @@ export class FakeGmail implements GmailPort {
   private afterAcceptingStatus: number | null = null;
   private sendFailure: { status: number } | null = null;
   private findFailure: { status: number } | null = null;
-  private listFailure: { status: number } | null = null;
+  private listFailure: { status: number; reason?: string } | null = null;
 
   constructor(opts: { historyId: string }) {
     this.startHistoryId = Number(opts.historyId);
@@ -41,15 +41,16 @@ export class FakeGmail implements GmailPort {
     this.findFailure = opts;
   }
 
-  failNextListWith(opts: { status: number }): void {
+  /** The next list call (either method) throws; `reason` mimics Gmail's error.errors[0].reason. */
+  failNextListWith(opts: { status: number; reason?: string }): void {
     this.listFailure = opts;
   }
 
   private throwListFailure(): void {
     if (!this.listFailure) return;
-    const { status } = this.listFailure;
+    const { status, reason } = this.listFailure;
     this.listFailure = null;
-    throw new GmailApiError(status, `Gmail list failed with status ${status}`);
+    throw new GmailApiError(status, `Gmail list failed with status ${status}`, reason);
   }
 
   async listSince(historyId: string): Promise<HistoryPage | { expired: true }> {

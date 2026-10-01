@@ -236,3 +236,15 @@ test('findSentByTag on an empty thread returns null', async () => {
   const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
   expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toBeNull();
 });
+
+test('the error reason is parsed from the Gmail body, else error.status, else undefined', async () => {
+  const cases: [Response, string | undefined][] = [
+    [json({ error: { errors: [{ reason: 'rateLimitExceeded' }], status: 'PERMISSION_DENIED' } }, 403), 'rateLimitExceeded'],
+    [json({ error: { status: 'UNAUTHENTICATED' } }, 401), 'UNAUTHENTICATED'],
+    [new Response('not json', { status: 403 }), undefined],
+  ];
+  for (const [res, reason] of cases) {
+    const gmail = createGmailClient({ accessToken: async () => 'token', fetch: vi.fn().mockResolvedValue(res) });
+    await expect(gmail.listSince('5')).rejects.toMatchObject({ status: res.status, reason });
+  }
+});
