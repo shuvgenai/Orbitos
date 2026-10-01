@@ -132,7 +132,7 @@ const adapters = JSON.parse(
   readFileSync(new URL('../engine/paperclip-adapters.json', import.meta.url), 'utf8'),
 ) as Record<
   string,
-  { adapter: string; toolsets: string; maxTurnsPerRun: number; timeoutSec: number; persistSession: boolean; extraArgs: string[] }
+  { adapter: string; toolsets: string; maxTurnsPerRun: number; timeoutSec: number; persistSession: boolean; extraArgs: string[]; command?: string }
 >;
 
 test('both agents run on hermes_local until the upstream gateway fix (Eng v3 D3)', () => {
@@ -154,6 +154,21 @@ test('the adapter toolsets match the profile allowlist (SEC-2a)', () => {
 // the per-agent allowlist in D4 could not be expressed at all (spike log section 6).
 test.each(['orbi', 'scout'] as const)('%s selects its own Hermes profile with -p', (name) => {
   expect(adapters[name]!.extraArgs).toEqual(['-p', name]);
+});
+
+// Paperclip's adapter passes `--source tool` on every run and no published Hermes accepts it, so
+// both agents run through a shim that drops it. Without this every run dies with
+// "hermes: 'tool' is not a `hermes` command" and exit 1. Delete the shim when Hermes ships --source.
+test.each(['orbi', 'scout'] as const)('%s runs through the Hermes compatibility shim', (name) => {
+  expect(adapters[name]!.command).toBe('/engine/bin/hermes-shim');
+});
+
+test('the shim is baked into the image and drops only --source', () => {
+  expect(dockerfile).toContain('COPY hermes-shim.sh /engine/bin/hermes-shim');
+  expect(dockerfile).toMatch(/chmod \+x .*\/engine\/bin\/hermes-shim/);
+  const shim = readFileSync(new URL('../engine/hermes-shim.sh', import.meta.url), 'utf8');
+  expect(shim).toMatch(/^\s+--source\)/m);
+  expect(shim).toMatch(/^exec hermes /m);
 });
 
 test('the engine run timeout does not outlive the 10-minute draft poll (D5)', () => {

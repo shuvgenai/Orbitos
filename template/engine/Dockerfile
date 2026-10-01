@@ -35,7 +35,9 @@ ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:${PATH}" \
 COPY hermes/orbi.config.yaml /engine/config/orbi.config.yaml
 COPY hermes/scout.config.yaml /engine/config/scout.config.yaml
 COPY entrypoint.sh /engine/entrypoint.sh
-RUN chmod +x /engine/entrypoint.sh
+# Drops the adapter's --source flag, which no published Hermes accepts. See hermes-shim.sh.
+COPY hermes-shim.sh /engine/bin/hermes-shim
+RUN chmod +x /engine/entrypoint.sh /engine/bin/hermes-shim
 
 # No USER line: the base image starts as root by design and drops to USER_UID in its own
 # entrypoint, /usr/local/bin/docker-entrypoint.sh. PAPERCLIP_HOME stays the image default,

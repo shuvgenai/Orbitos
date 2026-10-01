@@ -16,7 +16,8 @@
     "stack:up": "docker compose -f template/compose.yml up -d --build --wait",
     "stack:down": "docker compose -f template/compose.yml down -v",
     "resend:check": "pnpm --filter @orbit/ops exec node --env-file=../.env.local --import tsx src/send-resend-check.ts",
-    "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts"
+    "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts",
+    "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts"
   },
   "devDependencies": {
     "@types/node": "24.19.0",
