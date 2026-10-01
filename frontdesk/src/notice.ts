@@ -11,6 +11,8 @@ export type NoticeDeps = { prisma: PrismaClient; mailer: MailerPort; baseUrl: st
  * NTC-1: the notice reveals nothing about the lead. The subject is fixed text and the body is the
  * link and the deadline only. The lead and the draft are deliberately never read here, so no later
  * edit can interpolate them by accident.
+ *
+ * A retried job may send twice. Accepted: a doubled notice annoys, a missing one loses the lead.
  */
 export async function sendNotice(deps: NoticeDeps, approvalId: string): Promise<void> {
   const approval = await deps.prisma.approval.findUnique({
@@ -42,6 +44,8 @@ export async function sendNotice(deps: NoticeDeps, approvalId: string): Promise<
 
   await deps.mailer.send({
     to: owner.email,
+    // FD-1: the poller drops mail carrying this header, so our own notice is never classified as a lead.
+    headers: { 'X-Orbitcrew': '1' },
     subject: 'A reply is waiting',
     text: `A reply is waiting for your approval.\n\nReview and send it here:\n${link}\n\nThis link stops working on ${deadline}.\n`,
   });

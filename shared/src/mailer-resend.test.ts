@@ -27,3 +27,10 @@ test('a non-2xx answer throws an error carrying the status, never the body', asy
   expect((err as MailerError).status).toBe(429);
   expect((err as MailerError).message).not.toContain('owner@example.com');
 });
+
+test('headers are passed through in the request body', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{"id":"x"}', { status: 200 }));
+  const mailer = createResendMailer({ apiKey: 'k', from: 'f', fetch: fetchMock });
+  await mailer.send({ ...ARGS, headers: { 'X-Orbitcrew': '1' } });
+  expect(JSON.parse(fetchMock.mock.calls[0]![1].body).headers).toEqual({ 'X-Orbitcrew': '1' });
+});

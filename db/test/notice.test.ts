@@ -84,3 +84,14 @@ test('no notice is sent for an approval that is no longer waiting', async () => 
 
   expect(mailer.send).not.toHaveBeenCalled();
 });
+
+test('the notice carries X-Orbitcrew so the poller never treats it as a lead (FD-1)', async () => {
+  const ws = await newWorkspace(prisma);
+  await withOwner(prisma, ws.id, 'owner5@example.com');
+  const approval = await newApproval(prisma, ws.id);
+  const mailer = { send: vi.fn().mockResolvedValue(undefined) };
+
+  await sendNotice({ prisma, mailer, baseUrl: BASE, secret: 's' }, approval.id);
+
+  expect(mailer.send.mock.calls[0]![0].headers).toEqual({ 'X-Orbitcrew': '1' });
+});

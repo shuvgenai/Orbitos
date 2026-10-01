@@ -19,11 +19,11 @@ export class MailerError extends Error {
 export function createResendMailer(deps: { apiKey: string; from: string; fetch?: typeof fetch }): MailerPort {
   const doFetch = deps.fetch ?? fetch;
   return {
-    async send({ to, subject, text }) {
+    async send({ to, subject, text, headers }) {
       const res = await doFetch(ENDPOINT, {
         method: 'POST',
         headers: { authorization: `Bearer ${deps.apiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: deps.from, to: [to], subject, text }),
+        body: JSON.stringify({ from: deps.from, to: [to], subject, text, ...(headers ? { headers } : {}) }),
       });
       if (!res.ok) throw new MailerError(res.status);
     },
