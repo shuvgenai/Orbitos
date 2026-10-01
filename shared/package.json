@@ -9,7 +9,10 @@
     "./events": "./src/events.ts",
     "./agent-output": "./src/agent-output.ts",
     "./token-crypto": "./src/token-crypto.ts",
-    "./body": "./src/body.ts"
+    "./body": "./src/body.ts",
+    "./gmail/port": "./src/gmail/port.ts",
+    "./gmail/fake": "./src/gmail/fake.ts",
+    "./gmail/client": "./src/gmail/client.ts"
   },
   "dependencies": {
     "zod": "4.6.5"
