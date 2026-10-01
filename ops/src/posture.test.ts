@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { parse } from 'yaml';
-import { checkEnginePosture, type PostureInput } from './posture.ts';
+import { ALL_TOOLSETS, checkEnginePosture, type PostureInput } from './posture.ts';
 
 const compose = parse(readFileSync(new URL('../../template/compose.yml', import.meta.url), 'utf8'), {
   merge: true,
@@ -30,6 +30,25 @@ const codes = (input: PostureInput) => checkEnginePosture(input).map((f) => f.co
 
 test('the shipped template passes', () => {
   expect(checkEnginePosture(real)).toEqual([]);
+});
+
+// The registry this list mirrors lives inside the pinned image, so no static test can see upstream
+// adding a toolset. This assertion exists to make an engine version bump stop and look: if the count
+// changes, re-read CONFIGURABLE_TOOLSETS in /opt/hermes/hermes_cli/tools_config.py. The real
+// upstream-drift guard is the runtime posture check in E3-T7, which diffs this list against the
+// running image.
+test('the toolset catalog matches the pinned Hermes image (28 keys at v2026.9.24)', () => {
+  expect(ALL_TOOLSETS).toHaveLength(28);
+  for (const critical of ['delegation', 'cronjob', 'computer_use', 'connections', 'skills']) {
+    expect(ALL_TOOLSETS, `${critical} must be governed`).toContain(critical);
+  }
+});
+
+test('delegation is disabled on both agents, which SEC-2a names explicitly', () => {
+  for (const agent of ['orbi', 'scout'] as const) {
+    const disabled = (real.profiles[agent] as { agent: { disabled_toolsets: string[] } }).agent.disabled_toolsets;
+    expect(disabled, agent).toContain('delegation');
+  }
 });
 
 test('a Gmail secret in the engine container fails the check (E3-T2 verify)', () => {
