@@ -10,7 +10,11 @@
     "timeoutSec": 600,
     "graceSec": 10,
     "quiet": true,
-    "extraArgs": ["-p", "orbi"]
+    "extraArgs": [
+      "-p",
+      "orbi"
+    ],
+    "command": "/engine/bin/hermes-shim"
   },
   "scout": {
     "adapter": "hermes_local",
@@ -23,6 +27,10 @@
     "timeoutSec": 600,
     "graceSec": 10,
     "quiet": true,
-    "extraArgs": ["-p", "scout"]
+    "extraArgs": [
+      "-p",
+      "scout"
+    ],
+    "command": "/engine/bin/hermes-shim"
   }
 }
