@@ -2,6 +2,9 @@
 name: orbit-dev
 services:
   postgres:
+    # The WSL2 engine stops when no WSL session is open, which exits these containers with 0.
+    # The instance stack sets the same policy, so the dev stack comes back with the engine.
+    restart: unless-stopped
     image: pgvector/pgvector:pg16
     command: ["postgres", "-c", "timezone=UTC"]
     environment:
@@ -21,6 +24,7 @@ services:
       timeout: 3s
       retries: 30
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     ports: ["127.0.0.1:6379:6379"]
     healthcheck:
