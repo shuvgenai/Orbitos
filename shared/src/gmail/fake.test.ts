@@ -110,3 +110,56 @@ test('a send is findable by tag with its thread id, and not under a different th
   expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toEqual({ gmailMessageId });
   expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't2' })).toBeNull();
 });
+
+const sendArgs = {
+  gmailThreadId: 't1',
+  toEmail: 'maya@okafor.example',
+  subject: 'Re: x',
+  body: 'b',
+  orbitcrewId: 'appr-1',
+};
+
+test('failNextListWith also fails listByDate, once', async () => {
+  const gmail = new FakeGmail({ historyId: '1' });
+  gmail.failNextListWith({ status: 401 });
+  await expect(gmail.listByDate(new Date(0))).rejects.toMatchObject({ status: 401 });
+  expect(await gmail.listByDate(new Date(0))).toMatchObject({ historyId: '1' });
+});
+
+test('failNextSendWith throws a status-bearing error and records nothing, once', async () => {
+  const gmail = new FakeGmail({ historyId: '1' });
+  gmail.failNextSendWith({ status: 503 });
+  await expect(gmail.sendInThread(sendArgs)).rejects.toMatchObject({ status: 503 });
+  expect(gmail.sent).toHaveLength(0);
+  await expect(gmail.sendInThread(sendArgs)).resolves.toBeDefined();
+});
+
+test('failNextSendAfterAccepting with a status records the send and throws that status', async () => {
+  const gmail = new FakeGmail({ historyId: '1' });
+  gmail.failNextSendAfterAccepting({ status: 502 });
+  await expect(gmail.sendInThread(sendArgs)).rejects.toMatchObject({ status: 502 });
+  expect(gmail.sent).toHaveLength(1);
+});
+
+test('failNextFindWith makes the next findSentByTag throw its status, once', async () => {
+  const gmail = new FakeGmail({ historyId: '1' });
+  gmail.failNextFindWith({ status: 500 });
+  await expect(gmail.findSentByTag('appr-1')).rejects.toMatchObject({ status: 500 });
+  expect(await gmail.findSentByTag('appr-1')).toBeNull();
+});
+
+test('the fake rejects header injection exactly as the client does, without recording', async () => {
+  const gmail = new FakeGmail({ historyId: '1' });
+  await expect(gmail.sendInThread({ ...sendArgs, subject: 'a\r\nBcc: x@y.example' })).rejects.toThrow(/subject/);
+  expect(gmail.sent).toHaveLength(0);
+});
+
+test('syntheticLead populates headers in the real client shape and original casing', () => {
+  const lead = syntheticLead({ messageId: '<m@x>', subject: 'Hello' });
+  expect(lead.headers).toEqual({
+    From: '"Maya Okafor" <maya@okafor.example>',
+    Subject: 'Hello',
+    'Message-ID': '<m@x>',
+    Date: lead.receivedAt.toUTCString(),
+  });
+});
