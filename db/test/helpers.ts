@@ -41,3 +41,24 @@ export async function newApproval(
     },
   });
 }
+
+export function withConnection(prisma: PrismaClient, workspaceId: string, opts: { historyId: string }) {
+  return prisma.gmailConnection.create({
+    data: {
+      workspaceId,
+      emailAddress: 'owner@example.com',
+      refreshTokenCipher: 'test',
+      historyId: opts.historyId,
+    },
+  });
+}
+
+export function withOwner(prisma: PrismaClient, workspaceId: string, email: string) {
+  return prisma.user.create({
+    data: {
+      workspaceId,
+      email,
+      authorities: { create: [{ authority: 'approve_routine' }, { authority: 'approve_decline_refer' }] },
+    },
+  });
+}
