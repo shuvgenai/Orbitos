@@ -1437,7 +1437,7 @@ export function pollForAgentBlock(opts: {
 
 E3-T3 reuses `pollForAgentBlock` unchanged; `run-spike.ts` is the only throwaway part.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `ops/src/spike/draft-poll.test.ts`:
 
@@ -1544,11 +1544,11 @@ test('silence past the timeout reads as timeout (D5)', async () => {
 });
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `pnpm test:unit` -> Expected: FAIL, cannot load `./draft-poll.ts`.
 
-- [ ] **Step 3: Implement the poll**
+- [x] **Step 3: Implement the poll**
 
 `ops/src/spike/draft-poll.ts`:
 
@@ -1607,11 +1607,11 @@ export async function pollForAgentBlock(opts: {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 
-- [ ] **Step 5: Create the company and hire both agents by hand**
+- [x] **Step 5: Create the company and hire both agents by hand**
 
 The provisioning script that does this is E3-T7, not this task. For the spike, use the Paperclip UI on `http://127.0.0.1:3100` with the stack from Task 4 Step 8 running:
 
@@ -1624,7 +1624,7 @@ The provisioning script that does this is E3-T7, not this task. For the spike, u
 
 Record the company id, both agent ids and every adapter field as the UI finally shows it in spike log section 5. If the UI refuses to save `hermes_local`, that contradicts D3's premise: record the exact error and stop. Report it, because it reopens D3.
 
-- [ ] **Step 6: Write the live spike script**
+- [x] **Step 6: Write the live spike script**
 
 `ops/src/spike/run-spike.ts`:
 
@@ -1740,7 +1740,7 @@ console.log(leaked ? `SESSION LEAK: lead B saw ${CANARY}` : 'session isolation: 
 process.exit(first.state === 'ok' && second.state === 'ok' && !leaked ? 0 : 1);
 ```
 
-- [ ] **Step 7: Add the script**
+- [x] **Step 7: Add the script**
 
 In the root `package.json` `scripts`:
 
@@ -1748,7 +1748,7 @@ In the root `package.json` `scripts`:
 "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts"
 ```
 
-- [ ] **Step 8: Run the live spike**
+- [x] **Step 8: Run the live spike**
 
 With the stack from Task 4 Step 8 still up and the four variables exported:
 
@@ -1758,7 +1758,7 @@ pnpm spike:run
 
 Expected: both issues reach `{"state":"ok"}` and the last line reads `session isolation: lead B saw no lead A reference`.
 
-- [ ] **Step 9: Record what the session actually did (D7)**
+- [x] **Step 9: Record what the session actually did (D7)**
 
 This is the decision the spike exists to settle. Record all three in spike log section 5:
 
@@ -1778,13 +1778,13 @@ Then write one of these verdicts, in these words:
 
 If the session store is a single SQLite database rather than per-session files, write that down too, in these words: "E3-T5 and TODOS.md say 'Hermes session files'. The store is `<the real path>`, a SQLite database. The 90-day purge must delete rows, not files." Task 7 carries that into `TODOS.md`.
 
-- [ ] **Step 10: Run the full suite, the typecheck and the posture check**
+- [x] **Step 10: Run the full suite, the typecheck and the posture check**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 Run: `pnpm typecheck` -> Expected: no output.
 Run: `pnpm posture:check` -> Expected: `posture: engine section passes`.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add ops/src/spike package.json docs/superpowers/spikes
@@ -1802,7 +1802,7 @@ git commit -m "feat(ops): comment poll state machine and the live two-issue engi
 - Consumes: every recorded fact in the spike log.
 - Produces: a `## Verdict` section in the spike log, and `TODOS.md` corrected where the spike contradicted it.
 
-- [ ] **Step 1: Write the verdict section**
+- [x] **Step 1: Write the verdict section**
 
 Append to `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`:
 
@@ -1821,17 +1821,17 @@ real Scout prompt, and `ops/src/spike/draft-poll.ts` is the poll it reuses.
 
 Fill each Result cell with pass or fail and the evidence that supports it. A blank cell means an unfinished task, not a pass.
 
-- [ ] **Step 2: Correct TODOS.md where the spike contradicted it**
+- [x] **Step 2: Correct TODOS.md where the spike contradicted it**
 
 The TODO "Build the 90-day retention job and Hermes session purge" says "Hermes session-file purge". If Task 6 Step 9 found a SQLite session store, replace that phrase in its **What** and **Context** paragraphs with the real shape, keep the rest of the entry as it is, and add one line to **Context**: "Stage 0b found the store at `<path>`: a SQLite database, so the purge deletes rows, not files."
 
 The TODO "Switch Scout and Orbi to the `hermes_gateway` adapter" has no file list. Add the real files now that they exist: `template/engine/paperclip-adapters.json` (the `adapter` field on both agents), `template/engine/Dockerfile` and `template/engine/README.md`.
 
-- [ ] **Step 3: Add anything the spike learned to the engine README**
+- [x] **Step 3: Add anything the spike learned to the engine README**
 
 If the Hermes profile path, the Paperclip application directory or the start command differed from this plan's guesses, correct `template/engine/README.md` so the next reader sees the real values, not the guesses.
 
-- [ ] **Step 4: Run every check one last time**
+- [x] **Step 4: Run every check one last time**
 
 ```bash
 pnpm typecheck
@@ -1842,7 +1842,7 @@ pnpm posture:check
 
 Expected: all green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add TODOS.md docs/superpowers/spikes template/engine/README.md

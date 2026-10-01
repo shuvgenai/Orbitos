@@ -13,13 +13,26 @@
 
 **Context:** Eng review v3 (2026-09-30, decision D3) chose `hermes_local` because `hermes_gateway` cannot be saved or run (paperclipai/paperclip issue #14426; fix in PR #14526, unreleased). To start: watch #14426, pin the Paperclip release that contains the fix, flip the adapter config on staging, then rerun the posture check (D4) and the two-lead session test (D7).
 
+**Files:** `template/engine/paperclip-adapters.json` (the `adapter` field on both agents),
+`template/engine/Dockerfile`, `template/engine/README.md`.
+
+**Also drop on that day, if upstream has caught up:** `template/engine/hermes-shim.sh` exists only
+because Paperclip's adapter passes `--source tool` and no published Hermes accepts it. Check
+`hermes --help` for `--source`; if it is there, delete the shim, remove the `command` field from both
+agents in `paperclip-adapters.json`, and delete the two shim tests in `template/test/engine.test.ts`.
+Keep `adapterConfig.model` set either way: `--provider` without `-m` sends the literal model `auto`
+and the API answers `HTTP 404: model: auto`.
+
 **Effort:** S
 **Priority:** P2
 **Depends on:** A Paperclip release that includes PR #14526.
 
 ### Build the 90-day retention job and Hermes session purge
 
-**What:** Build the nightly retention job (DAT-3) and the Hermes session-file purge (PRD task E3-T5), plus the DEC-2 wipe of Hermes volumes.
+**What:** Build the nightly retention job (DAT-3) and the Hermes session purge (PRD task E3-T5), plus
+the DEC-2 wipe of Hermes volumes. Stage 0b found that Paperclip also keys one `agent_task_sessions`
+row per issue in its own database, so the purge has two targets: the Hermes data under
+`HERMES_HOME=/opt/data` on the `hermes_data` volume, and those rows in the `paperclip` database.
 
 **Why:** The 90-day promise on raw email bodies and Hermes sessions must hold before any instance keeps data that long.
 
