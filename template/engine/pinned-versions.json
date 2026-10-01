@@ -1,0 +1,13 @@
+{
+  "recordedOn": "2026-09-30",
+  "paperclip": {
+    "image": "ghcr.io/paperclipai/paperclip",
+    "tag": "sha-d554c47",
+    "digest": "sha256:a02ac35ac41df911af477422ea0e781cf41d2b2c600c66f0a5ac9d8c63f52c2c"
+  },
+  "hermes": {
+    "image": "nousresearch/hermes-agent",
+    "tag": "v2026.9.24",
+    "digest": "sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7"
+  }
+}
