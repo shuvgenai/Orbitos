@@ -9,7 +9,13 @@ const log = pino({ name: 'api-auth' });
 
 const LINK_TTL_MS = 15 * 60_000;
 
-export type AuthDeps = { prisma: PrismaClient; mailer: MailerPort; baseUrl: string };
+export type AuthDeps = {
+  prisma: PrismaClient;
+  mailer: MailerPort;
+  baseUrl: string;
+  /** The instance's one customer workspace. Task 14 supplies it; when absent, sign-in matches across workspaces. */
+  workspaceId?: string;
+};
 
 /** Only a same-site path may be a redirect target; anything else becomes the home page. */
 function safePath(path: string): string {
@@ -25,10 +31,23 @@ export async function issueSignInLink(
   email: string,
   redirectPath: string,
 ): Promise<{ sent: true }> {
-  const user = await deps.prisma.user.findFirst({ where: { email }, orderBy: { createdAt: 'asc' } });
-  if (!user) return { sent: true };
+  const matches = await deps.prisma.user.findMany({
+    where: { email, ...(deps.workspaceId ? { workspaceId: deps.workspaceId } : {}) },
+    orderBy: { createdAt: 'asc' },
+  });
+  const user = matches[0];
+  if (matches.length > 1 && !deps.workspaceId) {
+    log.warn({ code: 'multi_match', count: matches.length }, 'sign-in address matched several users; using the oldest');
+  }
 
   const token = randomBytes(32).toString('base64url');
+  if (!user) {
+    // Do the same token work as the matched path and discard it. This narrows the timing difference
+    // between a known and an unknown address; it does not remove it (no insert, no mail). A rate
+    // limit on this endpoint is the real defence against probing.
+    hashToken(token);
+    return { sent: true };
+  }
   const link = await deps.prisma.signInLink.create({
     data: {
       userId: user.id,

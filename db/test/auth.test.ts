@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test, vi } from 'vitest';
+import { afterAll, expect, test, vi } from 'vitest';
 import { issueSignInLink, redeemSignInLink } from '../../api/src/auth.ts';
 import { readSession } from '../../api/src/session.ts';
 import { newWorkspace, testPrisma, withOwner } from './helpers.ts';
@@ -6,21 +6,13 @@ import { newWorkspace, testPrisma, withOwner } from './helpers.ts';
 const prisma = testPrisma();
 afterAll(() => prisma.$disconnect());
 
-// The tests read these tables unfiltered and look users up by address, so each starts from a clean slate.
-beforeEach(async () => {
-  await prisma.signInLink.deleteMany();
-  await prisma.session.deleteMany();
-  // Owners left by other test files share this address; rename them so only this test's owner matches.
-  for (const u of await prisma.user.findMany({ where: { email: 'owner@example.com' } })) {
-    await prisma.user.update({ where: { id: u.id }, data: { email: `stale-${u.id}@example.test` } });
-  }
-});
-
+// Every test builds its own workspace and owner and scopes its queries to them, so nothing depends on
+// what other tests or files left in the database.
 async function fixture() {
   const ws = await newWorkspace(prisma);
   const owner = await withOwner(prisma, ws.id, 'owner@example.com');
   const mailer = { send: vi.fn().mockResolvedValue(undefined) };
-  return { ws, owner, mailer, deps: { prisma, mailer, baseUrl: 'https://orbit.example' } };
+  return { ws, owner, mailer, deps: { prisma, mailer, baseUrl: 'https://orbit.example', workspaceId: ws.id } };
 }
 
 function tokenFrom(mailer: { send: { mock: { calls: { text: string }[][] } } }): string {
@@ -58,27 +50,27 @@ test('an unknown address mails nothing and reveals nothing (APP-1)', async () =>
 });
 
 test('the stored token is a hash, not the token itself', async () => {
-  const { deps, mailer } = await fixture();
+  const { deps, mailer, owner } = await fixture();
   await issueSignInLink(deps, 'owner@example.com', '/');
   const token = tokenFrom(mailer);
-  const row = await prisma.signInLink.findFirstOrThrow();
+  const row = await prisma.signInLink.findFirstOrThrow({ where: { userId: owner.id } });
   expect(row.tokenHash).not.toBe(token);
   expect(row.tokenHash).toHaveLength(64);
 });
 
 test('an expired link is refused', async () => {
-  const { deps, mailer } = await fixture();
+  const { deps, mailer, owner } = await fixture();
   await issueSignInLink(deps, 'owner@example.com', '/');
-  await prisma.signInLink.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+  await prisma.signInLink.updateMany({ where: { userId: owner.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
   expect(await redeemSignInLink(deps, tokenFrom(mailer))).toEqual({ error: 'expired' });
 });
 
 test('a session expires after 30 days and reads as absent', async () => {
-  const { deps, mailer } = await fixture();
+  const { deps, mailer, owner } = await fixture();
   await issueSignInLink(deps, 'owner@example.com', '/');
   const out = await redeemSignInLink(deps, tokenFrom(mailer));
   if ('error' in out) throw new Error(out.error);
-  await prisma.session.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+  await prisma.session.updateMany({ where: { userId: owner.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
   expect(await readSession(prisma, out.cookie)).toBeNull();
 });
 
@@ -106,11 +98,11 @@ test('two clicks at once: exactly one wins, one session is created', async () =>
 });
 
 test('a revoked session reads as absent', async () => {
-  const { deps, mailer } = await fixture();
+  const { deps, mailer, owner } = await fixture();
   await issueSignInLink(deps, 'owner@example.com', '/');
   const out = await redeemSignInLink(deps, tokenFrom(mailer));
   if ('error' in out) throw new Error(out.error);
-  await prisma.session.updateMany({ data: { revokedAt: new Date() } });
+  await prisma.session.updateMany({ where: { userId: owner.id }, data: { revokedAt: new Date() } });
   expect(await readSession(prisma, out.cookie)).toBeNull();
 });
 
@@ -122,23 +114,45 @@ test('missing, malformed or unknown cookies read as absent', async () => {
 });
 
 test('the session stores a hash and carries a 30-day lifetime and freshAt', async () => {
-  const { deps, mailer } = await fixture();
+  const { deps, mailer, owner } = await fixture();
   await issueSignInLink(deps, 'owner@example.com', '/');
   const out = await redeemSignInLink(deps, tokenFrom(mailer));
   if ('error' in out) throw new Error(out.error);
   expect(out.cookie).toMatch(/Path=\//);
   expect(out.cookie).toMatch(/Max-Age=2592000/);
-  const row = await prisma.session.findFirstOrThrow();
+  const row = await prisma.session.findFirstOrThrow({ where: { userId: owner.id } });
   expect(out.cookie).not.toContain(row.tokenHash);
   expect(row.tokenHash).toHaveLength(64);
   expect(row.expiresAt.getTime() - row.freshAt.getTime()).toBe(30 * 86_400_000);
   expect(Math.abs(row.freshAt.getTime() - Date.now())).toBeLessThan(10_000);
 });
 
-test('an off-site redirect path is replaced with /', async () => {
-  const { deps, mailer } = await fixture();
-  await issueSignInLink(deps, 'owner@example.com', '//evil.example');
-  const out = await redeemSignInLink(deps, tokenFrom(mailer));
+test.each(['//evil.example', 'https://evil.example/x', '/\\evil.example', 'c/abc'])(
+  'an off-site or non-path redirect %s is replaced with /',
+  async (bad) => {
+    const { deps, mailer } = await fixture();
+    await issueSignInLink(deps, 'owner@example.com', bad);
+    const out = await redeemSignInLink(deps, tokenFrom(mailer));
+    if ('error' in out) throw new Error(out.error);
+    expect(out.redirectPath).toBe('/');
+  },
+);
+
+test('sign-in is scoped to the instance workspace', async () => {
+  const a = await fixture();
+  const b = await fixture(); // a different workspace, same address
+  await issueSignInLink(a.deps, 'owner@example.com', '/');
+  const out = await redeemSignInLink(a.deps, tokenFrom(a.mailer));
   if ('error' in out) throw new Error(out.error);
-  expect(out.redirectPath).toBe('/');
+  expect(await readSession(prisma, out.cookie)).toMatchObject({ userId: a.owner.id });
+  expect(b.mailer.send).not.toHaveBeenCalled();
+  expect(await prisma.signInLink.count({ where: { userId: b.owner.id } })).toBe(0);
+});
+
+test('a workspace with no such address mails nothing even when another workspace has it', async () => {
+  const a = await fixture();
+  const empty = await newWorkspace(prisma);
+  const out = await issueSignInLink({ ...a.deps, workspaceId: empty.id }, 'owner@example.com', '/');
+  expect(out).toEqual({ sent: true });
+  expect(a.mailer.send).not.toHaveBeenCalled();
 });
