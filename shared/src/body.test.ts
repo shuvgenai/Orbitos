@@ -92,18 +92,39 @@ test('Finding 4: entity decoding order - &amp;lt; becomes &lt;', () => {
   expect(cleanBody(parts)).toBe('Code: &lt;tag&gt;');
 });
 
-test('Finding 2: 200k character <<<< input finishes promptly', () => {
-  const parts = [{ mimeType: 'text/plain', text: '<'.repeat(200_000) }];
+test('Fix Round 2-A: 200k character < input in HTML finishes promptly (not superlinear)', () => {
+  const parts = [{ mimeType: 'text/html', text: '<'.repeat(200_000) }];
   const start = Date.now();
   const result = cleanBody(parts);
   const elapsed = Date.now() - start;
-  expect(elapsed).toBeLessThan(1000); // Should finish in under 1 second
+  expect(elapsed).toBeLessThan(500); // Should finish in under 500ms
   expect(result).toHaveLength(MAX_MODEL_BODY_CHARS);
+});
+
+test('Fix Round 2-A: repeated <script> tags finish promptly', () => {
+  const html = '<script>'.repeat(5000);
+  const parts = [{ mimeType: 'text/html', text: html }];
+  const start = Date.now();
+  const result = cleanBody(parts);
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeLessThan(500); // Should finish promptly
+  expect(result).toBe('');
+});
+
+test('Fix Round 2-A: repeated <!-- comment --> finishes promptly', () => {
+  const html = '<!-- comment -->'.repeat(100) + '<p>Real text</p>';
+  const parts = [{ mimeType: 'text/html', text: html }];
+  const start = Date.now();
+  const result = cleanBody(parts);
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeLessThan(500); // Should finish promptly
+  expect(result).toBe('Real text');
 });
 
 test('Finding 5: uncorroborated "On Friday you wrote:" keeps text after it', () => {
   const text = [
-    'I think this is right. On Friday you wrote something but I disagree.',
+    'On Friday you wrote:',
+    'But I think we should do this instead.',
     'Let me know if you can help.',
   ].join('\n');
   expect(stripQuotedAndSignature(text)).toBe(text);
@@ -121,13 +142,14 @@ test('Finding 5: corroborated quote marker cuts the text', () => {
 
 test('Finding 5: interior > lines (not at the end) survive', () => {
   const text = [
-    'My budget is > $5k',
+    '> $5k budget',
     'And the deadline is soon',
+    'More details here',
     '>',
     '> Original message here',
   ].join('\n');
   const result = stripQuotedAndSignature(text);
-  expect(result).toContain('> $5k');
+  expect(result).toContain('> $5k budget');
   expect(result).toContain('deadline');
   expect(result).not.toContain('Original message');
 });
@@ -156,4 +178,38 @@ test('Finding 4: numeric entities are decoded', () => {
 test('Finding 4: &quot; and &#39; are decoded', () => {
   const parts = [{ mimeType: 'text/html', text: '&quot;hello&quot; &#39;world&#39;' }];
   expect(cleanBody(parts)).toBe('"hello" \'world\'');
+});
+
+test('Fix Round 2: whitespace-only text/plain falls through to HTML', () => {
+  const parts = [
+    { mimeType: 'text/plain', text: '   \n  \t  ' },
+    { mimeType: 'text/html', text: '<p>HTML content</p>' },
+  ];
+  expect(cleanBody(parts)).toBe('HTML content');
+});
+
+test('Fix Round 2-B: numeric entity out of range left as literal', () => {
+  const parts = [{ mimeType: 'text/html', text: '&#1114112; is out of range' }];
+  const result = cleanBody(parts);
+  expect(result).toContain('&#1114112;');
+});
+
+test('Fix Round 2-C: reply with trailing quoted block and blank line', () => {
+  const text = [
+    'reply',
+    '> quoted',
+    '',
+  ].join('\n');
+  expect(stripQuotedAndSignature(text)).toBe('reply');
+});
+
+test('Fix Round 2-C: reply with signature after quoted block', () => {
+  const text = [
+    'reply',
+    '> q',
+    '',
+    '-- ',
+    'sig',
+  ].join('\n');
+  expect(stripQuotedAndSignature(text)).toBe('reply');
 });

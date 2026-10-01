@@ -22,10 +22,14 @@ function capText(text: string | undefined): string {
 }
 
 export function pickTextPart(parts: readonly BodyPart[]): string {
-  // Look for text/plain part with non-empty text (Finding 1: handle undefined and empty)
+  // Look for text/plain part with non-empty, non-whitespace text (Finding 1, Fix Round 2: handle undefined and empty)
   const plain = parts.find((p) => {
     const mimeType = normalizeMimeType(p.mimeType);
-    return mimeType === 'text/plain' && typeof p.text === 'string' && p.text.length > 0;
+    return (
+      mimeType === 'text/plain' &&
+      typeof p.text === 'string' &&
+      p.text.trim().length > 0
+    );
   });
   if (plain) return capText(plain.text);
 
@@ -39,10 +43,10 @@ export function pickTextPart(parts: readonly BodyPart[]): string {
   const htmlText = capText(html.text);
   if (!htmlText) return '';
 
-  // Remove script, style, head blocks first (Finding 3: prevent injection)
+  // Remove script, style, head blocks first (Finding 3, Fix Round 2: prevent injection, make terminators optional to prevent superlinear behavior)
   let cleaned = htmlText
-    .replace(/<(script|style|head)\b[\s\S]*?<\/\1>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, ''); // Remove HTML comments
+    .replace(/<(script|style|head)\b[\s\S]*?(?:<\/\1>|$)/gi, '')
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ''); // Remove HTML comments, terminal optional
 
   // Convert line breaks and block-level tags to newlines (Finding 2: safe regex)
   cleaned = cleaned
@@ -50,16 +54,29 @@ export function pickTextPart(parts: readonly BodyPart[]): string {
     .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
     .replace(/<[^<>]*>/g, ''); // Safe: doesn't hang on unmatched < or >
 
-  // Decode entities - &amp; must be last (Finding 4: decode order matters)
-  cleaned = cleaned
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&'); // Last!
+  // Decode all entities in one pass (Finding 4, Fix Round 2: single-pass decode prevents double-decoding)
+  cleaned = cleaned.replace(/&(#\d+|#x[0-9a-f]+|quot|nbsp|lt|gt|amp);/gi, (match, entity) => {
+    if (entity === 'quot') return '"';
+    if (entity === 'nbsp') return ' ';
+    if (entity === 'lt') return '<';
+    if (entity === 'gt') return '>';
+    if (entity === 'amp') return '&';
+    if (entity.startsWith('#x')) {
+      const codePoint = parseInt(entity.slice(2), 16);
+      if (codePoint >= 0 && codePoint <= 0x10ffff) {
+        return String.fromCodePoint(codePoint);
+      }
+      return match; // Out of range, leave as-is
+    }
+    if (entity.startsWith('#')) {
+      const codePoint = parseInt(entity.slice(1), 10);
+      if (codePoint >= 0 && codePoint <= 0x10ffff) {
+        return String.fromCodePoint(codePoint);
+      }
+      return match; // Out of range, leave as-is
+    }
+    return match; // Unknown entity, leave as-is
+  });
 
   return cleaned.trim();
 }
@@ -90,11 +107,11 @@ export function stripQuotedAndSignature(text: string): string {
   // Strip signature: \n-- (space?) followed by \n or end of string (Finding 5)
   out = out.replace(/\n-- ?(\n|$)[\s\S]*$/, '');
 
-  // Strip only trailing contiguous > lines (Finding 5: not interior ones)
+  // Strip only trailing contiguous > lines (Finding 5, Fix Round 2: not interior ones, skip blank lines)
   const lines = out.split('\n');
   while (lines.length > 0) {
     const lastLine = lines[lines.length - 1];
-    if (lastLine && lastLine.startsWith('>')) {
+    if (lastLine === undefined || lastLine.startsWith('>') || lastLine.trim() === '') {
       lines.pop();
     } else {
       break;
