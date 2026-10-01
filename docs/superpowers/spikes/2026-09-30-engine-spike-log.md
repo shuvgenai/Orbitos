@@ -401,3 +401,39 @@ selector the adapter has no field for, and without it both agents would share
 `/opt/data/config.yaml`, which would make D4's per-agent allowlist unexpressible. `HERMES_HOME` via
 the adapter's `env` map works equally well and was rejected only because `-p` is the documented
 Hermes mechanism and keeps one data root.
+
+## 8. The posture check (Task 5)
+
+`pnpm posture:check` passes on the shipped template and exits 1 with a named finding on drift:
+
+```
+$ pnpm posture:check
+posture: engine section passes          # exit 0
+
+$ sed -i 's/read_only: true/read_only: false/' template/compose.yml && pnpm posture:check
+engine_root_fs_writable: the engine root filesystem must be read-only except its data volumes (SEC-2a)
+posture: 1 finding(s)                   # exit 1
+```
+
+16 tests in `ops/src/posture.test.ts` drive it, each injecting one violation into a clone of the real
+template. The E3-T2 verify criterion ("the posture check fails when a Gmail secret or a terminal
+toolset is added to that container") is two of them.
+
+One rule exists that the plan did not have: `profile_not_selected`. Dropping `-p <agent>` from an
+adapter's `extraArgs` is the quiet way to lose every per-agent rule at once, because both agents then
+fall back to `/opt/data/config.yaml` while every other check still passes.
+
+Two FLT-7 rules are deliberately **not** in this function, because they are not readable from files.
+They belong to the runtime posture check in E3-T7:
+
+- `hermes -p <profile> cron list` must be empty on both profiles.
+- Paperclip's heartbeat must be off. It defaults to on at 30 s.
+
+### CI
+
+`pnpm posture:check` runs in the `test` job. The `compose-smoke` job starts the stack with
+`--scale paperclip=0`, on purpose: the engine image is 8.82 GB and does not fit a hosted runner's
+disk alongside the rest of the stack. The engine's configuration is covered statically by the posture
+check, and its boot is verified on the staging instance (PRD section 9). Revisit if CI gets a larger
+runner. The engine's Compose variables are still set in that job, because Compose interpolates them
+while parsing even for a service scaled to zero.

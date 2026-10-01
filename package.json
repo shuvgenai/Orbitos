@@ -15,7 +15,8 @@
     "db:migrate": "pnpm --filter @orbit/db exec prisma migrate deploy",
     "stack:up": "docker compose -f template/compose.yml up -d --build --wait",
     "stack:down": "docker compose -f template/compose.yml down -v",
-    "resend:check": "pnpm --filter @orbit/ops exec node --env-file=../.env.local --import tsx src/send-resend-check.ts"
+    "resend:check": "pnpm --filter @orbit/ops exec node --env-file=../.env.local --import tsx src/send-resend-check.ts",
+    "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts"
   },
   "devDependencies": {
     "@types/node": "24.19.0",

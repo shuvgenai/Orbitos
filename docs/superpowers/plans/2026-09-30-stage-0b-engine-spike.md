@@ -1061,7 +1061,7 @@ git commit -m "feat(template): engine service with read-only root, own model key
 - Consumes: the parsed `template/compose.yml` engine service, the two parsed Hermes profile configs, and `template/engine/paperclip-adapters.json`.
 - Produces: `checkEnginePosture(input: PostureInput): PostureFinding[]`, returning an empty array when the posture holds. `PostureFinding` is `{ code: PostureCode; detail: string }`; `PostureCode` is the string-literal union listed in Step 3. E3-T7 calls this function against a provisioned instance.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `ops/src/posture.test.ts`:
 
@@ -1177,11 +1177,11 @@ test('every finding carries a detail a human can act on', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `pnpm test:unit` -> Expected: FAIL, cannot load `./posture.ts`.
 
-- [ ] **Step 3: Implement the posture function**
+- [x] **Step 3: Implement the posture function**
 
 `ops/src/posture.ts`:
 
@@ -1320,11 +1320,11 @@ export function checkEnginePosture(input: PostureInput): PostureFinding[] {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 
-- [ ] **Step 5: Write the CLI**
+- [x] **Step 5: Write the CLI**
 
 `ops/src/posture-check.ts`:
 
@@ -1367,7 +1367,7 @@ console.log(findings.length === 0 ? 'posture: engine section passes' : `posture:
 process.exit(findings.length === 0 ? 0 : 1);
 ```
 
-- [ ] **Step 6: Add the script**
+- [x] **Step 6: Add the script**
 
 In the root `package.json` `scripts`, after `resend:check`:
 
@@ -1375,12 +1375,12 @@ In the root `package.json` `scripts`, after `resend:check`:
 "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts"
 ```
 
-- [ ] **Step 7: Run it**
+- [x] **Step 7: Run it**
 
 Run: `pnpm posture:check`
 Expected: `posture: engine section passes`, exit 0.
 
-- [ ] **Step 8: Add it to CI**
+- [x] **Step 8: Add it to CI**
 
 In `.github/workflows/ci.yml`, immediately after the step that runs `pnpm test:unit`:
 
@@ -1389,12 +1389,12 @@ In `.github/workflows/ci.yml`, immediately after the step that runs `pnpm test:u
         run: pnpm posture:check
 ```
 
-- [ ] **Step 9: Run the full suite and the typecheck**
+- [x] **Step 9: Run the full suite and the typecheck**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 Run: `pnpm typecheck` -> Expected: no output.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add ops/src/posture.ts ops/src/posture-check.ts ops/src/posture.test.ts package.json .github/workflows/ci.yml

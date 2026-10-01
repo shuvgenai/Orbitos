@@ -18,6 +18,8 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Posture check, engine section (FLT-7, SEC-6)
+        run: pnpm posture:check
 
   compose-smoke:
     runs-on: ubuntu-24.04
@@ -30,9 +32,22 @@ jobs:
       GMAIL_CLIENT_SECRET: smoke
       TOKEN_ENCRYPTION_KEY: smoke
       ANTHROPIC_API_KEY: smoke
+      # The engine service is scaled to zero below, but Compose still interpolates its variables
+      # while parsing the file, so they have to be set.
+      PAPERCLIP_REF: ghcr.io/paperclipai/paperclip@sha256:a02ac35ac41df911af477422ea0e781cf41d2b2c600c66f0a5ac9d8c63f52c2c
+      HERMES_REF: nousresearch/hermes-agent@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7
+      PAPERCLIP_PUBLIC_URL: http://127.0.0.1:3100
+      PAPERCLIP_AUTH_SECRET: smoke
+      PAPERCLIP_SIGNING_SECRET: smoke
+      ENGINE_ANTHROPIC_API_KEY: smoke
     steps:
       - uses: actions/checkout@v5
-      - run: docker compose -f template/compose.yml up -d --build --wait
+      # --scale paperclip=0 keeps the engine out of this job on purpose. The built engine image is
+      # 8.82 GB, which does not fit a hosted runner's disk alongside the rest of the stack. Its
+      # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
+      # verified on the staging instance instead (PRD section 9, "a staging instance on the next
+      # pinned versions"). Revisit if CI moves to a larger runner.
+      - run: docker compose -f template/compose.yml up -d --build --wait --scale paperclip=0
       - name: Both databases exist and each login reaches its own (DEP-1)
         run: |
           dbs=$(docker compose -f template/compose.yml exec -T postgres psql -U postgres -tAc "select datname from pg_database where datname in ('orbit','paperclip') order by 1")
