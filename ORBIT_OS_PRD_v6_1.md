@@ -207,8 +207,8 @@ Fleet (OrbitumAI)
 
 ## 8. Feature Requirements — Customer App (launch screens)
 8.1 Access
-- APP-1 The first account is created only by accepting OrbitumAI's invitation (7-day, single use). Public signup returns 404.
-- SIGN-1 Sign-in is a one-time magic link sent via Resend. It expires in 15 minutes, is single use and is sent to the owner's address only.
+- APP-1 The owner account is created by the provisioning script from the owner email address given as a provisioning input (N-16, answered 2026-10-01). There is one owner address per instance at launch. There is no invitation and no acceptance step, and public signup returns 404.
+- SIGN-1 Sign-in is a one-time magic link sent via Resend. It expires in 15 minutes, is single use and is sent to the owner's address only. A request from any other address sends no mail and returns the same "check your email" screen, so the owner address is never confirmed or denied.
 - SIGN-2 A session lasts 30 days. Board-level actions need a fresh link if the session is older than 24 hours.
 - SIGN-3 Send, Edit and Discard on the confirm page, and every choice on the resolve page, require the owner's signed-in session. Opening a link on a new device emails a sign-in link first, then shows the draft.
 - APP-3 After sign-in, the owner lands on the page the link pointed to, otherwise Home.
@@ -355,8 +355,8 @@ Until about 10 instances, the fleet runs on scripts and a registry file. The con
 
 ## 10. Requirements — Provisioning, Upgrade, Backup, Decommission
 10.1 Provisioning
-- PRV-1 Inputs: customer name, domain, plan. Output: a running instance on its own VPS, registered in the registry file, posture check passed, owner invitation sent. Target: under 15 minutes, zero manual steps.
-- PRV-2 Steps: render the template with generated secrets and pinned versions → create the instance's VPS (see §22 N-13) → start the stack on private networks → health checks → seed the ORBIT schema (single workspace) → create the Paperclip company, hire Orbi and Scout through ORBIT's service account, set both budgets, turn heartbeats off, add Orbi's Friday routine → wait for the CNAME and issue TLS → posture check → register → invite.
+- PRV-1 Inputs: customer name, domain, plan, owner email. Output: a running instance on its own VPS, registered in the registry file, posture check passed, the owner account created from the owner email (APP-1) and the first sign-in link sent. Target: under 15 minutes, zero manual steps.
+- PRV-2 Steps: render the template with generated secrets and pinned versions → create the instance's VPS (see §22 N-13) → start the stack on private networks → health checks → seed the ORBIT schema (single workspace) → create the Paperclip company, hire Orbi and Scout through ORBIT's service account, set both budgets, turn heartbeats off, add Orbi's Friday routine → wait for the CNAME and issue TLS → posture check → register → create the owner account from the owner email and send the first sign-in link.
 - PRV-3 Any step failure stops the job, shows the step and allows a retry. Steps are idempotent. A partial instance can be torn down in one action.
 - PRV-4 Managed setup includes a Gmail internal OAuth app in the customer's own Google Workspace (CN-4).
 
@@ -536,7 +536,7 @@ The v5.1 Appendix A panel lives inside the fleet console's instance detail. With
 ## 21. Phase 2 / Not in Scope
 Deferred with approval (returns in Phase 2 or after customer zero):
 - **`hermes_gateway` adapter**, once a pinned Paperclip release fixes #14426 (tracked in `TODOS.md`).
-- **Multi-person offices:** separate Users, backup approvers, escalation chains (AUTH-4 routing 2 h / 2 h / 24 h), delegation (AUTH-7), authority-change requests (AUTH-5), the pending-Leader rule (AUTH-6), member management (MEM-1), "Ask the leader", the Maria / David / Jordan personas, David's first screen, and the "David hasn't joined yet" banner.
+- **Multi-person offices:** separate Users, backup approvers, escalation chains (AUTH-4 routing 2 h / 2 h / 24 h), delegation (AUTH-7), authority-change requests (AUTH-5), the pending-Leader rule (AUTH-6), member management (MEM-1), "Ask the leader", the Maria / David / Jordan personas, David's first screen, the "David hasn't joined yet" banner, and the 7-day single-use invitation flow that the old APP-1 and the old PRV-2 "invite" step described.
 - **Jev** as the decision model (TypeSafe or AI/ML API), `score()` / `noul()` use, model routing to stronger tiers.
 - **Fleet console UI** (FLT-1 as an app, FLT-3 overrides, FLT-4 starter-team templates, open decision 4) and Appendix A.
 - **Learning machinery:** rule proposals (LRN-2, LRN-3, RULE-1), the eval gate and golden sets (LRN-5, FLT-9).
@@ -582,10 +582,11 @@ The sources leave these open or contradict each other. They were not decided in 
 | N-13 | Does Coolify still run on each per-customer VPS? | C3 removed the shared "Coolify project" option. PRV-2 used to say "create Coolify project", and the §7 hosting row still says "Coolify on Hostinger". |
 | N-14 | Does a discarded draft get a receipt? | RCPT-1 says "one receipt per sent message". Design 12A says discard reasons are "stored on the receipt". |
 | N-15 | What is the body truncation limit before model calls? | The v5.1 limit (32K) was Jev's context size. Jev is deferred. |
-| N-16 | How is the owner account created: by invitation acceptance (APP-1, PRV-1) or by an owner address configured at provisioning? | Magic-link sign-in is "owner address only" (D7). The invitation flow was designed for multi-member onboarding. |
 | N-17 | Do OrbitumAI operators need 2FA at launch (including on the Paperclip UI over the tailnet)? | v5.1 SEC-9 and FLT-10 required TOTP for operators through the console. With no console, operator access is scripts and engine UIs over Tailscale. |
 
 (v6.0 N-2, broken-draft handling, is resolved by Eng v3 D5: FD-3.)
+
+(N-16, owner account creation, is answered by the founder on 2026-10-01: the provisioning script creates the owner account from an owner email provisioning input. The invitation flow moves to Phase 2 with multi-person offices. APP-1, SIGN-1, PRV-1 and PRV-2 are updated, and the Stage 0 schema needs no change because it has no invitations table.)
 
 ## 23. Build Tasks
 Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Design (DR-T1–DR-T6) and Eng v3 (E3-T1–E3-T9). Where tasks overlap, the later review's wording wins and the merged IDs are shown. The tasks are listed in priority order; within a priority, build dependencies come first.
@@ -608,7 +609,7 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
 8. **E3-T3 (frontdesk)** — Paperclip bridge: create issues (Scout for leads, Orbi for unclear), 15 s poll, shared Zod schemas for the draft and the verdict, one corrective comment, 10-min timeout → Orbi + digest.
    - Verify: malformed-draft, timeout and Orbi-verdict tests pass; an unsure lead that Orbi calls "lead" gets a draft and no ack.
 9. **E-T3 + E2-T1 (auth + approvals)** — Confirm-page approval links (POST action, signed, single use, expiring) plus magic-link sign-in via Resend with a 30-day session. Board-level actions need 24 h freshness, and all confirm-page actions require a session (D6, D7).
-   - Verify: an E2E test shows that a GET on the link sends nothing and a POST sends exactly once; a forwarded link cannot act; the sign-in link expires at 15 min and is single use.
+   - Verify: an E2E test shows that a GET on the link sends nothing and a POST sends exactly once; a forwarded link cannot act; the sign-in link expires at 15 min and is single use; a sign-in request for any address other than the owner's sends no mail and returns the same screen (APP-1, SIGN-1).
 10. **E2-T4 (ack)** — Two versioned ack variants plus the name sanitizer (D5).
     - Verify: unit tests for each name case select the correct variant.
 11. **E2-T5 (safety)** — Post-ack rule re-check, instant kill switch, and the digest "Wrong, not a lead" button (D9).
@@ -633,8 +634,8 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
     - Verify: a 91-day-old session file is deleted; a 1-day-old one stays.
 20. **E3-T6 (tests)** — Static test across the 4 ORBIT programs: only the Front Desk service holds Gmail send scope; the API only writes decisions.
     - Verify: adding a Gmail send import to web/ or api/ fails CI.
-21. **E3-T7 (ops)** — Provisioning script creates the Paperclip company, hires Orbi and Scout via the service account (AUTH-8), sets budgets, turns heartbeats off and adds the Friday routine.
-    - Verify: a fresh instance shows two agents, no timer heartbeats and one routine.
+21. **E3-T7 (ops)** — Provisioning script takes the owner email as an input, creates the owner account from it (APP-1, PRV-1), sends the first sign-in link, creates the Paperclip company, hires Orbi and Scout via the service account (AUTH-8), sets budgets, turns heartbeats off and adds the Friday routine.
+    - Verify: a fresh instance shows one owner user, two agents, no timer heartbeats and one routine; a second run with the same owner email creates no duplicate user (PRV-3 idempotence).
 22. **E2-T7 (eval)** — Replay harness: real plus written test leads, labeled; threshold step rule (D3, D4); drafts produced by Scout through Paperclip.
     - Verify: the harness reports the false-positive rate and the unedited rate per run.
 23. **E2-T8 (digest)** — "Acknowledged, no reply yet" resolve page and daily repeat (D10); digest entries for Orbi verdicts and failed drafts.
