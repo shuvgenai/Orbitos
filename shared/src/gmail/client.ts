@@ -199,6 +199,8 @@ export function createGmailClient(deps: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ raw: buildRaw(args), threadId: args.gmailThreadId }),
+        // One send must not outlive the confirm page's sending grace.
+        signal: AbortSignal.timeout(60_000),
       });
       const data = (await ok(res, 'messages.send')) as { id: string };
       return { gmailMessageId: data.id };

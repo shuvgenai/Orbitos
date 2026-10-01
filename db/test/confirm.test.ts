@@ -266,3 +266,115 @@ test('a failed row whose reply turns out to be in Sent completes to sent without
   expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('sent');
   expect(gmail.sent).toHaveLength(1);
 });
+
+// ---- fix round 2 ----
+
+async function failedRow() {
+  const f = await fixture();
+  f.gmail.failNextSendWith({ status: 503 }); // rejected, nothing recorded
+  await handleConfirmPost(f.deps, f.token, {} as never, 'send');
+  await prisma.approval.update({ where: { id: f.approval.id }, data: { sendingAt: new Date(Date.now() - 11 * 60_000) } });
+  await handleConfirmPost(f.deps, f.token, {} as never, 'send'); // self-repairs to failed
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: f.approval.id } })).state).toBe('failed');
+  return f;
+}
+
+test('CRITICAL: discard on a failed row voids it and sends nothing', async () => {
+  const { token, deps, gmail, approval } = await failedRow();
+  const out = await handleConfirmPost(deps, token, {} as never, 'discard');
+  expect(out.view).toBe('already_decided');
+  expect(gmail.sent).toHaveLength(0);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('void');
+});
+
+test('discard on a failed row that has no decision records one and voids it', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  await prisma.approval.update({ where: { id: approval.id }, data: { state: 'sending' } });
+  await prisma.approval.update({ where: { id: approval.id }, data: { state: 'failed' } });
+  expect((await handleConfirmPost(deps, token, {} as never, 'discard')).view).toBe('already_decided');
+  expect(gmail.sent).toHaveLength(0);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('void');
+  expect((await prisma.decision.findUniqueOrThrow({ where: { approvalId: approval.id } })).action).toBe('discard');
+});
+
+test('an unexpected action value never sends, on a failed row or an issued one', async () => {
+  const f = await failedRow();
+  expect((await handleConfirmPost(f.deps, f.token, {} as never, 'delete' as never)).view).toBe('already_decided');
+  expect(f.gmail.sent).toHaveLength(0);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: f.approval.id } })).state).toBe('failed');
+  const g = await fixture();
+  expect((await handleConfirmPost(g.deps, g.token, {} as never, 'delete' as never)).view).toBe('already_decided');
+  expect(g.gmail.sent).toHaveLength(0);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: g.approval.id } })).state).toBe('issued');
+});
+
+test('a subject that already starts with "Re: " is not prefixed again', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  await prisma.lead.update({ where: { id: approval.leadId }, data: { subject: 'Re: Audit quote' } });
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  const raw = decode(gmail.sent[0]!.raw);
+  expect(raw).toContain('Subject: Re: Audit quote\r\n');
+  expect(raw).not.toContain('Re: Re:');
+});
+
+test('a plain subject gets one Re: prefix', async () => {
+  const { token, deps, gmail } = await fixture();
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  expect(decode(gmail.sent[0]!.raw)).toContain('Subject: Re: Audit quote\r\n');
+});
+
+test('a send that never returns is cut off and leaves the row in sending', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.sendInThread = () => new Promise(() => {});
+  const out = await handleConfirmPost({ ...deps, sendTimeoutMs: 50 }, token, {} as never, 'send');
+  expect(out.view).toBe('send_failed');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sending');
+});
+
+test('a sending row that already has a gmailMessageId is never re-opened', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendWith({ status: 503 });
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await prisma.approval.update({
+    where: { id: approval.id },
+    data: { sendingAt: new Date(Date.now() - 11 * 60_000), gmailMessageId: 'known-id' },
+  });
+  expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('send_failed');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sending');
+});
+
+test('a sending row with a null sendingAt falls back to issuedAt', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendWith({ status: 503 });
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await prisma.approval.update({
+    where: { id: approval.id },
+    data: { sendingAt: null, issuedAt: new Date(Date.now() - 11 * 60_000) },
+  });
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('failed');
+});
+
+test('GET on a sending or failed row past its deadline says expired', async () => {
+  const f = await fixture();
+  f.gmail.failNextSendWith({ status: 503 });
+  await handleConfirmPost(f.deps, f.token, {} as never, 'send');
+  expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('send_failed');
+  await prisma.approval.update({ where: { id: f.approval.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+  expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('expired');
+  await prisma.approval.update({ where: { id: f.approval.id }, data: { state: 'failed' } });
+  expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('expired');
+});
+
+test('sendAttempts counts every send attempt', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendWith({ status: 503 });
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).sendAttempts).toBe(1);
+  await prisma.approval.update({ where: { id: approval.id }, data: { sendingAt: new Date(Date.now() - 11 * 60_000) } });
+  await handleConfirmPost(deps, token, {} as never, 'send'); // -> failed
+  await handleConfirmPost(deps, token, {} as never, 'send'); // re-press, sends
+  const after = await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } });
+  expect(after.sendAttempts).toBe(2);
+  expect(after.state).toBe('sent');
+});
