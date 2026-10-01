@@ -290,7 +290,7 @@ git commit -m "feat(engine): pin the Paperclip and Hermes images by digest"
 
 Keep both images' own `HOME` defaults. The plan's earlier `/engine/...` layout fought them for no gain.
 
-- [ ] **Step 1: Add the failing static tests**
+- [x] **Step 1: Add the failing static tests**
 
 Append to `template/test/engine.test.ts`:
 
@@ -338,11 +338,11 @@ test('the entrypoint fails fast rather than starting with missing config', () =>
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `pnpm test:unit` -> Expected: FAIL, cannot find `../engine/Dockerfile`.
 
-- [ ] **Step 3: Write the entrypoint**
+- [x] **Step 3: Write the entrypoint**
 
 `template/engine/entrypoint.sh`:
 
@@ -378,7 +378,7 @@ command -v hermes >/dev/null || { echo 'engine: hermes is not on PATH' >&2; exit
 exec /usr/bin/tini -- docker-entrypoint.sh "$@"
 ```
 
-- [ ] **Step 4: Write the Dockerfile, base A (Paperclip image as the base)**
+- [x] **Step 4: Write the Dockerfile, base A (Paperclip image as the base)**
 
 Try this one first. Task 1 settled the direction: Paperclip needs Node 24.21, tini and its own entrypoint script, while the Hermes image declares no Node at all. Hermes is the self-contained side, living under `/opt/hermes` with its venv at `/opt/hermes/.venv` and its data under `/opt/data`, so Hermes is the part that moves.
 
@@ -433,7 +433,7 @@ Two things this step must confirm rather than assume, because Task 1 could not r
 
 Record both answers in spike log section 6.
 
-- [ ] **Step 5: Build it**
+- [x] **Step 5: Build it**
 
 ```bash
 PAPERCLIP_REF="ghcr.io/paperclipai/paperclip@$(node -e "console.log(require('./template/engine/pinned-versions.json').paperclip.digest)")"
@@ -446,7 +446,7 @@ docker build -t orbit-engine:spike \
 
 Expected: a successful build.
 
-- [ ] **Step 6: Confirm both programs are present and runnable**
+- [x] **Step 6: Confirm both programs are present and runnable**
 
 ```bash
 docker run --rm --entrypoint sh orbit-engine:spike -c 'hermes --version; node --version; ls /app; ls /opt/hermes'
@@ -454,7 +454,7 @@ docker run --rm --entrypoint sh orbit-engine:spike -c 'hermes --version; node --
 
 Expected: a Hermes version, Node `v24.21.0`, the Paperclip application files and the Hermes install root. Record the full output in spike log section 6. A Python error here means the venv did not survive the copy; follow Step 4's note 1 before moving on.
 
-- [ ] **Step 7: If base A failed, write base B instead (Hermes image as the base)**
+- [x] **Step 7: If base A failed, write base B instead (Hermes image as the base)**
 
 Only if Step 5 or Step 6 failed in a way Step 4's two notes do not fix. Record the exact failure in the spike log first, then invert the bases: Hermes as the base, with Paperclip's `/app` and the Node runtime copied in.
 
@@ -497,11 +497,11 @@ docker run --rm --entrypoint sh ghcr.io/paperclipai/paperclip@<digest> -c 'comma
 
 Then repeat Steps 5 and 6.
 
-- [ ] **Step 8: If base B also failed, stop and report**
+- [x] **Step 8: If base B also failed, stop and report**
 
 Write both failures into spike log section 6 and stop. Report: "`hermes_local` needs both programs in one container (Eng v3 D3). Neither image composes with the other. The options are a third base image that installs both from source, or reopening D3." Do not pick one; D3 is a founder decision.
 
-- [ ] **Step 9: Confirm Paperclip starts against PostgreSQL 16**
+- [x] **Step 9: Confirm Paperclip starts against PostgreSQL 16**
 
 The instance runs one PostgreSQL 16 server with pgvector (DEP-1), while Paperclip's own compose ships PostgreSQL 17. Prove PG16 works before the compose task depends on it. The dev stack already runs on `127.0.0.1:5433` with an empty `paperclip` database and the `paperclip_app` login. Read the dev password from the compose file rather than guessing it: `grep -n PASSWORD compose.dev.yml`.
 
@@ -520,7 +520,7 @@ Expected: Paperclip starts, runs its migrations and answers `curl -sS http://127
 
 If Paperclip refuses PG16, record the exact error and stop. Report: "Paperclip requires PostgreSQL 17; DEP-1 says one server per instance. The options are moving the instance to `pgvector/pgvector:pg17` or running a second server for the `paperclip` database." Both change DEP-1, so both are founder decisions.
 
-- [ ] **Step 10: Write the engine README**
+- [x] **Step 10: Write the engine README**
 
 `template/engine/README.md`:
 
@@ -551,12 +551,12 @@ binary, so a Hermes on another host or in another container is unreachable (Eng 
 on the single-container shape.
 ```
 
-- [ ] **Step 11: Run the tests and the typecheck**
+- [x] **Step 11: Run the tests and the typecheck**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 Run: `pnpm typecheck` -> Expected: no output.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add template/engine docs/superpowers/spikes template/test/engine.test.ts

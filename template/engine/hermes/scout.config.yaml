@@ -1,0 +1,33 @@
+# Scout's Hermes profile. Scout reads hostile lead email, so everything it does not need is off.
+# Hermes profiles do not sandbox the filesystem (SEC-2a), which is why the container boundary in
+# template/compose.yml carries the rest of the containment.
+model: anthropic/claude-sonnet-5
+
+memory:
+  # No cross-lead memory: each draft is written from that lead's own email, the owner's tone
+  # samples and the facts file (Eng v3 D6).
+  memory_enabled: false
+  user_profile_enabled: false
+
+skills:
+  # Scout cannot write itself new abilities (CEO R7).
+  write_approval: true
+  auto_load: []
+
+agent:
+  # Allowlist by subtraction: web search and fetch stay, everything else goes (SEC-2a).
+  # The image ships a Playwright browser pack, so disabling browser here is load-bearing.
+  disabled_toolsets:
+    - terminal
+    - file
+    - browser
+    - code_execution
+    - vision
+    - mcp
+    - creative
+    - productivity
+    - memory
+
+cron:
+  # No heartbeats. Scout wakes on assignment and comments only (COST-2).
+  enabled: false

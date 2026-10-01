@@ -66,7 +66,60 @@ satisfied for the program that carries the requirement.
 
 ## 3. Paperclip against PostgreSQL 16
 
-(filled in Task 2 Step 9)
+**Pass.** Paperclip starts, migrates and serves against the instance's PG16 server. Open question 1
+is closed: DEP-1's single PostgreSQL 16 server stands, no second server and no bump to PG17.
+
+Run against the dev stack (`pgvector/pgvector:pg16`, server_version `16.15`, database `paperclip`,
+login `paperclip_app`), on the `orbit-dev_default` network:
+
+```bash
+docker run -d --name engine-probe --network orbit-dev_default \
+  -e DATABASE_URL="postgresql://paperclip_app:<dev password>@postgres:5432/paperclip" \
+  -e BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+  -e PAPERCLIP_TOOL_ACTION_SIGNING_SECRET="$(openssl rand -hex 32)" \
+  -e PAPERCLIP_PUBLIC_URL="http://127.0.0.1:3100" \
+  orbit-engine:spike
+```
+
+Startup banner:
+
+```
+Mode            external-postgres  |  static-ui
+Deploy          authenticated (private)
+Auth            ready
+Server          3100
+Database        postgresql://paperclip_app:***@postgres:5432/paperclip
+Migrations      applied (pending migrations)
+Agent JWT       missing (run `npx paperclipai onboard`)
+Heartbeat       enabled (30000ms)
+DB Backup       enabled (every 60m, keep 7d)
+Backup Dir      /paperclip/instances/default/data/backups
+Config          /paperclip/instances/default/config.json
+```
+
+Health:
+
+```json
+{"status":"ok","deploymentMode":"authenticated","deploymentExposure":"private",
+ "commit":"d554c4789ed3930f8a53ac9fdf6503b3187097da","bootstrapStatus":"bootstrap_pending"}
+```
+
+PID 1 inside the container, read from `/proc/1/cmdline`, confirms the entrypoint chain and the
+restated `CMD`:
+
+```
+/usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
+```
+
+Three things in that banner need action and are not in the plan yet:
+
+1. **`Heartbeat enabled (30000ms)`** contradicts COST-2 ("There are no scheduled heartbeats"). It is
+   on by default, so turning it off is a provisioning step (E3-T7) and belongs in the posture check.
+2. **`DB Backup enabled (every 60m, keep 7d)`** writing inside `/paperclip`. ORBIT already has its
+   own nightly off-host backup (section 10 of the PRD). Either this is turned off or it is accepted
+   and counted in the footprint; it is duplicated work and duplicated disk either way.
+3. **`Agent JWT missing`** and `bootstrapStatus: bootstrap_pending`. Agents cannot act until
+   onboarding runs. Task 6 Step 5 and E3-T7 both need that step.
 
 ## 4. Where Hermes reads a profile config from
 
@@ -86,11 +139,90 @@ plan cited:
 
 Consequence for the plan: the `HOME=/engine` plus `/engine/.hermes-<profile>` design in Tasks 2 to 5
 is wrong. Profile directories hang off `HERMES_HOME`, so the writable paths and the entrypoint's copy
-destinations change. The exact per-profile subdirectory still has to be read from a running container
-in Task 3 Step 1.
+destinations change.
 
 The bundled Playwright browser pack is worth noting against SEC-2a: the `browser` toolset must stay
 disabled, and the posture check is the thing that proves it.
+
+### Measured against the built image
+
+**The profile directory layout is confirmed. The selector is not what the plan assumed.**
+
+`HERMES_PROFILE=scout` is ignored. With it set, `hermes config show` reports:
+
+```
+Config:       /opt/data/config.yaml
+Model:
+```
+
+That is the default profile, and the empty `Model:` proves our file was never read. The `-p` flag
+works:
+
+```
+$ hermes -p scout config show
+Config:       /opt/data/profiles/scout/config.yaml
+Secrets:      /opt/data/profiles/scout/.env
+```
+
+`hermes --help` documents it as `hermes -p <profile> <cmd>` (also `--profile`): "Run any command
+against a named profile's home". Overriding `HERMES_HOME` per run reaches the same file and reads our
+config:
+
+```
+$ HERMES_HOME=/opt/data/profiles/scout hermes config show
+Config:       /opt/data/profiles/scout/config.yaml
+Model:        anthropic/claude-sonnet-5
+```
+
+So `template/engine/entrypoint.sh` writes to the right place, and the open question is how the
+adapter selects the profile. See section 6.
+
+**`$HERMES_HOME` must be writable by the adapter uid.** First attempt failed:
+
+```
+✗ Cannot initialize Hermes directory /opt/data/cron: [Errno 13] Permission denied: '/opt/data/cron'
+```
+
+`/opt/data` was root-owned because `RUN mkdir -p` created it as root, and the entrypoint chowned only
+`profiles/`. Hermes creates `cron/`, `memories/`, `skills/`, `sessions/` and `logs/` under
+`HERMES_HOME` on first run. Fixed in both places: the Dockerfile chowns `/opt/data` at build time so a
+fresh named volume inherits it, and the entrypoint chowns the top level flat on every start. The
+top level is flat and only `profiles/` recursive, so start-up does not slow down as sessions pile up.
+
+**The `hermes` entrypoint is a privilege-drop shim.** As root it refuses to run:
+
+```
+hermes-shim: /command/s6-setuidgid not found; refusing to silently run as root.
+hermes-shim: re-run with --user hermes or set HERMES_DOCKER_EXEC_AS_ROOT=1.
+```
+
+The shim's own comments explain why: in the Hermes image the supervised gateway runs as uid 10000,
+and a root-owned `auth.json` under `$HERMES_HOME` silently breaks the gateway. As any non-root uid it
+short-circuits straight to `/opt/hermes/.venv/bin/hermes`. Paperclip runs the adapter as uid 1000, so
+this works without the s6 overlay:
+
+```
+$ docker exec --user 1000:1000 <c> hermes --version
+Hermes Agent v0.21.5 (2026.9.24) · upstream f97608f1
+Install directory: /opt/hermes
+Install method: docker
+Python: 3.13.5
+```
+
+The s6 overlay (`/command`, `/package`, `/init`, `/etc/s6-overlay`) is deliberately not copied. Note
+for ops: `docker exec` without `--user 1000:1000` will look broken.
+
+The profile config lands correctly and with the right owner:
+
+```
+$ docker exec <c> ls -la /opt/data/profiles/scout/
+-rwxr-xr-x 1 node node 1024 config.yaml
+```
+
+Still unverified: whether Hermes accepts the `memory`, `skills` and `cron` keys as written.
+`hermes config show` has no section for any of them, and only the `model` key was echoed back. The
+`memory` and `skills` key names come from the Hermes configuration reference; `cron.enabled` was
+inferred and is the least trustworthy of the three.
 
 ## 5. Session behaviour across two issues
 
@@ -126,12 +258,82 @@ Facts from the Paperclip image config that replace guesses in the plan's Task 2 
   agent runtimes besides the Hermes adapter. Nothing in ORBIT uses them, and the posture check should
   eventually assert they stay unconfigured.
 
-Open after Task 1, to settle in Task 2:
+Corrections to section 2, measured on the pulled images:
 
-- Base image choice. The plan ordered base A (Hermes as base, copy Paperclip in) first. That order is
-  now wrong: Paperclip needs Node 24.21, tini and its own entrypoint script, and the Hermes image
-  advertises no Node at all. Hermes, by contrast, is self-contained under `/opt/hermes` with its venv
-  at `/opt/hermes/.venv` and a declared data volume at `/opt/data`. Base B (Paperclip as base, copy
-  `/opt/hermes` in) is the better first attempt.
-- Whether the Hermes Python virtual environment survives the copy into the Paperclip image, which
-  depends on the interpreter the venv points at.
+- **The Hermes image does ship Node, v26.5.1.** Section 2 inferred otherwise from the absence of a
+  `NODE_VERSION` env var. The inference was wrong; only the env var is absent.
+- Both images are Debian 13 (trixie) with CPython 3.13.5 at `/usr/bin/python3`. The Hermes venv's
+  `pyvenv.cfg` has `home = /usr/bin` and `version_info = 3.13.5`, so the interpreter it needs exists
+  in the Paperclip base and the venv survives the copy. That, not the Node question, is the real
+  reason the Paperclip base works.
+- `docker-entrypoint.sh` resolves to `/usr/local/bin/docker-entrypoint.sh` (a second copy sits at
+  `/app/scripts/`). The engine entrypoint uses the absolute path, because `command -v` did not find it
+  reliably.
+- Paperclip has `rg` but no `ffmpeg` and no `uv`. Hermes' lazy installs are already disabled in the
+  image (`HERMES_DISABLE_LAZY_INSTALLS=1`), and the toolsets that would want ffmpeg (`creative`,
+  `vision`) are disabled by the allowlist, so nothing needs them.
+- The built image is **8.82 GB** uncompressed. Worth carrying into the COST-6 unit-economics check
+  and DEP-1's "one small VPS per customer".
+
+### Base image result
+
+**Base A as rewritten (Paperclip base, Hermes copied from `/opt/hermes`) builds and runs.** Base B is
+not needed. Build time about 2 minutes warm, dominated by exporting and unpacking 8.82 GB of layers.
+
+```
+$ docker run --rm --user 1000:1000 --entrypoint sh orbit-engine:spike -c 'hermes --version'
+Hermes Agent v0.21.5 (2026.9.24) · upstream f97608f1
+$ docker run --rm --entrypoint sh orbit-engine:spike -c 'node --version; python --version'
+v24.21.0
+Python 3.13.5
+```
+
+Two build warnings, both benign: `InvalidDefaultArgInFrom` for `PAPERCLIP_REF` and `HERMES_REF`,
+because the `ARG`s have no defaults on purpose. Supplying a default would reintroduce an unpinned base.
+
+### The `hermes_local` adapter, read from the image
+
+Source at `/app/packages/adapters/hermes/src/server/`. This is the ground truth for D4, D5 and D7, and
+it settles more than a live run would have.
+
+**Config keys** (`config-schema.ts`): `provider`, `timeoutSec`, `graceSec`, `maxTurnsPerRun`,
+`toolsets`, `persistSession`, `worktreeMode`, `checkpoints`, `quiet`, `verbose`, `paperclipApiUrl`,
+`promptTemplate`. No profile key. `template/engine/paperclip-adapters.json` matches this list.
+
+**Arguments it actually passes** (`execute.ts`): `-Q` when quiet, `-m <model>`,
+`--provider <provider>`, `-t <toolsets>`, `--max-turns <n>`, `-w` for worktree mode, `--checkpoints`,
+`-v` for verbose, `--source tool`, `--yolo`, `--resume <prevSessionId>` when `persistSession` is on,
+then anything in `extraArgs`.
+
+**Two undocumented config keys exist and both solve the profile problem.** `execute.ts:350` reads
+`config.extraArgs` as a string array and appends it verbatim; `execute.ts:489` reads `config.env` as a
+string map and merges it into the child environment. So per-agent profile selection is either
+`extraArgs: ["-p","scout"]` or `env: { "HERMES_HOME": "/opt/data/profiles/scout" }`. Both were proven
+to reach `/opt/data/profiles/scout/config.yaml` in section 4. Task 4 must add one of them to
+`paperclip-adapters.json`; without it both agents share `/opt/data/config.yaml` and the per-agent
+allowlist in D4 cannot be expressed at all.
+
+**The adapter passes `--yolo` unconditionally** (`execute.ts:478`). Its comment:
+
+> Bypass Hermes dangerous-command approval prompts. Paperclip agents run as non-interactive
+> subprocesses with no TTY, so approval prompts would always timeout and deny legitimate commands
+> (curl, python3 -c, etc.). Agents operate in a sandbox — the approval system is designed for
+> human-attended interactive sessions.
+
+The premise is false in our deployment: Hermes profiles do not sandbox the filesystem, which is the
+exact finding behind Eng v3 D4. Every run therefore has Hermes' own approval layer switched off, and
+the only remaining walls are the toolset allowlist and this container. D4 chose both walls; this is
+the evidence that the second one is load-bearing rather than defence in depth.
+
+**D7 is decidable from here.** `prevSessionId` is read from
+`ctx.runtime?.sessionParams?.sessionId` (`execute.ts:354`) and written back after each run as
+`executionResult.sessionParams = { sessionId: parsed.sessionId }` (`execute.ts:617`). So session
+continuity is whatever scope Paperclip gives `ctx.runtime.sessionParams`; Hermes itself just honours
+`--resume`. Confirming D7 means finding that scope in the Paperclip server (per issue or per agent),
+which is a grep in `/app/server`, not a two-lead run. Task 6 should do that first and keep the live
+run as confirmation.
+
+Also noted: the adapter deletes `PAPERCLIP_API_KEY` from the child environment and replaces it with
+the run's own auth token (`execute.ts:501`), and sets `PAPERCLIP_RUN_ID`, `PAPERCLIP_TASK_ID`,
+`PAPERCLIP_WAKE_REASON` and `PAPERCLIP_WAKE_COMMENT_ID`. That is consistent with the
+`X-Paperclip-Run-Id` rule the Front Desk bridge has to honour in E3-T3.
