@@ -14,7 +14,8 @@
       "-p",
       "orbi"
     ],
-    "command": "/engine/bin/hermes-shim"
+    "command": "/engine/bin/hermes-shim",
+    "model": "anthropic/claude-sonnet-5"
   },
   "scout": {
     "adapter": "hermes_local",
@@ -31,6 +32,7 @@
       "-p",
       "scout"
     ],
-    "command": "/engine/bin/hermes-shim"
+    "command": "/engine/bin/hermes-shim",
+    "model": "anthropic/claude-sonnet-5"
   }
 }
