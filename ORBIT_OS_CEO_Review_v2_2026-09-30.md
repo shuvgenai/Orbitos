@@ -95,7 +95,7 @@ No new approach decision was needed in 0D: the architecture is settled by the fo
 | S2-DISCONNECT (Shuv) | CN-8, NTC-2 | banner only | pause + banner + content-free owner notice + founder alert; revoked-token test | approved | User chose "Notice + founder alert (recommended)" at D8, 2026-09-30. N-9 stays open. |
 | S2-N1 (Shuv) | PRD §22 N-1; SEC-11 | open | No OpenRouter fallback at launch; outage → digest + alerts | approved | User chose "No fallback; digest + alerts (recommended)" at D9, 2026-09-30. Answers N-1. |
 | S3-EXFIL (Shuv) | Eng v3 D4 (Scout toolset), reopened on new evidence | Scout: web search + web fetch | Scout: web search only; posture check asserts no fetch; injection test | approved | User chose "Search only at launch (recommended)" at D10, 2026-09-30. Scout only; Orbi and container rules unchanged. |
-| S5-OPENQ (Shuv) | PRD §22; finding P4 | 16 open, no deadline | N-7, N-8, N-11, N-12, N-16 answered before stage 1 build; recorded in PRD v6.2 | approved | User chose "Answer 5 before stage 1 (recommended)" at D11, 2026-09-30. N-16 answered 2026-10-01 (configured owner address); N-7, N-8, N-11, N-12 still open. |
+| S5-OPENQ (Shuv) | PRD §22; finding P4 | 16 open, no deadline | N-7, N-8, N-11, N-12, N-16 answered before stage 1 build; recorded in PRD v6.2 | approved | User chose "Answer 5 before stage 1 (recommended)" at D11, 2026-09-30. All five answered 2026-10-01 and recorded in `ORBIT_OS_PRD_v6_1.md` §22; they carry into v6.2 at C2-T3. |
 | S8-OPSTIME (Shuv) | FLT-1, FLT-12, CEO v1 C6; finding P3 | 25-instance trigger | Log ops minutes per instance monthly; trigger at 25 instances OR >10 h/week for 4 weeks | approved | User chose "Log minutes + dual trigger (recommended)" at D12, 2026-09-30. |
 | S8-HOURS (Shuv) | PRD §22 N-4; finding P6 | no formula | (15 min − confirm-page time) per sent reply + 2 min per ack, labeled estimate; open time recorded from day one | approved | User chose "Simple estimate now (recommended)" at D13, 2026-09-30. Answers N-4. |
 | S9-CALL (Shuv) | PRD §18 Assignment; findings P5, P7 | after customer zero | Pilot-firm call this week, build in parallel; pitch leads with ack speed, one-tap in-thread send, receipts; re-plan before stage 2 if declined | approved | User chose "Call this week, build continues (recommended)" at D14, 2026-09-30. |
@@ -214,11 +214,11 @@ No new decision needed in this section.
 
 - **OK:** One source of truth for approvals (§12), clear state names, a decision log (Appendix B).
 - **WARNING (P4):** PRD §22 lists 16 open owner questions. Five of them change what the customer-zero build does on day one:
-  - N-8: where setup inputs are entered (20 tone emails, calendar link, website, ack approval).
+  - N-8: where setup inputs are entered (20 tone emails, calendar link, website, ack approval). **Answered 2026-10-01: website and calendar link at provisioning; tone sample picked at setup and reviewed in Settings; the standing ack approval is an owner action in Settings.**
   - N-16: how the owner account is created (invitation or configured address). **Answered 2026-10-01: configured owner address at provisioning.**
-  - N-12: what the Home countdown counts down to.
-  - N-11: where the weekly review is read (now required by D5).
-  - N-7: where budgets and the daily spend cap are seen.
+  - N-12: what the Home countdown counts down to. **Answered 2026-10-01: the 72 h void.**
+  - N-11: where the weekly review is read (now required by D5). **Answered 2026-10-01: a "Last week" block at the bottom of Home.**
+  - N-7: where budgets and the daily spend cap are seen. **Answered 2026-10-01: a Spending block on Settings plus a spend line in the daily digest.**
   The others (N-3, N-4, N-5, N-6, N-9, N-10, N-13, N-14, N-15, N-17) can wait for their stage; N-1 was answered at D9 and N-10 was deferred at D4.
 
 **S5-OPENQ approved at D11:** N-7, N-8, N-11, N-12 and N-16 are answered by the founder before the stage 1 (customer-zero) build; recorded in PRD v6.2. Stage 0 and 0b start now.
@@ -362,11 +362,11 @@ Synthesized from this review's findings. These are strategy-level next actions, 
   - Surfaced by: Section 9 — S9-CALL (D14)
   - Files: none
   - Verify: firm named, price agreed and agreement signed, recorded in PRD v6.2 §18
-- [ ] **C2-T2 (P1, human: ~30min / CC: ~10min)** — product — Answer N-7, N-8, N-11, N-12 and N-16 before the stage 1 build
+- [x] **C2-T2 (P1, human: ~30min / CC: ~10min)** — product — Answer N-7, N-8, N-11, N-12 and N-16 before the stage 1 build
   - Surfaced by: Section 5 — S5-OPENQ (D11)
-  - Files: `ORBIT_OS_PRD_v6_1.md` (becomes v6.2)
+  - Files: `ORBIT_OS_PRD_v6_1.md` (carries into v6.2 at C2-T3)
   - Verify: PRD v6.2 §22 shows the five as answered
-  - Progress: N-16 answered 2026-10-01 (configured owner address at provisioning; recorded in `ORBIT_OS_PRD_v6_1.md` §8.1 APP-1, SIGN-1 and §10.1 PRV-1, PRV-2). Four left: N-7, N-8, N-11, N-12.
+  - Done 2026-10-01: all five answered and recorded in `ORBIT_OS_PRD_v6_1.md` §22, each with the requirements it changed. N-16: owner account created at provisioning from an owner email input (APP-1, SIGN-1, PRV-1, PRV-2). N-7: Settings Spending block plus a digest spend line (SCR-6, COST-1, FD-2, FD-10). N-8: website and calendar link become provisioning inputs, the tone sample is reviewed in Settings, the standing ack approval is an owner action there, and a bare sign-in lands on Settings until it exists (SCR-6, APP-3, PRV-1). N-11: a "Last week" block at the bottom of Home (SCR-2, REV-1). N-12: the 72 h void (SCR-2, E-T4). The file keeps the v6.1 name because cutting v6.2 is C2-T3's job, so this verify line closes when C2-T3 lands.
 - [ ] **C2-T3 (P1, human: ~2h / CC: ~15min)** — docs — Write PRD v6.2 applying D2–D15: deferrals, spike time-box, Orbi timeout, disconnect notice, N-1 and N-4 answers, Scout search-only (including the §6 diagram), ops-time logging and dual trigger, pilot call timing
   - Surfaced by: all sections
   - Files: `ORBIT_OS_PRD_v6_1.md` → `ORBIT_OS_PRD_v6_2.md`
@@ -436,7 +436,7 @@ Synthesized from this review's findings. These are strategy-level next actions, 
   +====================================================================+
 ```
 
-Owner questions still open in PRD §22 (not review decisions, each tied to its stage): N-3, N-5, N-6, N-9, N-13, N-14, N-15, N-17; N-7, N-8, N-11, N-12 are gated before stage 1 (D11); N-16 is answered (2026-10-01); N-10 deferred (D4).
+Owner questions still open in PRD §22 (not review decisions, each tied to its stage): N-3, N-5, N-6, N-9, N-13, N-14, N-15, N-17. The five that D11 gated before stage 1 (N-7, N-8, N-11, N-12, N-16) are all answered on 2026-10-01; N-10 deferred (D4).
 
 ### Unresolved Decisions
 None. Every question in this review was answered.

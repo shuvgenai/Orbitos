@@ -3,13 +3,14 @@ Orbitcrew (internal name: ORBIT-OS): Owner-First Lead Replies for Small Business
 Dedicated Instance per Customer, Run by OrbitumAI
 Product Version: 1.0 MVP (launch)
 Document Version: 6.1 (supersedes v6.0). This document is the single source of truth for the build.
-Date: September 30, 2026
+Date: September 30, 2026, with the five founder answers of October 1, 2026 recorded in §22. The v6.2 cut belongs to C2-T3, which applies CEO v2 D2–D15.
 Prepared by: OrbitumAI | Product Owner: Shuv Chowdhury
 
 **Sources consolidated (no new review was run):**
 - PRD v6.0 (Sept 30, 2026), which consolidated PRD v5.1, the CEO review, Eng review v1, the owner-first design doc, Eng review v2 and the Design review. See v6.0 for those source paths.
 - **Eng review v3**, 2026-09-30 (`ORBIT_OS_Eng_Review_v3_2026-09-30.md`): D1–D10, tasks E3-T1–E3-T9, test plan `~/.gstack/projects/OrbitOS/subha-main-eng-review-test-plan-20260930-140107.md`.
 - Founder decision, 2026-09-30: Paperclip + Hermes run in every customer instance from launch (Vision decision #14 stands). This reverses the office-hours deferral (OH-AC engine part) and Eng v2 D1.
+- Founder answers, 2026-10-01: N-16, N-7, N-8, N-11 and N-12, the five questions CEO v2 D11 gated before stage 1. See §22 for each answer and the requirements it changed.
 
 **Precedence rules used:** a review decision overrides the PRD. Where reviews conflict, the later one wins. Eng v3 is the latest. Every applied decision is listed in Appendix B. Anything ambiguous is listed in §22 "Needs owner answer" and was not decided here.
 
@@ -211,14 +212,15 @@ Fleet (OrbitumAI)
 - SIGN-1 Sign-in is a one-time magic link sent via Resend. It expires in 15 minutes, is single use and is sent to the owner's address only. A request from any other address sends no mail and returns the same "check your email" screen, so the owner address is never confirmed or denied.
 - SIGN-2 A session lasts 30 days. Board-level actions need a fresh link if the session is older than 24 hours.
 - SIGN-3 Send, Edit and Discard on the confirm page, and every choice on the resolve page, require the owner's signed-in session. Opening a link on a new device emails a sign-in link first, then shows the draft.
-- APP-3 After sign-in, the owner lands on the page the link pointed to, otherwise Home.
+- APP-3 After sign-in, the owner lands on the page the link pointed to, otherwise Home. While the standing ack approval is outstanding, a bare sign-in lands on Settings instead (N-8). Auto-ack stays off until the owner approves the template, because an approval given by an operator is not the owner's approval and AUTH-1 records the authority used.
 
 8.2 Screens (six in total; no navigation bar)
 - SCR-1 **Top bar:** the firm name in bold, with a muted "by Orbitcrew" under it. The top bar links Home and Settings.
 - SCR-2 **Home**, in this order:
-  1. Waiting for you, oldest first, with a countdown (see §22 N-12).
+  1. Waiting for you, oldest first, with a countdown to the 72 h void (N-12, answered 2026-10-01). It reads "Draft expires in 2d 4h" and uses `--color-danger` inside the last 6 hours. After the void the row reads "Expired" and follows FD-10.
   2. Today in one line, including time to sent reply.
   3. Recent receipts.
+  4. **Last week**, the newest weekly review (REV-1, N-11 answered 2026-10-01), collapsed to its headline numbers with the full text one tap away. The Friday notice links straight to it. It sits below the work because it is retrospective.
   - Day-1 empty state: "Watching inbox@…, last checked …".
 - SCR-3 **Confirm page** (per wireframe v2):
   - It shows the lead, the draft, the category tag and a one-line reason.
@@ -230,7 +232,9 @@ Fleet (OrbitumAI)
   - Six designed edge states, each with a single action: expired, already decided, updated draft ("This thread changed"), sending/failed, office paused, not yours.
 - SCR-4 **Sign-in page** (SIGN-1).
 - SCR-5 **Receipt detail** (RCPT-1).
-- SCR-6 **Settings:** ack template (versioned; any change needs owner re-approval), facts file, pause auto-ack.
+- SCR-6 **Settings:** ack template (versioned; any change needs owner re-approval), facts file, pause auto-ack, and two blocks answered on 2026-10-01:
+  - **Spending** (N-7): one row each for the company budget, Orbi and Scout, plus today's Decision Layer spend against the daily cap. Each row shows spend against limit and nothing else. The UX-4 banners carry the urgent case, so this block answers "where do I stand", not "something is wrong".
+  - **Setup** (N-8): the standing ack approval, the tone sample selected at setup for review, and the firm website and calendar link as captured at provisioning (PRV-1). The owner can correct the website and the calendar link here.
 - SCR-7 **Resolve page** for "Acknowledged, no reply yet" items: Reply now / Replied elsewhere / No reply needed (FD-10).
 
 8.3 States
@@ -246,7 +250,7 @@ Fleet (OrbitumAI)
 - NTC-2 Notices come from "Orbitcrew for <Firm>". They cover: a reply waiting, a reminder after 2 hours, a failed send, the ack cap reached, a classifier failure, a kill-switch trip, a teammate budget warning or pause, the daily digest, and the weekly review.
 
 8.6 Weekly review
-- REV-1 Orbi's Friday routine produces the weekly review from the week's numbers (DAT-4 fields, including time to sent reply and hours given back). It is announced by a content-free email (NTC-1). Where the owner reads it: see §22 N-11.
+- REV-1 Orbi's Friday routine produces the weekly review from the week's numbers (DAT-4 fields, including time to sent reply and hours given back). It is announced by a content-free email (NTC-1), which links to the "Last week" block at the bottom of Home (SCR-2, N-11 answered 2026-10-01). The Reviews screen stays Phase 2.
 
 ## 8A. Feature Requirements — Front Desk (inbox to sent reply)
 Inbox
@@ -264,7 +268,7 @@ Classification
   - Exactly one Haiku question per candidate email (`lead | not_lead | unsure`), with a confidence value.
   - 15 s timeout and one retry. If the call fails twice: no ack, the email goes to Orbi as unclear (FD-3b), and the owner gets an alert.
   - Every call is logged to `decision_calls` and the ledger.
-  - A per-instance daily spend cap applies (see §22 N-7).
+  - A per-instance daily spend cap applies. Spend against the cap is shown in the Settings Spending block (SCR-6) and in the daily digest (FD-10).
 - FD-2a **Hostile input:** email bodies are treated as adversarial. The classifier and the agents never replace the deterministic rules and checks (FD-1 filters before; category checks after). Bodies are stripped and truncated before any model call (see §22 N-15).
 - FD-2b **Decision gates:** a model may raise an approval category, never lower it, and never bypass an approval. Static tests assert that no decision or agent output reaches the sender without an approval ID.
 
@@ -330,7 +334,7 @@ Safety, digest and data gate
   - The digest lists every ack with a "Wrong, not a lead" button, which switches auto-ack off immediately.
   - A full reply sent without a tap switches sending off.
   - Re-enabling is manual, after the replay set passes.
-- FD-10 **Daily digest:** lists "not a lead" emails, Orbi's verdicts, leads that were not acked and why, drafts that failed (including "office unavailable"), every ack (with the FD-9 button), and void unacked drafts as "unanswered". An acked lead whose draft is discarded or void is labeled **"Acknowledged, no reply yet"**. It repeats in every daily digest until the owner picks Reply now / Replied elsewhere / No reply needed on the signed-in resolve page. The subject line flags it after 3 days.
+- FD-10 **Daily digest:** lists "not a lead" emails, Orbi's verdicts, leads that were not acked and why, drafts that failed (including "office unavailable"), every ack (with the FD-9 button), and void unacked drafts as "unanswered". An acked lead whose draft is discarded or void is labeled **"Acknowledged, no reply yet"**. It repeats in every daily digest until the owner picks Reply now / Replied elsewhere / No reply needed on the signed-in resolve page. The subject line flags it after 3 days. The digest ends with one spend line, for example "Decision Layer: $0.62 of $2.00 today", plus the company and teammate budgets (N-7). Cost figures carry no lead identity, so this holds NTC-1.
 - FD-11 **Firm data gate:** until the no-retention terms are signed (§16 SEC-11), the named firm's forwarded emails are stored but never sent to any AI provider, by ORBIT or by Hermes. Testing and calibration use the founder's inbox until then.
 
 Latency budget (p95; sums to 90 s, under the 2-minute ack target; Paperclip and Hermes are not on this path)
@@ -355,7 +359,7 @@ Until about 10 instances, the fleet runs on scripts and a registry file. The con
 
 ## 10. Requirements — Provisioning, Upgrade, Backup, Decommission
 10.1 Provisioning
-- PRV-1 Inputs: customer name, domain, plan, owner email. Output: a running instance on its own VPS, registered in the registry file, posture check passed, the owner account created from the owner email (APP-1) and the first sign-in link sent. Target: under 15 minutes, zero manual steps.
+- PRV-1 Inputs: customer name, domain, plan, owner email, firm website, calendar link (N-8: the operator has these from the sales conversation, so they are typed once here rather than asked for on a screen). Output: a running instance on its own VPS, registered in the registry file, posture check passed, the owner account created from the owner email (APP-1) and the first sign-in link sent. Target: under 15 minutes, zero manual steps.
 - PRV-2 Steps: render the template with generated secrets and pinned versions → create the instance's VPS (see §22 N-13) → start the stack on private networks → health checks → seed the ORBIT schema (single workspace) → create the Paperclip company, hire Orbi and Scout through ORBIT's service account, set both budgets, turn heartbeats off, add Orbi's Friday routine → wait for the CNAME and issue TLS → posture check → register → create the owner account from the owner email and send the first sign-in link.
 - PRV-3 Any step failure stops the job, shows the step and allows a retry. Steps are idempotent. A partial instance can be torn down in one action.
 - PRV-4 Managed setup includes a Gmail internal OAuth app in the customer's own Google Workspace (CN-4).
@@ -408,7 +412,7 @@ Categories and rules
 Backups, escalation chains, delegation, authority-change requests and office-change approvals are Phase 2 (§21).
 
 ## 13. Requirements — Budgets, Cost and Pricing
-- COST-1 Plan limits map to the Paperclip company budget and per-teammate budgets (Orbi, Scout). An 80% warning and a 100% pause apply per teammate; a pause affects only that teammate. If Scout is paused, drafts time out to Orbi (FD-3); if Orbi is also paused, leads go to the digest. Where the owner sees budgets: see §22 N-7.
+- COST-1 Plan limits map to the Paperclip company budget and per-teammate budgets (Orbi, Scout). An 80% warning and a 100% pause apply per teammate; a pause affects only that teammate. If Scout is paused, drafts time out to Orbi (FD-3); if Orbi is also paused, leads go to the digest. The owner sees all four numbers in the Settings Spending block (SCR-6) and a daily spend line in the digest (FD-10); N-7 answered 2026-10-01.
 - COST-2 There are no scheduled heartbeats. The only schedule is Orbi's Friday weekly routine. Teammates wake on assignment and comments.
 - COST-3 Tool allowlists per teammate (§9 FLT-7). Scout's research is capped at 3 searches per lead. Turn caps: Orbi 20, Scout 30.
 - COST-4 Stable prompt prefixes and one model per session keep prompt caching effective.
@@ -573,12 +577,8 @@ The sources leave these open or contradict each other. They were not decided in 
 | N-4 | How is "hours given back" estimated? | C4 approved adding the estimate, but no formula is given. |
 | N-5 | What is the exact customer-facing data-promise wording, and does it name Resend? | C1 approved rewording the promise to name AI providers, but gave no wording. Resend receives content-free system email. |
 | N-6 | Is there a "Pause office" control at launch, beside "Pause auto-ack"? | The design review adds an "office paused" confirm-page state (2A) and v5.1 PAUSE-1 exists, but the launch Settings screen (6A) lists only "pause auto-ack". |
-| N-7 | Where does the owner see the Paperclip budgets (company, Orbi, Scout) and the daily Decision Layer spend cap? | Budgets are back (COST-1) and banners exist (UX-4), but no launch screen shows spend against budget. |
-| N-8 | Where does the owner give the setup inputs: the 20 tone emails, the calendar link, the firm website and the standing ack approval? | The design doc says "selected at setup". The launch screens (6A) have no setup flow. |
 | N-9 | Who performs "Reconnect your inbox", and on which screen? | The CEO registry keeps the CONN-1 banner, but no launch screen offers a reconnect flow. |
 | N-10 | Where do the receipt CSV export (RCPT-1) and the data export (DATA-1, needed by DEC-1) run? | Neither is on a launch screen. |
-| N-11 | Where does the owner read the weekly review? | Orbi's Friday routine produces it (REV-1, Eng v3 D1), but the Reviews screen is Phase 2 (6A) and system email is content-free (NTC-1). |
-| N-12 | What does the countdown on Home count down to? | 1A says "escalation countdown", but escalation is Phase 2. Candidates are the 2 h reminder and the 72 h void. |
 | N-13 | Does Coolify still run on each per-customer VPS? | C3 removed the shared "Coolify project" option. PRV-2 used to say "create Coolify project", and the §7 hosting row still says "Coolify on Hostinger". |
 | N-14 | Does a discarded draft get a receipt? | RCPT-1 says "one receipt per sent message". Design 12A says discard reasons are "stored on the receipt". |
 | N-15 | What is the body truncation limit before model calls? | The v5.1 limit (32K) was Jev's context size. Jev is deferred. |
@@ -587,6 +587,12 @@ The sources leave these open or contradict each other. They were not decided in 
 (v6.0 N-2, broken-draft handling, is resolved by Eng v3 D5: FD-3.)
 
 (N-16, owner account creation, is answered by the founder on 2026-10-01: the provisioning script creates the owner account from an owner email provisioning input. The invitation flow moves to Phase 2 with multi-person offices. APP-1, SIGN-1, PRV-1 and PRV-2 are updated, and the Stage 0 schema needs no change because it has no invitations table.)
+
+(N-7, N-8, N-11 and N-12 are answered by the founder on 2026-10-01, closing the five that D11 gated before stage 1. None of them adds a screen.
+- **N-7:** a Spending block on Settings (company, Orbi, Scout, daily Decision Layer cap) plus one spend line at the end of the daily digest. COST-1, FD-2 and FD-10 are updated.
+- **N-8:** split by who holds the input. The firm website and the calendar link are provisioning inputs (PRV-1). The tone sample is selected at setup from the owner's own sent mail and shown in Settings for review, where the owner can replace it; see the OH-RULES note on "owner-selected tone samples", which this narrows to owner-reviewed. The standing ack approval is an owner action in Settings, and a bare sign-in lands on Settings until it exists (APP-3). Auto-ack stays off until then.
+- **N-11:** a "Last week" block at the bottom of Home (SCR-2), linked from the Friday content-free notice. The Reviews screen stays Phase 2.
+- **N-12:** the 72 h void, not the 2 h reminder. The countdown marks the moment the draft dies and the lead goes unanswered, which the owner can act on; the reminder already arrives as its own notice. The Home countdown reads the same timer row as the void (E-T4).)
 
 ## 23. Build Tasks
 Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Design (DR-T1–DR-T6) and Eng v3 (E3-T1–E3-T9). Where tasks overlap, the later review's wording wins and the merged IDs are shown. The tasks are listed in priority order; within a priority, build dependencies come first.
@@ -616,10 +622,10 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
     - Verify: a forced known-contact ack switches auto-ack off and alerts.
 12. **E2-T6 (data)** — The firm's forwarded emails are stored but blocked from the AI (ORBIT and Hermes) until the terms flag is set (D2).
     - Verify: a test proves no AI call and no Paperclip issue is made for firm data while the flag is off.
-13. **E2-T2 (notify)** — Content-free Resend notices, reminders, digest, weekly-review announcement and alerts (D8).
+13. **E2-T2 (notify)** — Content-free Resend notices, reminders, digest (including the spend line, N-7), weekly-review announcement linking to the Home "Last week" block (N-11) and alerts (D8).
     - Verify: a unit test asserts the payload has no lead name, company, address or draft text.
-14. **DR-T2 (web)** — Build the launch screens per wireframe v2 with the sticky bar and edit in place (6A, 8A, 11A, 13A, 14A).
-    - Verify: an E2E test on a 390 px viewport shows Send without scrolling.
+14. **DR-T2 (web)** — Build the launch screens per wireframe v2 with the sticky bar and edit in place (6A, 8A, 11A, 13A, 14A), including the Home countdown to the 72 h void and the "Last week" block (N-11, N-12), and the Settings Spending and Setup blocks (N-7, N-8).
+    - Verify: an E2E test on a 390 px viewport shows Send without scrolling; the countdown shows the void deadline and turns danger inside 6 h; a sign-in with no standing ack approval lands on Settings and auto-ack is off.
 15. **DR-T3 (web)** — The 6 confirm-page edge-state screens (2A).
     - Verify: each state is reachable in a test and has a single action.
 16. **T2 (legal + landing, C1)** — Get Anthropic's zero-retention / no-training terms confirmed in writing; reword the promise in the Vision doc and landing copy (wording: N-5).
@@ -628,7 +634,7 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
     - Verify: no "Telegram" left except in the change log; the diagrams match §6 of this PRD.
 
 **P2**
-18. **E-T4 (timers)** — Store timers (2 h reminder, 72 h void, digest, cap window) as Postgres rows polled every minute.
+18. **E-T4 (timers)** — Store timers (2 h reminder, 72 h void, digest, cap window) as Postgres rows polled every minute. The Home countdown reads the 72 h void row, so the screen and the timer cannot disagree (N-12).
     - Verify: a fake-clock test, plus a restart test in which an overdue timer fires after restart.
 19. **E3-T5 (worker)** — Nightly purge of Hermes session files older than 90 days (the raw-email row in `retention_policies`); DEC-2 wipes Hermes volumes.
     - Verify: a 91-day-old session file is deleted; a 1-day-old one stays.
