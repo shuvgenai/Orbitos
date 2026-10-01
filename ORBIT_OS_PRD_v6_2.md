@@ -2,14 +2,16 @@
 Orbitcrew (internal name: ORBIT-OS): Owner-First Lead Replies for Small Businesses
 Dedicated Instance per Customer, Run by OrbitumAI
 Product Version: 1.0 MVP (launch)
-Document Version: 6.1 (supersedes v6.0). This document is the single source of truth for the build.
-Date: September 30, 2026, with the five founder answers of October 1, 2026 recorded in §22. The v6.2 cut belongs to C2-T3, which applies CEO v2 D2–D15.
+Document Version: 6.2 (supersedes v6.1). This document is the single source of truth for the build.
+Date: October 1, 2026 (v6.1: September 30, 2026)
 Prepared by: OrbitumAI | Product Owner: Shuv Chowdhury
 
 **Sources consolidated (no new review was run):**
 - PRD v6.0 (Sept 30, 2026), which consolidated PRD v5.1, the CEO review, Eng review v1, the owner-first design doc, Eng review v2 and the Design review. See v6.0 for those source paths.
 - **Eng review v3**, 2026-09-30 (`ORBIT_OS_Eng_Review_v3_2026-09-30.md`): D1–D10, tasks E3-T1–E3-T9, test plan `~/.gstack/projects/OrbitOS/subha-main-eng-review-test-plan-20260930-140107.md`.
 - Founder decision, 2026-09-30: Paperclip + Hermes run in every customer instance from launch (Vision decision #14 stands). This reverses the office-hours deferral (OH-AC engine part) and Eng v2 D1.
+- **CEO review v2**, 2026-09-30 (`ORBIT_OS_CEO_Review_v2_2026-09-30.md`): decisions D1–D15, applied here as CEO2-D1 to CEO2-D15 (C2-T3).
+- Founder answers, 2026-10-01: N-16, N-7, N-8, N-11 and N-12, the five that CEO v2 D11 gated before stage 1, plus N-18, which resolved how D10's "search only" is enforced. See §22 for each answer and the requirements it changed.
 - Founder answers, 2026-10-01: N-16, N-7, N-8, N-11 and N-12, the five questions CEO v2 D11 gated before stage 1. See §22 for each answer and the requirements it changed.
 
 **Precedence rules used:** a review decision overrides the PRD. Where reviews conflict, the later one wins. Eng v3 is the latest. Every applied decision is listed in Appendix B. Anything ambiguous is listed in §22 "Needs owner answer" and was not decided here.
@@ -764,4 +766,4 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
 | CEO2-D15 (TODO-SPLIT) | CEO review v2 | Splitting Scout into a research run and a draft run is tracked in `TODOS.md` at P3. |
 
 END OF DOCUMENT
-Version 6.1 | September 30, 2026 | OrbitumAI
+Version 6.2 | October 1, 2026 | OrbitumAI

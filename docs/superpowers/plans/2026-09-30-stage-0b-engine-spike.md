@@ -9,7 +9,7 @@
 **Tech Stack:** Docker Compose, `ghcr.io/paperclipai/paperclip` (digest-pinned), `nousresearch/hermes-agent` (digest-pinned), Paperclip HTTP API on port 3100, Hermes `config.yaml`, Node 24, TypeScript, Vitest, and the existing Zod contracts in `shared/src/agent-output.ts`.
 
 **Spec:**
-- `ORBIT_OS_PRD_v6_1.md`: section 18 row 0b (deliverable and exit criterion), section 6 (architecture diagram), section 7 (technology stack), DEP-1, DEP-5, SEC-1, SEC-2a, SEC-6, SEC-10, COST-1 to COST-3, FLT-7, DAT-3, DEC-2, UX-6, and build tasks E3-T1 and E3-T2.
+- `ORBIT_OS_PRD_v6_2.md`: section 18 row 0b (deliverable and exit criterion), section 6 (architecture diagram), section 7 (technology stack), DEP-1, DEP-5, SEC-1, SEC-2a, SEC-6, SEC-10, COST-1 to COST-3, FLT-7, DAT-3, DEC-2, UX-6, and build tasks E3-T1 and E3-T2.
 - `ORBIT_OS_Eng_Review_v3_2026-09-30.md`: S1/D3 (`hermes_local` now), S2/D4 (allowlist plus own container), S3/D5 (15 s comment poll, fixed JSON block, one corrective comment), S4/D6 (memory off, 90-day purge), S5/D7 (one session per issue, to be verified in this spike).
 - `docs/superpowers/plans/2026-09-30-stage-0-foundations.md`: the template, the compose test and the shared contracts this plan extends.
 

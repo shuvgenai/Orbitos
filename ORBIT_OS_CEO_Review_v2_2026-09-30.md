@@ -2,7 +2,7 @@
 
 - **Skill:** /gstack-plan-ceo-review (second CEO run)
 - **Date:** 2026-09-30
-- **Document under review:** `ORBIT_OS_PRD_v6_1.md` (PRD v6.1, Sept 30 2026)
+- **Document under review:** `ORBIT_OS_PRD_v6_1.md` (PRD v6.1, Sept 30 2026), which became `ORBIT_OS_PRD_v6_2.md` on 2026-10-01 when C2-T3 applied these decisions
 - **Also read:** `ORBIT_OS_CEO_Review_2026-09-30.md` (CEO v1, reviewed PRD v5.1), the office-hours design doc `~/.gstack/projects/OrbitOS/subha-unknown-design-20260930-114022.md`, `TODOS.md`, Eng review v3 decisions (via PRD v6.1 Appendix B).
 - **Why this run:** PRD v6.1 restores Paperclip + Hermes in every instance (founder decision, 2026-09-30). CEO v1 reviewed a lighter plan. This run checks whether the strategy (price, margin, ops load, timeline) still holds with the engines in.
 - **Review depth:** Strategy-only (scope, premises, priorities). Implementation design was covered by Eng review v3.
@@ -364,13 +364,14 @@ Synthesized from this review's findings. These are strategy-level next actions, 
   - Verify: firm named, price agreed and agreement signed, recorded in PRD v6.2 §18
 - [x] **C2-T2 (P1, human: ~30min / CC: ~10min)** — product — Answer N-7, N-8, N-11, N-12 and N-16 before the stage 1 build
   - Surfaced by: Section 5 — S5-OPENQ (D11)
-  - Files: `ORBIT_OS_PRD_v6_1.md` (carries into v6.2 at C2-T3)
+  - Files: `ORBIT_OS_PRD_v6_2.md`
   - Verify: PRD v6.2 §22 shows the five as answered
   - Done 2026-10-01: all five answered and recorded in `ORBIT_OS_PRD_v6_1.md` §22, each with the requirements it changed. N-16: owner account created at provisioning from an owner email input (APP-1, SIGN-1, PRV-1, PRV-2). N-7: Settings Spending block plus a digest spend line (SCR-6, COST-1, FD-2, FD-10). N-8: website and calendar link become provisioning inputs, the tone sample is reviewed in Settings, the standing ack approval is an owner action there, and a bare sign-in lands on Settings until it exists (SCR-6, APP-3, PRV-1). N-11: a "Last week" block at the bottom of Home (SCR-2, REV-1). N-12: the 72 h void (SCR-2, E-T4). The file keeps the v6.1 name because cutting v6.2 is C2-T3's job, so this verify line closes when C2-T3 lands.
-- [ ] **C2-T3 (P1, human: ~2h / CC: ~15min)** — docs — Write PRD v6.2 applying D2–D15: deferrals, spike time-box, Orbi timeout, disconnect notice, N-1 and N-4 answers, Scout search-only (including the §6 diagram), ops-time logging and dual trigger, pilot call timing
+- [x] **C2-T3 (P1, human: ~2h / CC: ~15min)** — docs — Write PRD v6.2 applying D2–D15: deferrals, spike time-box, Orbi timeout, disconnect notice, N-1 and N-4 answers, Scout search-only (including the §6 diagram), ops-time logging and dual trigger, pilot call timing
   - Surfaced by: all sections
-  - Files: `ORBIT_OS_PRD_v6_1.md` → `ORBIT_OS_PRD_v6_2.md`
+  - Files: `ORBIT_OS_PRD_v6_2.md` (renamed from v6.1 on 2026-10-01)
   - Verify: Appendix B lists CEO2-D2 to CEO2-D15; the §6 diagram shows Scout with web search only
+  - Done 2026-10-01: Appendix B lists CEO2-D1 to CEO2-D15. Each decision is written into the requirement it governs: D9 into the §7 models row, D13 into DAT-4, D7 into FD-3b, D8 into CN-8, D12 into FLT-12 and FLT-1, D2 into E3-T5, D3 into task 17, D4 into DATA-1, D5 and D6 and D14 into the §18 rollout rows, D15 already in `TODOS.md`. N-1 and N-4 are answered and their rows removed. The §6 diagram shows Scout with **no** toolset rather than search only: D10 could not be configured as written, and N-18 records the founder's resolution of 2026-10-01 to drop `web` entirely, which the engine config, the adapter, `ops/src/posture.ts` and both test suites now enforce.
 - [ ] **C2-T4 (P1, human: ~2h / CC: ~15min)** — frontdesk — Orbi verdict timeout (10 min, one correction) → digest + alert; late-verdict rule
   - Surfaced by: Section 2 — S2-ORBI (D7)
   - Files: to be determined

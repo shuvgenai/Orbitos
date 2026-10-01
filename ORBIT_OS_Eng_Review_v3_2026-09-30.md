@@ -1233,7 +1233,7 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Verify: a fresh instance shows two agents, no timer heartbeats, one routine
 - [ ] **E3-T8 (P2, human: ~1h / CC: ~10min)** — docs — Write PRD v6.1: restore Paperclip + Hermes (v5.1 §6/§7 with the D3 adapter), 4 programs + Redis, Orbi + Scout, the S2–S6 and A1 rules; move the restored items out of v6.0 §21; resolve N-2 and N-11; update Appendix B
   - Surfaced by: target statement ("output feeds PRD v6.1")
-  - Files: ORBIT_OS_PRD_v6_1.md
+  - Files: ORBIT_OS_PRD_v6_1.md (renamed ORBIT_OS_PRD_v6_2.md on 2026-10-01)
   - Verify: no "deferred until needed" for Paperclip/Hermes remains; the §22 list drops N-2 and N-11
 - [ ] **E3-T9 (P3, human: ~2h / CC: ~10min)** — infra — Switch to `hermes_gateway` after the upstream fix (TODOS.md)
   - Surfaced by: TODO-1 (D10)

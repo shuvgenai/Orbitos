@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 24.14.1, pnpm 10.33.0, TypeScript 7.0.2, Vitest 5.0.3, Zod 4.6.5, Prisma 7.10.0 with `@prisma/adapter-pg`, PostgreSQL 16 (pgvector image), Redis 7, pino 10.3.1, tsx 4.23.15, Resend 6.31.0, Docker Compose, GitHub Actions.
 
-**Spec:** `ORBIT_OS_PRD_v6_1.md` (§5, §6, §7, §8A, §12, §14A, §15, §16, §18, §23 tasks 1–3, 5 and 7), with decisions from `ORBIT_OS_Eng_Review_v3_2026-09-30.md` (worktree strategy, S1–S2) and `ORBIT_OS_CEO_Review_v2_2026-09-30.md`.
+**Spec:** `ORBIT_OS_PRD_v6_2.md` (§5, §6, §7, §8A, §12, §14A, §15, §16, §18, §23 tasks 1–3, 5 and 7), with decisions from `ORBIT_OS_Eng_Review_v3_2026-09-30.md` (worktree strategy, S1–S2) and `ORBIT_OS_CEO_Review_v2_2026-09-30.md`.
 
 **Not in this plan:** Stage 0b, the engine spike (Paperclip + Hermes via `hermes_local`, PRD §18 row 0b, task E3-T1). It gets its own plan because its contents depend on the pinned upstream versions. It runs in parallel with Tasks 4–6. The Paperclip + Hermes container definition (E3-T2) is added to `template/compose.yml` by that plan. See "Open questions" item 3.
 
