@@ -1,6 +1,6 @@
 import { afterAll, expect, test, vi } from 'vitest';
 
-import { sendToScout } from '../../frontdesk/src/engine/bridge.ts';
+import { LeadNotDraftableError, sendToScout } from '../../frontdesk/src/engine/bridge.ts';
 import { newLead, newWorkspace, testPrisma } from './helpers.ts';
 
 const prisma = testPrisma();
@@ -129,7 +129,10 @@ test('a terminal lead without an issue id is not claimed or resurrected', async 
   const lead = await newLead(prisma, ws.id);
   await prisma.lead.update({ where: { id: lead.id }, data: { state: 'discarded' } });
   const engine = fakeEngine();
-  await expect(sendToScout({ prisma, engine, setup, log: { warn } }, { ...lead, cleanBody: 'hi' })).rejects.toThrow();
+  const err = await sendToScout({ prisma, engine, setup, log: { warn } }, { ...lead, cleanBody: 'hi' }).catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(LeadNotDraftableError);
+  expect((err as LeadNotDraftableError).retryable).toBe(false);
+  expect(engine.createIssue).not.toHaveBeenCalled();
   const stored = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
   expect(stored.state).toBe('discarded');
   expect(stored.paperclipIssueId).toBeNull();
@@ -148,4 +151,25 @@ test('claim succeeded, enqueue threw: the retry reuses the issue and queues the 
   expect(out.issueId).toBe('i1');
   expect(engine.createIssue).toHaveBeenCalledTimes(1);
   expect(await prisma.job.count({ where: { leadId: lead.id, kind: 'draft_poll' } })).toBe(1);
+});
+
+test('the title strips control characters and separators, never splits a pair, and has a fallback', async () => {
+  const ws = await newWorkspace(prisma);
+  const titleFor = async (subject: string) => {
+    const lead = await newLead(prisma, ws.id);
+    const engine = fakeEngine();
+    await sendToScout({ prisma, engine, setup }, { ...lead, subject, cleanBody: 'hi' });
+    return engine.createIssue.mock.calls[0]![0].title as string;
+  };
+  const c = (...codes: number[]) => String.fromCodePoint(...codes);
+  const messy = ['a', 0x2028, 'b', 0x2029, 'c', 0x85, 'd', 9, 'e', 0, 'f', 0x1b, 'g', 0x9f, 'h']
+    .map((x) => (typeof x === 'number' ? c(x) : x))
+    .join('');
+  expect(await titleFor(messy)).toBe('Lead: a b c d e f g h');
+  expect(await titleFor('\r\n\n')).toBe('Lead: (no subject)');
+  expect(await titleFor('')).toBe('Lead: (no subject)');
+  const grin = c(0x1f600);
+  const t = await titleFor(grin.repeat(200));
+  expect([...t.slice('Lead: '.length)]).toHaveLength(120);
+  expect(t.endsWith(grin)).toBe(true);
 });

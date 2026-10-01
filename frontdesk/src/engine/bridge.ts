@@ -22,8 +22,29 @@ const TITLE_SUBJECT_MAX = 120;
 const read = (prisma: PrismaClient, leadId: string) =>
   prisma.lead.findUniqueOrThrow({ where: { id: leadId }, select: { paperclipIssueId: true, state: true } });
 
-// The subject is attacker-controlled: no line breaks, bounded length.
-const titleFor = (subject: string) => `Lead: ${subject.replace(/[\r\n]+/g, ' ').slice(0, TITLE_SUBJECT_MAX)}`;
+const TERMINAL_STATES = ['sent', 'discarded', 'void', 'resolved', 'not_lead'] as const;
+
+// Thrown before any Paperclip call, so retrying it can never create another issue.
+export class LeadNotDraftableError extends Error {
+  readonly retryable = false;
+  constructor(leadId: string) {
+    super(`lead ${leadId} is no longer draftable`);
+    this.name = 'LeadNotDraftableError';
+  }
+}
+
+// C0 and C1 controls (incl. tab, NUL, NEL) plus the Unicode line and paragraph separators (U+2028, U+2029).
+const UNSAFE_IN_TITLE = new RegExp('[\x00-\x1f\x7f-\x9f' + String.fromCharCode(0x2028, 0x2029) + ']', 'g');
+
+// The subject is attacker-controlled: no control characters or line/paragraph separators,
+// whitespace collapsed, bounded by code points (never half a character), fixed fallback if empty.
+function titleFor(subject: string): string {
+  const clean = subject
+    .replace(UNSAFE_IN_TITLE, ' ')
+    .replace(/ +/g, ' ')
+    .trim();
+  return `Lead: ${[...clean].slice(0, TITLE_SUBJECT_MAX).join('').trimEnd() || '(no subject)'}`;
+}
 
 // The lead's text is wrapped in markers carrying a per-call nonce it cannot guess, so it cannot
 // close its own block or forge a sibling section. Scout's instructions live in its Paperclip profile.
@@ -39,8 +60,14 @@ function issueBody(leadText: string, setup: SetupInputs): string {
 
 // Idempotent per lead: a stored issue id is reused, never replaced, so a retry cannot start a second Scout run.
 export async function sendToScout(deps: BridgeDeps, lead: LeadForDraft): Promise<{ issueId: string }> {
-  let issueId = (await read(deps.prisma, lead.id)).paperclipIssueId;
+  const first = await read(deps.prisma, lead.id);
+  let issueId = first.paperclipIssueId;
   if (issueId === null) {
+    // Check before paying for a Scout issue; only a genuine race may orphan one.
+    if ((TERMINAL_STATES as readonly string[]).includes(first.state)) {
+      (deps.log ?? log).warn({ leadId: lead.id, state: first.state }, 'bridge: lead is terminal, no issue created');
+      throw new LeadNotDraftableError(lead.id);
+    }
     const created = await deps.engine.createIssue({
       assignee: 'scout',
       title: titleFor(lead.subject),
@@ -49,7 +76,7 @@ export async function sendToScout(deps: BridgeDeps, lead: LeadForDraft): Promise
     // Claim the slot only if nobody else has and the lead is still live: a stored id is never
     // overwritten and a finished lead is never pulled back to drafting.
     const { count } = await deps.prisma.lead.updateMany({
-      where: { id: lead.id, paperclipIssueId: null, state: { notIn: ['sent', 'discarded', 'void', 'resolved', 'not_lead'] } },
+      where: { id: lead.id, paperclipIssueId: null, state: { notIn: [...TERMINAL_STATES] } },
       data: { paperclipIssueId: created.issueId, state: 'drafting' },
     });
     if (count === 1) {
@@ -60,7 +87,7 @@ export async function sendToScout(deps: BridgeDeps, lead: LeadForDraft): Promise
         { leadId: lead.id, storedIssueId: issueId, orphanIssueId: created.issueId },
         'bridge: claim lost, orphan issue created; keeping the stored issue id',
       );
-      if (issueId === null) throw new Error(`lead ${lead.id} is no longer draftable`);
+      if (issueId === null) throw new LeadNotDraftableError(lead.id);
     }
   }
   // Only a lead still drafting needs its poll. The unique key dedupes, so this also repairs a lead
