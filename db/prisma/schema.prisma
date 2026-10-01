@@ -117,6 +117,8 @@ model Workspace {
   ackTemplateVersions AckTemplateVersion[]
   acks                Ack[]
   approvals           Approval[]
+  gmailConnection     GmailConnection?
+  decisionCalls       DecisionCall[]
 
   @@map("workspaces")
 }
@@ -391,4 +393,46 @@ model Timer {
 
   @@index([fireAt])
   @@map("timers")
+}
+
+enum GmailConnectionState {
+  connected
+  revoked
+
+  @@map("gmail_connection_state")
+}
+
+// FD-1 polling state and CN-8 connection health. One inbox per workspace at launch.
+model GmailConnection {
+  workspaceId        String               @id @map("workspace_id") @db.Uuid
+  emailAddress       String               @map("email_address")
+  refreshTokenCipher String               @map("refresh_token_cipher")
+  historyId          String               @map("history_id")
+  state              GmailConnectionState @default(connected)
+  lastCheckedAt      DateTime?            @map("last_checked_at") @db.Timestamptz(3)
+  revokedAt          DateTime?            @map("revoked_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@map("gmail_connections")
+}
+
+// FD-2: every Decision Layer call is logged. Numbers only, never lead text.
+model DecisionCall {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String         @map("workspace_id") @db.Uuid
+  leadId       String?        @map("lead_id") @db.Uuid
+  model        String
+  outcome      Classification
+  confidence   Decimal?       @db.Decimal(4, 3)
+  inputTokens  Int            @map("input_tokens")
+  outputTokens Int            @map("output_tokens")
+  costUsd      Decimal        @map("cost_usd") @db.Decimal(10, 6)
+  latencyMs    Int            @map("latency_ms")
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@map("decision_calls")
 }
