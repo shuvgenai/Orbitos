@@ -92,33 +92,49 @@ test('Finding 4: entity decoding order - &amp;lt; becomes &lt;', () => {
   expect(cleanBody(parts)).toBe('Code: &lt;tag&gt;');
 });
 
-test('Fix Round 2-A: 200k character < input in HTML finishes promptly (not superlinear)', () => {
+test('Fix Round 2-A: repeated <script> tags finish promptly (main discriminator for block removal)', () => {
+  // The old regex /<(script)\b[\s\S]*?<\/\1>/ would rescans: ~50k scripts × cap = ~100M char steps
+  // This is decisively slow against the old code, not borderline
+  const html = '<script>'.repeat(50_000);
+  const parts = [{ mimeType: 'text/html', text: html }];
+  const start = Date.now();
+  const result = cleanBody(parts);
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeLessThan(500); // Must finish in under 500ms
+  expect(result).toBe('');
+});
+
+test('Fix Round 2-A: unclosed <!-- comment finishes promptly (only case old regex fails)', () => {
+  // Old regex /<!--[\s\S]*?-->/ would rescan: 50k unclosed comments × cap = ~1B char steps
+  // This is the real discriminator for optional terminator fix
+  const html = '<!--'.repeat(50_000);
+  const parts = [{ mimeType: 'text/html', text: html }];
+  const start = Date.now();
+  const result = cleanBody(parts);
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeLessThan(500); // Must finish in under 500ms
+  expect(result).toBe('');
+});
+
+test('Fix Round 2-A: unclosed <script>payload does not leak payload as prose', () => {
+  // Old regex would fail to match unclosed <script>, leaving "payload" in result
+  // New regex with optional terminator consumes unclosed script to end of input
+  const html = '<script>payload';
+  const parts = [{ mimeType: 'text/html', text: html }];
+  const result = cleanBody(parts);
+  expect(result).toBe('');
+  expect(result).not.toContain('payload');
+});
+
+test('Fix Round 2: 200k character < input (tests <[^<>]*> pass, not block regexes)', () => {
+  // This lone < test does not discriminate on finding A (old code handles it fine).
+  // It tests that the safe regex /<[^<>]*>/ is used instead of /<[^>]+>/
   const parts = [{ mimeType: 'text/html', text: '<'.repeat(200_000) }];
   const start = Date.now();
   const result = cleanBody(parts);
   const elapsed = Date.now() - start;
   expect(elapsed).toBeLessThan(500); // Should finish in under 500ms
   expect(result).toHaveLength(MAX_MODEL_BODY_CHARS);
-});
-
-test('Fix Round 2-A: repeated <script> tags finish promptly', () => {
-  const html = '<script>'.repeat(5000);
-  const parts = [{ mimeType: 'text/html', text: html }];
-  const start = Date.now();
-  const result = cleanBody(parts);
-  const elapsed = Date.now() - start;
-  expect(elapsed).toBeLessThan(500); // Should finish promptly
-  expect(result).toBe('');
-});
-
-test('Fix Round 2-A: repeated <!-- comment --> finishes promptly', () => {
-  const html = '<!-- comment -->'.repeat(100) + '<p>Real text</p>';
-  const parts = [{ mimeType: 'text/html', text: html }];
-  const start = Date.now();
-  const result = cleanBody(parts);
-  const elapsed = Date.now() - start;
-  expect(elapsed).toBeLessThan(500); // Should finish promptly
-  expect(result).toBe('Real text');
 });
 
 test('Finding 5: uncorroborated "On Friday you wrote:" keeps text after it', () => {
@@ -178,6 +194,23 @@ test('Finding 4: numeric entities are decoded', () => {
 test('Finding 4: &quot; and &#39; are decoded', () => {
   const parts = [{ mimeType: 'text/html', text: '&quot;hello&quot; &#39;world&#39;' }];
   expect(cleanBody(parts)).toBe('"hello" \'world\'');
+});
+
+test('Fix Round 3: &#38;lt; stays &lt; and does not become <', () => {
+  // Double-encoded entity must not decode twice: &#38;lt; should stay &lt;, not become <
+  const parts = [{ mimeType: 'text/html', text: '&#38;lt;' }];
+  const result = cleanBody(parts);
+  expect(result).toBe('&lt;');
+  expect(result).not.toBe('<');
+});
+
+test('Fix Round 3: numeric entity does not wrap (&#65596; not <)', () => {
+  // Old code used String.fromCharCode which wraps at 65536: &#65596; → chr(65596 % 65536) = chr(60) = '<'
+  // New code uses String.fromCodePoint which handles full Unicode range correctly
+  const parts = [{ mimeType: 'text/html', text: '&#65596;' }];
+  const result = cleanBody(parts);
+  expect(result).not.toBe('<'); // Must not wrap
+  expect(result).toBe('𐀼'); // Correctly decodes to U+1000C
 });
 
 test('Fix Round 2: whitespace-only text/plain falls through to HTML', () => {
