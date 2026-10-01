@@ -22,6 +22,8 @@ export type SendArgs = {
   subject: string;
   body: string;
   orbitcrewId: string;
+  /** The lead's original RFC Message-ID; sets In-Reply-To and References so other clients keep the reply in the thread. */
+  inReplyToMessageId?: string;
 };
 
 export interface GmailPort {

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { createGmailClient } from './client.ts';
+import { buildRaw, createGmailClient, parseFrom } from './client.ts';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -9,7 +9,9 @@ test('a 404 from history.list reports expired, so the caller can resync', async 
   const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 404 }));
   const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
   expect(await gmail.listSince('5')).toEqual({ expired: true });
-  expect(String(fetchMock.mock.calls[0]![0])).toContain('startHistoryId=5');
+  const url = String(fetchMock.mock.calls[0]![0]);
+  expect(url).toContain('startHistoryId=5');
+  expect(url).toContain('historyTypes=messageAdded');
 });
 
 test('a 429 throws so the job retries instead of advancing the watermark', async () => {
@@ -43,6 +45,10 @@ test('the outbound message carries the X-Orbitcrew-Id header', async () => {
   const raw = Buffer.from(body.raw, 'base64url').toString('utf8');
   expect(raw).toContain('X-Orbitcrew-Id: appr-1');
   expect(body.threadId).toBe('t1');
+  expect(String(fetchMock.mock.calls[0]![0])).toBe('https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
+  const init = fetchMock.mock.calls[0]![1]!;
+  expect(init.method).toBe('POST');
+  expect(init.headers.authorization).toBe('Bearer token');
 });
 
 test('a message is parsed into a bare lowercase fromEmail, a fromName, and every MIME part', async () => {
@@ -155,8 +161,8 @@ test('findSentByTag without a thread id falls back to scanning SENT', async () =
 test('listByDate sends an after: term and takes historyId from the profile', async () => {
   const fetchMock = vi
     .fn()
-    .mockResolvedValueOnce(json({ messages: [{ id: 'g1' }] }))
     .mockResolvedValueOnce(json({ historyId: '999' })) // profile
+    .mockResolvedValueOnce(json({ messages: [{ id: 'g1' }] }))
     .mockResolvedValueOnce(
       json({
         id: 'g1',
@@ -168,8 +174,65 @@ test('listByDate sends an after: term and takes historyId from the profile', asy
   const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
   const since = new Date('2026-03-01T00:00:00Z');
   const page = await gmail.listByDate(since);
-  const q = new URL(String(fetchMock.mock.calls[0]![0])).searchParams.get('q');
+  // The profile is read BEFORE listing, so a lead arriving mid-listing is not lost behind the watermark.
+  const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+  expect(urls[0]).toContain('/profile');
+  expect(urls[1]).toContain('/messages?');
+  expect(urls[2]).toContain('/messages/g1');
+  const q = new URL(urls[1]!).searchParams.get('q');
   expect(q).toContain(`after:${since.getTime() / 1000}`);
   expect(page.historyId).toBe('999');
   expect(page.messages).toHaveLength(1);
+});
+
+const base = { gmailThreadId: 't1', toEmail: 'a@b.example', subject: 'Re: x', body: 'b', orbitcrewId: 'appr-1' };
+const decode = (raw: string) => Buffer.from(raw, 'base64url').toString('utf8');
+
+test('buildRaw rejects CR or LF in every field that becomes a header line', () => {
+  expect(() => buildRaw({ ...base, toEmail: 'a@b.example\r\nBcc: x@y.example' })).toThrow(/toEmail/);
+  expect(() => buildRaw({ ...base, subject: 'hi\nBcc: x@y.example' })).toThrow(/subject/);
+  expect(() => buildRaw({ ...base, orbitcrewId: 'a\rb' })).toThrow(/orbitcrewId/);
+  expect(() => buildRaw({ ...base, inReplyToMessageId: '<a@b>\r\nBcc: x' })).toThrow(/inReplyToMessageId/);
+});
+
+test('buildRaw leaves an ASCII subject readable and RFC 2047-encodes a non-ASCII one', () => {
+  expect(decode(buildRaw(base))).toContain('Subject: Re: x\r\n');
+  const subject = 'Re: Café audit — quote';
+  const raw = decode(buildRaw({ ...base, subject }));
+  const encoded = Buffer.from(subject, 'utf8').toString('base64');
+  expect(raw).toContain(`Subject: =?UTF-8?B?${encoded}?=\r\n`);
+  expect(raw).not.toContain('Café');
+});
+
+test('buildRaw keeps a non-ASCII body as UTF-8 and declares 8bit', () => {
+  const raw = decode(buildRaw({ ...base, body: 'Grüße, 你好' }));
+  expect(raw).toContain('Content-Type: text/plain; charset=utf-8\r\n');
+  expect(raw).toContain('Content-Transfer-Encoding: 8bit\r\n');
+  expect(raw.split('\r\n\r\n')[1]).toBe('Grüße, 你好');
+});
+
+test('buildRaw sets In-Reply-To and References only when the lead Message-ID is given', () => {
+  const withId = decode(buildRaw({ ...base, inReplyToMessageId: '<lead@mail.example>' }));
+  expect(withId).toContain('In-Reply-To: <lead@mail.example>\r\n');
+  expect(withId).toContain('References: <lead@mail.example>\r\n');
+  const without = decode(buildRaw(base));
+  expect(without).not.toContain('In-Reply-To');
+  expect(without).not.toContain('References');
+});
+
+test('parseFrom handles a trailing comment and an empty header', () => {
+  expect(parseFrom('A@B.example (Maya)')).toEqual({ fromEmail: 'a@b.example', fromName: 'Maya' });
+  expect(parseFrom('')).toEqual({ fromEmail: '' });
+});
+
+test('findSentByTag compares the tag exactly, not as a substring', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(json({ messages: [tagged('m1', 'appr-10')] }));
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toBeNull();
+});
+
+test('findSentByTag on an empty thread returns null', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(json({ messages: [] }));
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toBeNull();
 });

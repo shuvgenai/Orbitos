@@ -13,29 +13,52 @@ export class GmailApiError extends Error {
   }
 }
 
+const encodeSubject = (s: string): string =>
+  /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+
 export function buildRaw(args: SendArgs): string {
+  // Header injection guard: this is the last line before the wire, so it never relies on the caller.
+  for (const [field, value] of [
+    ['toEmail', args.toEmail],
+    ['subject', args.subject],
+    ['orbitcrewId', args.orbitcrewId],
+    ['inReplyToMessageId', args.inReplyToMessageId ?? ''],
+  ] as const) {
+    if (/[\r\n]/.test(value)) throw new Error(`${field} must not contain CR or LF`);
+  }
   const headers = [
     `To: ${args.toEmail}`,
-    `Subject: ${args.subject}`,
+    `Subject: ${encodeSubject(args.subject)}`,
+    ...(args.inReplyToMessageId
+      ? [`In-Reply-To: ${args.inReplyToMessageId}`, `References: ${args.inReplyToMessageId}`]
+      : []),
     `X-Orbitcrew-Id: ${args.orbitcrewId}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: 8bit',
   ];
   return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${args.body}`, 'utf8').toString('base64url');
 }
 
-/** Splits a From header into a bare lowercase address and an optional display name. */
+/**
+ * Splits a From header into a bare lowercase address and an optional display name.
+ * An empty header yields an empty address; Task 4 treats an empty address as not-self-sent.
+ */
 export function parseFrom(header: string): { fromEmail: string; fromName?: string } {
+  const unquote = (s: string): string => s.trim().replace(/^"(.*)"$/, '$1').trim();
   const angle = /<([^<>]*)>\s*$/.exec(header);
-  const address = (angle ? angle[1]! : header).trim().toLowerCase();
-  const name = angle
-    ? header
-        .slice(0, angle.index)
-        .trim()
-        .replace(/^"(.*)"$/, '$1')
-        .trim()
-    : '';
-  return name ? { fromEmail: address, fromName: name } : { fromEmail: address };
+  if (angle) {
+    const name = unquote(header.slice(0, angle.index));
+    const fromEmail = angle[1]!.trim().toLowerCase();
+    return name ? { fromEmail, fromName: name } : { fromEmail };
+  }
+  const comment = /^(.*?)\s*\(([^()]*)\)\s*$/.exec(header);
+  if (comment) {
+    const name = comment[2]!.trim();
+    const fromEmail = comment[1]!.trim().toLowerCase();
+    return name ? { fromEmail, fromName: name } : { fromEmail };
+  }
+  return { fromEmail: header.trim().toLowerCase() };
 }
 
 type ApiPart = {
@@ -137,6 +160,8 @@ export function createGmailClient(deps: {
     },
 
     async listByDate(since): Promise<HistoryPage> {
+      // Profile first: a lead arriving during the listing must land AFTER this watermark, not behind it.
+      const profile = (await ok(await call('/profile'), 'getProfile')) as { historyId: string };
       const ids: string[] = [];
       let pageToken: string | undefined;
       do {
@@ -149,7 +174,6 @@ export function createGmailClient(deps: {
         for (const m of data.messages ?? []) ids.push(m.id);
         pageToken = data.nextPageToken;
       } while (pageToken);
-      const profile = (await ok(await call('/profile'), 'getProfile')) as { historyId: string };
       return { messages: await fetchAll(ids), historyId: profile.historyId };
     },
 
