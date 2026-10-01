@@ -115,3 +115,21 @@ test('a non-auth error propagates and leaves the connection and watermark alone'
   expect(conn.historyId).toBe('100');
   expect(await prisma.job.count({ where: { workspaceId: ws.id, kind: 'notice' } })).toBe(0);
 });
+
+test('a second revocation after a reconnect gets its own notice', async () => {
+  const ws = await newWorkspace(prisma);
+  await withConnection(prisma, ws.id, { historyId: '100' });
+  const gmail = new FakeGmail({ historyId: '100' });
+  const tick = () => pollOnce({ prisma, gmail, workspaceId: ws.id, ownerAddress: 'owner@example.com' });
+
+  gmail.failNextListWith({ status: 401 });
+  await tick();
+  await prisma.gmailConnection.update({ where: { workspaceId: ws.id }, data: { state: 'connected', revokedAt: null } });
+  gmail.failNextListWith({ status: 403 });
+  await tick();
+
+  const conn = await prisma.gmailConnection.findUniqueOrThrow({ where: { workspaceId: ws.id } });
+  expect(conn.state).toBe('revoked');
+  expect(conn.historyId).toBe('100');
+  expect(await prisma.job.count({ where: { workspaceId: ws.id, kind: 'notice' } })).toBe(2);
+});

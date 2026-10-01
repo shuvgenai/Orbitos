@@ -13,9 +13,9 @@ export function advanceWatermark(prisma: PrismaClient, workspaceId: string, hist
 }
 
 // CN-8: the token is gone. The watermark is deliberately left where it was.
-export function markRevoked(prisma: PrismaClient, workspaceId: string) {
+export function markRevoked(prisma: PrismaClient, workspaceId: string, revokedAt: Date = new Date()) {
   return prisma.gmailConnection.update({
     where: { workspaceId },
-    data: { state: 'revoked', revokedAt: new Date() },
+    data: { state: 'revoked', revokedAt },
   });
 }

@@ -1,9 +1,10 @@
+import { pino } from 'pino';
 import { cleanBody } from '@orbit/shared/body';
 import { GmailApiError } from '@orbit/shared/gmail/client';
 import type { GmailMessage, GmailPort, HistoryPage } from '@orbit/shared/gmail/port';
-import type { PrismaClient } from '../../db/src/client.ts';
-import { advanceWatermark, markRevoked, readConnection } from '../../db/src/gmail-connection.ts';
-import { enqueueJob } from '../../db/src/jobs.ts';
+import type { PrismaClient } from '@orbit/db/client';
+import { advanceWatermark, markRevoked, readConnection } from '@orbit/db/gmail-connection';
+import { enqueueJob } from '@orbit/db/jobs';
 import { shouldDrop } from './filter.ts';
 
 export type PollDeps = {
@@ -14,6 +15,8 @@ export type PollDeps = {
 };
 export type PollResult = { created: number; dropped: number; resynced: boolean };
 
+const log = pino({ name: 'frontdesk-poll' });
+
 const RESYNC_WINDOW_MS = 7 * 24 * 3600_000;
 
 // A 401 or 403 means the token is gone. Everything else (429, 5xx, and errors with no status
@@ -22,16 +25,18 @@ function isRevocation(err: unknown): boolean {
   return err instanceof GmailApiError && (err.status === 401 || err.status === 403);
 }
 
-async function handleRevocation(deps: PollDeps, historyId: string): Promise<void> {
-  // Notice first: if markRevoked then fails, the retry re-enqueues the same dedupe key (a no-op).
-  // The other order could mark revoked, fail to enqueue, and then never alert anyone.
+async function handleRevocation(deps: PollDeps): Promise<void> {
+  // One notice per distinct revocation: the key is the revokedAt we are about to record, so a
+  // reconnect-then-revoke-again gets its own notice. Notice first: if markRevoked then fails, no
+  // alert is lost (the next tick retries with a fresh timestamp; a rare duplicate beats silence).
+  const revokedAt = new Date();
   await enqueueJob(deps.prisma, {
     workspaceId: deps.workspaceId,
     kind: 'notice',
-    dedupeKey: `gmail-revoked:${deps.workspaceId}:${historyId}`,
+    dedupeKey: `gmail-revoked:${deps.workspaceId}:${revokedAt.toISOString()}`,
     payload: { type: 'gmail_revoked' }, // content-free: no mail, no addresses
   });
-  await markRevoked(deps.prisma, deps.workspaceId);
+  await markRevoked(deps.prisma, deps.workspaceId, revokedAt);
 }
 
 // One transaction per message: a lead never exists without its body, so a retry that finds the
@@ -60,6 +65,8 @@ async function persist(deps: PollDeps, msg: GmailMessage, drop: boolean): Promis
         where: { workspaceId_messageId: { workspaceId: deps.workspaceId, messageId: msg.messageId } },
         select: { id: true },
       });
+      // The joined text parts, not the original RFC822 source: the port hands us parsed parts and
+      // never the raw message. This is what DAT-3's 90-day purge of "raw bodies" deletes.
       const rawBody = msg.parts.map((p) => p.text ?? '').filter(Boolean).join('\n\n');
       await tx.emailBody.create({
         data: { leadId: lead.id, rawBody, cleanBody: cleanBody(msg.parts), receivedAt: msg.receivedAt },
@@ -87,7 +94,7 @@ export async function pollOnce(deps: PollDeps): Promise<PollResult> {
     }
   } catch (err) {
     if (!isRevocation(err)) throw err;
-    await handleRevocation(deps, conn.historyId);
+    await handleRevocation(deps);
     return { created: 0, dropped: 0, resynced: false };
   }
 
@@ -96,23 +103,29 @@ export async function pollOnce(deps: PollDeps): Promise<PollResult> {
   // Any failure below propagates before the watermark moves, so the next tick re-reads the whole
   // batch; the unique key makes the already-persisted messages no-ops.
   for (const msg of page.messages) {
-    const known = await deps.prisma.lead.findFirst({
-      where: { workspaceId: deps.workspaceId, gmailThreadId: msg.gmailThreadId },
-      select: { id: true },
-    });
-    if (known) continue; // FD-1b: first inbound only
-    const drop = shouldDrop(
-      {
-        fromEmail: msg.fromEmail,
-        headers: msg.headers,
-        subject: msg.subject,
-        partMimeTypes: msg.parts.map((p) => p.mimeType),
-      },
-      deps.ownerAddress,
-    );
-    if (!(await persist(deps, msg, drop !== false))) continue;
-    if (drop) dropped += 1;
-    else created += 1;
+    try {
+      const known = await deps.prisma.lead.findFirst({
+        where: { workspaceId: deps.workspaceId, gmailThreadId: msg.gmailThreadId },
+        select: { id: true },
+      });
+      if (known) continue; // FD-1b: first inbound only
+      const drop = shouldDrop(
+        {
+          fromEmail: msg.fromEmail,
+          headers: msg.headers,
+          subject: msg.subject,
+          partMimeTypes: msg.parts.map((p) => p.mimeType),
+        },
+        deps.ownerAddress,
+      );
+      if (!(await persist(deps, msg, drop !== false))) continue;
+      if (drop) dropped += 1;
+      else created += 1;
+    } catch (err) {
+      // A wedged poller must say so. Blocking never loses a lead; skipping would.
+      log.error({ err, gmailMessageId: msg.gmailMessageId }, 'poll: message failed, batch halted before watermark');
+      throw err;
+    }
   }
 
   await advanceWatermark(deps.prisma, deps.workspaceId, page.historyId);
