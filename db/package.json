@@ -8,7 +8,8 @@
     "./jobs": "./src/jobs.ts",
     "./timers": "./src/timers.ts",
     "./ledger": "./src/ledger.ts",
-    "./gmail-connection": "./src/gmail-connection.ts"
+    "./gmail-connection": "./src/gmail-connection.ts",
+    "./decision-calls": "./src/decision-calls.ts"
   },
   "dependencies": {
     "@orbit/shared": "workspace:*",

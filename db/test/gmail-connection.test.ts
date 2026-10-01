@@ -44,7 +44,7 @@ test('a decision call records its cost and outcome', async () => {
   const call = await prisma.decisionCall.create({
     data: {
       workspaceId: ws.id,
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-4-5',
       outcome: 'lead',
       confidence: 0.91,
       inputTokens: 820,
