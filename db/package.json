@@ -9,7 +9,8 @@
     "./timers": "./src/timers.ts",
     "./ledger": "./src/ledger.ts",
     "./gmail-connection": "./src/gmail-connection.ts",
-    "./decision-calls": "./src/decision-calls.ts"
+    "./decision-calls": "./src/decision-calls.ts",
+    "./owner": "./src/owner.ts"
   },
   "dependencies": {
     "@orbit/shared": "workspace:*",
