@@ -355,13 +355,13 @@ test('a sending row with a null sendingAt falls back to issuedAt', async () => {
   expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('failed');
 });
 
-test('GET on a sending or failed row past its deadline says expired', async () => {
+test('GET past the deadline: a failed row says expired, a sending row still reconciles', async () => {
   const f = await fixture();
   f.gmail.failNextSendWith({ status: 503 });
   await handleConfirmPost(f.deps, f.token, {} as never, 'send');
   expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('send_failed');
   await prisma.approval.update({ where: { id: f.approval.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
-  expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('expired');
+  expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('send_failed'); // sending: POST can still reconcile
   await prisma.approval.update({ where: { id: f.approval.id }, data: { state: 'failed' } });
   expect((await handleConfirmGet(f.deps, f.token, {} as never)).view).toBe('expired');
 });
@@ -377,4 +377,24 @@ test('sendAttempts counts every send attempt', async () => {
   const after = await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } });
   expect(after.sendAttempts).toBe(2);
   expect(after.state).toBe('sent');
+});
+
+// ---- fix round 3 ----
+
+test('a sending row past its deadline whose reply is in Sent still reconciles to sent', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendAfterAccepting();
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await prisma.approval.update({ where: { id: approval.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+  expect((await handleConfirmGet(deps, token, {} as never)).view).toBe('send_failed'); // not 'expired'
+  expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('sent');
+  expect(gmail.sent).toHaveLength(1);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sent');
+});
+
+test('the confirm path passes its send timeout to the Gmail call', async () => {
+  const { token, deps, gmail } = await fixture();
+  const spy = vi.spyOn(gmail, 'sendInThread');
+  await handleConfirmPost({ ...deps, sendTimeoutMs: 12_345 }, token, {} as never, 'send');
+  expect(spy).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 12_345 }));
 });

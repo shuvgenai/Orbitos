@@ -248,3 +248,20 @@ test('the error reason is parsed from the Gmail body, else error.status, else un
     await expect(gmail.listSince('5')).rejects.toMatchObject({ status: res.status, reason });
   }
 });
+
+test('the send request carries an abort signal: 60 s by default, the caller timeoutMs when given', async () => {
+  const seen: AbortSignal[] = [];
+  const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+    seen.push(init.signal!);
+    return json({ id: 'm1' });
+  });
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  const args = { gmailThreadId: 't1', toEmail: 'maya@okafor.example', subject: 'Re: x', body: 'b', orbitcrewId: 'a1' };
+  await gmail.sendInThread(args);
+  await gmail.sendInThread({ ...args, timeoutMs: 5 });
+  expect(seen[0]).toBeInstanceOf(AbortSignal);
+  expect(seen[0]!.aborted).toBe(false);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(seen[1]!.aborted).toBe(true); // the short one fired, the default one did not
+  expect(seen[0]!.aborted).toBe(false);
+});

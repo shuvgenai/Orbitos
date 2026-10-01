@@ -123,6 +123,8 @@ function toMessage(m: ApiMessage): GmailMessage {
 export function createGmailClient(deps: {
   accessToken: () => Promise<string>;
   fetch?: typeof fetch;
+  /** Default abort timeout for messages.send; a call can override it with args.timeoutMs. 60 s. */
+  sendTimeoutMs?: number;
 }): GmailPort {
   const doFetch = deps.fetch ?? fetch;
 
@@ -200,7 +202,7 @@ export function createGmailClient(deps: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ raw: buildRaw(args), threadId: args.gmailThreadId }),
         // One send must not outlive the confirm page's sending grace.
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(args.timeoutMs ?? deps.sendTimeoutMs ?? 60_000),
       });
       const data = (await ok(res, 'messages.send')) as { id: string };
       return { gmailMessageId: data.id };
