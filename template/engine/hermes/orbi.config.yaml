@@ -1,0 +1,28 @@
+# Orbi's Hermes profile. Orbi reads unclear leads and stuck drafts and answers with a verdict.
+# It needs no Hermes toolset at all: its issue actions come from Paperclip, not from Hermes.
+model: anthropic/claude-sonnet-5
+
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+
+skills:
+  write_approval: true
+  auto_load: []
+
+agent:
+  disabled_toolsets:
+    - terminal
+    - file
+    - web
+    - browser
+    - code_execution
+    - vision
+    - mcp
+    - creative
+    - productivity
+    - memory
+
+cron:
+  # Orbi's Friday routine is a Paperclip routine, not a Hermes cron job (COST-2).
+  enabled: false
