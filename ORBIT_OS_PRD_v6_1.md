@@ -200,7 +200,7 @@ Fleet (OrbitumAI)
 | Front Desk | ORBIT service (Node); Gmail API `history.list` every 30 s; Gmail API send in thread |
 | System email | Resend, from a verified Orbitcrew sending domain (SPF/DKIM) |
 | Decision model | Claude Haiku 4.5 behind `DecisionProvider` (Jev in Phase 2) |
-| Models | Claude Sonnet 5 (Orbi, Scout via Hermes), Claude Haiku 4.5 (lead classification), Claude Opus 5 (offline evaluation only). OpenRouter fallback: see §22 N-1 |
+| Models | Claude Sonnet 5 (Orbi, Scout via Hermes), Claude Haiku 4.5 (lead classification), Claude Opus 5 (offline evaluation only). No OpenRouter fallback at launch (CEO v2 D9): a provider outage sends the affected leads to the digest and raises the owner and founder alerts. |
 | Hosting | Coolify on Hostinger; one small VPS per instance (see §22 N-13) |
 | Fleet tooling | Provisioning script, registry file, upgrade runbook, nightly backups to off-host storage, Tailscale, external uptime check, alert emails |
 | Tests and CI | Vitest + Testing Library; GitHub Actions on every push; automated a11y check (axe) in CI |
@@ -308,6 +308,7 @@ Drafting (Paperclip task bridge)
   - `lead`: the issue goes to Scout for a draft and confirm link. No ack is sent (ACK-1 unchanged).
   - `not_lead`: digest entry "not a lead (Orbi)".
   - Every Orbi verdict appears in the digest.
+  - **No verdict in 10 minutes** (CEO v2 D7): ORBIT posts one corrective comment that re-wakes Orbi. If the second attempt also returns nothing, the lead goes to the digest as "unclear, Orbi did not answer" and the owner is alerted. No ack is sent, and the email is never acked later. A fake-clock test covers the timeout.
 
 Approval and sending (rules in §12)
 - FD-4 **Approval courier:**
@@ -345,7 +346,7 @@ Latency budget (p95; sums to 90 s, under the 2-minute ack target; Paperclip and 
 
 ## 9. Fleet Operations (scripts and registry file)
 Until about 10 instances, the fleet runs on scripts and a registry file. The console UI is Phase 2.
-- FLT-1 **Registry file:** customer, domain, host, plan, pinned versions (ORBIT, Paperclip, Hermes), last backup, health, team status, connections, incidents, waiting approvals older than 24 h, month-to-date spend. Counts and status only; never customer content.
+- FLT-1 **Registry file:** customer, domain, host, plan, pinned versions (ORBIT, Paperclip, Hermes), last backup, health, team status, connections, incidents, waiting approvals older than 24 h, month-to-date spend, ops minutes for the month (FLT-12). Counts and status only; never customer content.
 - FLT-2 **Scripts:** provision (10.1), upgrade (10.2), restore (10.3), decommission (10.4), pause instance, pause all.
 - FLT-7 **Posture report** per instance after every provision and upgrade:
   - No public database, Redis, Paperclip or Hermes port; engine UIs on the tailnet only.
@@ -355,7 +356,7 @@ Until about 10 instances, the fleet runs on scripts and a registry file. The con
   - Versions match the template.
 - FLT-10 **Operator access:** OrbitumAI only, over Tailscale. Every operator action is audited on the affected instance.
 - FLT-11 **Alerts:** an external uptime check emails the founder when a host is down. The instance emails the founder on a missed nightly backup or a failed send.
-- FLT-12 **Ops capacity trigger:** at 25 instances, add ops help or revisit the hosting model.
+- FLT-12 **Ops capacity trigger** (CEO v2 D12): ops minutes per instance are logged monthly. Add ops help or revisit the hosting model at 25 instances **or** when ops exceeds 10 h/week for 4 consecutive weeks, whichever comes first.
 
 ## 10. Requirements — Provisioning, Upgrade, Backup, Decommission
 10.1 Provisioning
@@ -384,7 +385,7 @@ Until about 10 instances, the fleet runs on scripts and a registry file. The con
 - CN-3 ORBIT is the OAuth client. Tokens are encrypted with a per-instance key and never reach agents, prompts, the Paperclip/Hermes container or logs.
 - CN-4 Where the customer is on Google Workspace, an internal OAuth app is created in the customer's Google Cloud project during managed setup, avoiding Google verification. A customer not on Workspace waits for an IMAP path or a verified app (open decision 3).
 - CN-7 Not supported: iMessage. WhatsApp needs an ORBIT-built Front Desk adapter plus Meta approval, and is Phase 3.
-- CN-8 Reconnecting a revoked or expired Gmail token pauses the Front Desk and shows "Reconnect your inbox" (see §22 N-9).
+- CN-8 A revoked or expired Gmail token pauses the Front Desk, shows the "Reconnect your inbox" banner, sends the owner a content-free notice and raises a founder alert (CEO v2 D8). Who performs the reconnect, and on which screen: see §22 N-9. A revoked-token test covers the pause, the banner, the notice and the alert.
 
 ## 12. Requirements — Approvals and Human Authority (single source)
 This section is the only statement of the approval rules. Other sections reference it.
@@ -441,7 +442,7 @@ Backups, escalation chains, delegation, authority-change requests and office-cha
   - Receipts: for the life of the customer.
   - Backups: 30 days.
   - Expired data is removed by partition drop, purge or file deletion. No retention is hard-coded elsewhere.
-- DAT-4 **Nightly rollup:** each instance computes the day's numbers: emails, leads, acks, drafts, sent, edited, discarded, Orbi verdicts, time to sent reply, hours given back (estimate; see §22 N-4), cost per teammate, cached-input share, idle model calls, versions, backup and health status. The rollup holds numbers only, never customer text (destination: see §22 N-3).
+- DAT-4 **Nightly rollup:** each instance computes the day's numbers: emails, leads, acks, drafts, sent, edited, discarded, Orbi verdicts, time to sent reply, hours given back, an estimate computed as (15 min − the owner's confirm-page time) per sent reply plus 2 min per ack, always labeled an estimate (CEO v2 D13). Confirm-page open time is recorded from day one so the estimate rests on measured data, cost per teammate, cached-input share, idle model calls, versions, backup and health status. The rollup holds numbers only, never customer text (destination: see §22 N-3).
 - DAT-6 **Data paths:** data leaves an instance only through:
   1. the DAT-4 rollup (numbers only);
   2. calls to AI model providers, from ORBIT and from Hermes, under no-training / zero-retention terms (SEC-11).
@@ -451,7 +452,7 @@ Backups, escalation chains, delegation, authority-change requests and office-cha
 - DAT-8 Backups include the event-log partitions. Restore verification compares the last event and the last receipt.
 - DAT-9 `decision_calls` records each Decision Layer call: caller, provider (`haiku` at launch), question type, redacted state, question, answer with confidence, latency, cost, and later `human_verdict` (agreed or overridden, from the founder's weekly labels).
 - DAT-10 **Hermes data:** persistent memory is OFF on Orbi and Scout. Each lead has its own Hermes session (one per Paperclip issue, never shared across issues). Session files follow the 90-day rule in DAT-3.
-- DATA-1 Export receipts as a ZIP of CSV files. Deletion requires the owner's confirmation and completes within 30 days (10.4). Where export runs: see §22 N-10.
+- DATA-1 Export receipts as a ZIP of CSV files. Deletion requires the owner's confirmation and completes within 30 days (10.4). Where export runs: see §22 N-10. Both exports are deferred to before the named firm goes live (CEO v2 D4), because DEC-1 cannot be honored without them; N-10 is answered then.
 
 ## 15. UX, Design System and Accessibility
 - UX-1 **DESIGN.md** is the single design system, written from the landing tokens:
@@ -512,10 +513,10 @@ Backups, escalation chains, delegation, authority-change requests and office-cha
 | Stage | Deliverable | Exit criterion |
 |---|---|---|
 | 0. Foundations | Git repo, private GitHub repo and CI; Node 24; verified Resend sending domain; DESIGN.md; template compose (4 ORBIT programs, Redis, Paperclip + Hermes container, Postgres with 2 databases); ORBIT schema (events, approvals, lead state, job rows, timers, sessions, contacts index), with the approvals and job-row schemas frozen first | CI red on a failing test; `.env.local` ignored; test email passes SPF/DKIM |
-| 0b. Engine spike (in parallel with the schema) | Paperclip company with Orbi and Scout via `hermes_local` at pinned versions; toolset allowlist; memory off; per-issue session; Paperclip and Hermes on Node 24 | A Scout run posts a JSON draft comment on a Paperclip issue; a second issue starts an empty session; posture check passes |
-| 1. Customer zero (founder inbox, October 2026) | Front Desk (poller, classifier, ack guard, kill switch, Paperclip bridge, Orbi route, sender); web + API (confirm page, magic-link sign-in, sessions, screens); worker (reconciler, timers, notices, digest, retention incl. Hermes purge); replay harness | Replay set passes before auto-ack is on; success criteria in §3 on ≥ 10 labeled real leads, **capped at 4 weeks** |
+| 0b. Engine spike (in parallel with the schema) | Paperclip company with Orbi and Scout via `hermes_local` at pinned versions; toolset allowlist; memory off; per-issue session; Paperclip and Hermes on Node 24 | A Scout run posts a JSON draft comment on a Paperclip issue; a second issue starts an empty session; posture check passes. **Time-box (CEO v2 D6):** the spike must pass by the end of build week 2. If it does not, the build stops, a one-page options note goes to the founder and the founder decides. Nothing is deferred automatically. |
+| 1. Customer zero (founder inbox, October 2026) | Front Desk (poller, classifier, ack guard, kill switch, Paperclip bridge, Orbi route, sender); web + API (confirm page, magic-link sign-in, sessions, screens); worker (reconciler, timers, notices, digest; the Hermes purge moves to the pilot stage per D2); Orbi's Friday routine and weekly review, kept as go/no-go evidence (CEO v2 D5); replay harness | Replay set passes before auto-ack is on; success criteria in §3 on ≥ 10 labeled real leads, **capped at 4 weeks** |
 | Go / no-go (at the latest, the 4-week cap) | Review against §3 | Zero breaches, replay set passes, ≥ 5 live leads met targets |
-| Assignment (before building past customer zero) | Call the firm that asked: signed one-page pilot agreement with a monthly price; 20 forwarded lead emails (stored, not sent to AI until terms are signed); confirm Google Workspace and that its admin can create an internal OAuth app | Firm named, pilot committed, price agreed |
+| Assignment (before building past customer zero) | Call the firm that asked **this week**, with the build continuing in parallel (CEO v2 D14), pitching ack speed, one-tap in-thread send and receipts; re-plan stage 2 before it starts if the firm declines: signed one-page pilot agreement with a monthly price; 20 forwarded lead emails (stored, not sent to AI until terms are signed); confirm Google Workspace and that its admin can create an internal OAuth app | Firm named, pilot committed, price agreed |
 | 2. Named firm (own VPS) | Same template, own databases, own domain; internal OAuth app in the firm's Workspace; written ack-wording sign-off; Anthropic terms signed | Pilot live on its own domain; 4-week targets in §3 |
 | 3. Pilots (5–10, November–December 2026) | Provisioning script (incl. Paperclip company and hires) and registry file; nightly rollup and retention jobs; alerts; upgrade rehearsal across staging and two instances; restore drill; footprint measurement; unit-economics check before quoting | Second instance provisioned in under 15 minutes; zero unplanned rollbacks; host sizing decided; positive margin per tier |
 
@@ -572,9 +573,7 @@ The sources leave these open or contradict each other. They were not decided in 
 
 | # | Question | Conflict / gap |
 |---|---|---|
-| N-1 | Is there an OpenRouter fallback for Claude at launch (for the Decision Layer and for Hermes)? | v5.1 §7 and the CEO error registry say to back off, then use OpenRouter. The design doc says two failed classifier calls mean "unsure" plus an owner alert (now: Orbi), and does not mention OpenRouter. |
 | N-3 | Where do the nightly rollup numbers go? | v5.1 DAT-4 pushed them to a fleet metrics database behind the console. The console is deferred (R2), and the registry file holds only status. |
-| N-4 | How is "hours given back" estimated? | C4 approved adding the estimate, but no formula is given. |
 | N-5 | What is the exact customer-facing data-promise wording, and does it name Resend? | C1 approved rewording the promise to name AI providers, but gave no wording. Resend receives content-free system email. |
 | N-6 | Is there a "Pause office" control at launch, beside "Pause auto-ack"? | The design review adds an "office paused" confirm-page state (2A) and v5.1 PAUSE-1 exists, but the launch Settings screen (6A) lists only "pause auto-ack". |
 | N-9 | Who performs "Reconnect your inbox", and on which screen? | The CEO registry keeps the CONN-1 banner, but no launch screen offers a reconnect flow. |
@@ -583,6 +582,7 @@ The sources leave these open or contradict each other. They were not decided in 
 | N-14 | Does a discarded draft get a receipt? | RCPT-1 says "one receipt per sent message". Design 12A says discard reasons are "stored on the receipt". |
 | N-15 | What is the body truncation limit before model calls? | The v5.1 limit (32K) was Jev's context size. Jev is deferred. |
 | N-17 | Do OrbitumAI operators need 2FA at launch (including on the Paperclip UI over the tailnet)? | v5.1 SEC-9 and FLT-10 required TOTP for operators through the console. With no console, operator access is scripts and engine UIs over Tailscale. |
+| N-18 | How is "Scout: web search only" (CEO2-D10) enforced, given that the pinned Hermes image exposes `web` as a single toolset holding both web_search and web_extract? | Two mechanisms fit. (a) Disable `web` entirely: Scout drafts from the lead email, the tone samples and the facts file, and loses search. (b) Keep `web` and block fetch at the container egress, allowing only the search API host, with the posture check asserting the egress rules. Note that search queries are themselves an exfiltration channel, which is the risk S3-EXFIL was closing. |
 
 (v6.0 N-2, broken-draft handling, is resolved by Eng v3 D5: FD-3.)
 
@@ -630,13 +630,13 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
     - Verify: each state is reachable in a test and has a single action.
 16. **T2 (legal + landing, C1)** — Get Anthropic's zero-retention / no-training terms confirmed in writing; reword the promise in the Vision doc and landing copy (wording: N-5).
     - Verify: the promise names AI providers; DAT-6 lists the model-provider path; the terms are confirmed in writing.
-17. **T1 / T3 (Vision doc)** — Remove Telegram from Vision §5, §7 and §11 #15; apply the R1–R7 deferrals to the Vision roadmap; update the two stale Vision diagrams (§5 first ten minutes, §7 architecture) to match §6 of this PRD, including Orbi + Scout on Paperclip + Hermes.
+17. **T1 / T3 (Vision doc)** — Remove Telegram from Vision §5, §7 and §11 #15; apply the R1–R7 deferrals to the Vision roadmap; update the two stale Vision diagrams (§5 first ten minutes, §7 architecture) to match §6 of this PRD, including Orbi + Scout on Paperclip + Hermes. Deferred to after the customer-zero go/no-go (CEO v2 D3), so the rewrite applies what the pilot actually proved. Task 16 (T2, the data promise) stays P1.
     - Verify: no "Telegram" left except in the change log; the diagrams match §6 of this PRD.
 
 **P2**
 18. **E-T4 (timers)** — Store timers (2 h reminder, 72 h void, digest, cap window) as Postgres rows polled every minute. The Home countdown reads the 72 h void row, so the screen and the timer cannot disagree (N-12).
     - Verify: a fake-clock test, plus a restart test in which an overdue timer fires after restart.
-19. **E3-T5 (worker)** — Nightly purge of Hermes session files older than 90 days (the raw-email row in `retention_policies`); DEC-2 wipes Hermes volumes.
+19. **E3-T5 (worker)** — Nightly purge of Hermes session files older than 90 days (the raw-email row in `retention_policies`); DEC-2 wipes Hermes volumes. Deferred to the pilot stage (CEO v2 D2), and due before any instance, customer zero included, holds 90 days of data. The 90-day rule itself is unchanged.
     - Verify: a 91-day-old session file is deleted; a 1-day-old one stays.
 20. **E3-T6 (tests)** — Static test across the 4 ORBIT programs: only the Front Desk service holds Gmail send scope; the API only writes decisions.
     - Verify: adding a Gmail send import to web/ or api/ fails CI.
@@ -746,6 +746,21 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
 | ENG3-D8 | Eng review v3 | Orbi decides unclear leads: `lead` → Scout draft with no ack; `not_lead` → digest; every verdict listed. |
 | ENG3-D9 | Eng review v3 | Postgres rows are the record for all pending work; a reconciler re-queues after Redis loss. |
 | ENG3-D10 | Eng review v3 | The `hermes_gateway` switch is tracked in `TODOS.md`. |
+| CEO2-D1 | CEO review v2 | Review mode: scope reduction. Sets the mode only; approves no cuts. |
+| CEO2-D2 (R1) | CEO review v2 | Retention jobs deferred to the pilot stage, due before any instance holds 90 days of data. The 90-day rule is unchanged. |
+| CEO2-D3 (R2) | CEO review v2 | The Vision doc rewrite (tasks T1/T3) is deferred to after the customer-zero go/no-go. T2, the data promise, stays P1. |
+| CEO2-D4 (R3) | CEO review v2 | The receipt CSV and the data export are deferred to before the named firm goes live, which is when N-10 is answered. |
+| CEO2-D5 (R4) | CEO review v2 | Orbi's Friday routine and weekly review stay in customer zero as go/no-go evidence. |
+| CEO2-D6 (S1-SPIKE) | CEO review v2 | The engine spike is time-boxed to the end of build week 2; otherwise stop, write a one-page options note, founder decides. Nothing defers automatically. |
+| CEO2-D7 (S2-ORBI) | CEO review v2 | Orbi verdict timeout: 10 minutes plus one corrective comment, then the digest entry "unclear, Orbi did not answer" and an owner alert. No ack. Fake-clock test. |
+| CEO2-D8 (S2-DISCONNECT) | CEO review v2 | A revoked or expired Gmail token pauses the Front Desk and raises the banner, a content-free owner notice and a founder alert. Revoked-token test. N-9 stays open. |
+| CEO2-D9 (S2-N1) | CEO review v2 | No OpenRouter fallback at launch. A provider outage goes to the digest with alerts. Answers N-1. |
+| CEO2-D10 (S3-EXFIL) | CEO review v2 | Scout gets web search only; the posture check asserts no fetch; an injection test covers it. **Not yet applied: the pinned Hermes image exposes `web` as one toolset holding both web_search and web_extract, so this needs a mechanism decision (see §22 N-18).** |
+| CEO2-D11 (S5-OPENQ) | CEO review v2 | N-7, N-8, N-11, N-12 and N-16 are answered before the stage 1 build. All five answered 2026-10-01; see §22. |
+| CEO2-D12 (S8-OPSTIME) | CEO review v2 | Ops minutes are logged per instance monthly; the capacity trigger is 25 instances or more than 10 h/week for 4 weeks. |
+| CEO2-D13 (S8-HOURS) | CEO review v2 | Hours given back = (15 min − confirm-page time) per sent reply + 2 min per ack, labeled an estimate, with open time recorded from day one. Answers N-4. |
+| CEO2-D14 (S9-CALL) | CEO review v2 | Call the pilot firm this week with the build continuing in parallel; re-plan stage 2 before it starts if the firm declines. |
+| CEO2-D15 (TODO-SPLIT) | CEO review v2 | Splitting Scout into a research run and a draft run is tracked in `TODOS.md` at P3. |
 
 END OF DOCUMENT
 Version 6.1 | September 30, 2026 | OrbitumAI
