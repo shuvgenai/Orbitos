@@ -20,7 +20,7 @@ test('a logged call is readable with its cost and latency', async () => {
   const row = await prisma.decisionCall.findFirstOrThrow({ where: { workspaceId: ws.id } });
   expect(row.outcome).toBe('unsure');
   expect(row.latencyMs).toBe(1200);
-  expect(Number(row.costUsd)).toBeCloseTo(0.001);
+  expect(Number(row.costUsd)).toBeCloseTo(0.001, 8);
 });
 
 test('a failed call logs no confidence', async () => {
