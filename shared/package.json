@@ -8,7 +8,8 @@
     "./jobs": "./src/jobs.ts",
     "./events": "./src/events.ts",
     "./agent-output": "./src/agent-output.ts",
-    "./token-crypto": "./src/token-crypto.ts"
+    "./token-crypto": "./src/token-crypto.ts",
+    "./body": "./src/body.ts"
   },
   "dependencies": {
     "zod": "4.6.5"
