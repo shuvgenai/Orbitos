@@ -57,6 +57,9 @@ importers:
 
   frontdesk:
     dependencies:
+      '@orbit/db':
+        specifier: workspace:*
+        version: link:../db
       '@orbit/shared':
         specifier: workspace:*
         version: link:../shared
