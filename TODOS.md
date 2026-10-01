@@ -69,7 +69,7 @@ row per issue in its own database, so the purge has two targets: the Hermes data
 **Pros:** Deeper research with no attacker-readable channel next to private context.
 **Cons:** Two runs per lead; more to test.
 
-**Context:** CEO review v2 (2026-09-30, D10) set Scout to web search only at launch and recorded this as the safe upgrade (D15). Trigger: draft quality suffers from search-only research (unedited rate or discard reasons point to thin research).
+**Context:** CEO review v2 (2026-09-30, D10) set Scout to web search only at launch and recorded this as the safe upgrade (D15). On 2026-10-01 the founder resolved D10 by dropping the `web` toolset outright: the pinned Hermes image bundles web_search with web_extract, so search without fetch is not configurable, and a search query exfiltrates as readily as a fetch URL. Scout therefore has no research at launch, which makes this split the only way research returns. Trigger: draft quality suffers from the lack of research (unedited rate or discard reasons point to thin drafts).
 
 **Effort:** M (human) / S (CC)
 **Priority:** P3

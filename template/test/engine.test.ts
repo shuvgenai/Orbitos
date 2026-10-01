@@ -110,9 +110,13 @@ test.each(['orbi', 'scout'] as const)('%s cannot write its own skills (CEO R7)',
   expect(profiles[name].skills?.auto_load).toEqual([]);
 });
 
-test('scout may use web and nothing else (SEC-2a)', () => {
+// CEO v2 D10 asked for search without fetch. The pinned image ships `web` as a single toolset
+// holding web_search and web_extract, and a search query exfiltrates as well as a fetch URL does,
+// so the founder dropped the toolset outright on 2026-10-01. Scout now has no Hermes toolset at
+// all; it drafts from the lead's email, the tone samples and the facts file.
+test('scout may use no Hermes toolset (SEC-2a, CEO v2 D10)', () => {
   const disabled = profiles.scout.agent?.disabled_toolsets ?? [];
-  expect([...disabled].sort()).toEqual(ALL_TOOLSETS.filter((t) => t !== 'web').sort());
+  expect([...disabled].sort()).toEqual([...ALL_TOOLSETS].sort());
 });
 
 test('orbi may use no Hermes toolset; its issue tools come from Paperclip (SEC-2a)', () => {
@@ -146,7 +150,7 @@ test('turn caps match COST-3', () => {
 });
 
 test('the adapter toolsets match the profile allowlist (SEC-2a)', () => {
-  expect(adapters.scout!.toolsets).toBe('web');
+  expect(adapters.scout!.toolsets).toBe('');
   expect(adapters.orbi!.toolsets).toBe('');
 });
 

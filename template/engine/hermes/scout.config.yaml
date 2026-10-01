@@ -16,10 +16,15 @@ skills:
 
 agent:
   # Allowlist by subtraction, so every key in Hermes' CONFIGURABLE_TOOLSETS registry must appear
-  # here unless Scout needs it. Scout keeps `web` only: web_search and web_extract (SEC-2a).
+  # here. Scout keeps none (CEO v2 D10, founder 2026-10-01). The image exposes `web` as one
+  # toolset holding web_search and web_extract together, so "search only" cannot be configured;
+  # a search query also carries data out, which is the leak S3-EXFIL closed. Scout therefore
+  # drafts from the lead's email, the owner's tone samples and the facts file alone. The research
+  # and draft split in TODOS.md P3 is how research comes back.
   # The registry is at /opt/hermes/hermes_cli/tools_config.py in the pinned image; if an upgrade
   # adds a toolset, it is ENABLED until it is listed here, which is what the posture check catches.
   disabled_toolsets:
+    - web
     - browser
     - terminal
     - file

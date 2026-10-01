@@ -76,10 +76,13 @@ test('a terminal toolset on Scout fails the check (E3-T2 verify)', () => {
   expect(codes(input)).toContain('toolset_not_allowed');
 });
 
-test('web on Orbi fails the check: only Scout researches (SEC-2a)', () => {
+// CEO v2 D10 (founder 2026-10-01) took `web` off Scout too, so the toolset is allowed on neither
+// agent: the image bundles web_search with web_extract, and a search query exfiltrates as well as
+// a fetch URL. Both directions are asserted so a later upgrade cannot quietly hand it back.
+test.each(['orbi', 'scout'] as const)('web on %s fails the check (SEC-2a, CEO v2 D10)', (agent) => {
   const input = clone();
-  const orbi = input.profiles.orbi as { agent: { disabled_toolsets: string[] } };
-  orbi.agent.disabled_toolsets = orbi.agent.disabled_toolsets.filter((t) => t !== 'web');
+  const profile = input.profiles[agent] as { agent: { disabled_toolsets: string[] } };
+  profile.agent.disabled_toolsets = profile.agent.disabled_toolsets.filter((t) => t !== 'web');
   expect(codes(input)).toContain('toolset_not_allowed');
 });
 
