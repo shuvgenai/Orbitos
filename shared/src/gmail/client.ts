@@ -163,19 +163,31 @@ export function createGmailClient(deps: {
       return { gmailMessageId: data.id };
     },
 
-    async findSentByTag(orbitcrewId) {
-      // Gmail search cannot match custom headers, so scan recent sent mail and compare the header.
+    async findSentByTag(orbitcrewId, opts) {
+      const hasTag = (m: ApiMessage): boolean =>
+        m.payload?.headers?.some((h) => h.name.toLowerCase() === 'x-orbitcrew-id' && h.value === orbitcrewId) ?? false;
+      const metaQs = new URLSearchParams({ format: 'metadata', metadataHeaders: 'X-Orbitcrew-Id' });
+
+      // Preferred: a reply we sent always lives in the lead's thread, so this is bounded and complete.
+      if (opts?.gmailThreadId) {
+        const res = await call(`/threads/${encodeURIComponent(opts.gmailThreadId)}?${metaQs}`);
+        if (res.status === 404) return null;
+        const thread = (await ok(res, 'threads.get')) as { messages?: ApiMessage[] };
+        const hit = (thread.messages ?? []).find(hasTag);
+        return hit ? { gmailMessageId: hit.id } : null;
+      }
+
+      // Fallback: Gmail search cannot match custom headers, so scan recent sent mail. Best-effort only:
+      // bounded by the scan size (50), so a tag older than that is missed. Pass gmailThreadId when known.
       const list = (await ok(
         await call(`/messages?${new URLSearchParams({ labelIds: 'SENT', maxResults: '50' })}`),
         'messages.list',
       )) as { messages?: { id: string }[] };
       for (const { id } of list.messages ?? []) {
-        const qs = new URLSearchParams({ format: 'metadata', metadataHeaders: 'X-Orbitcrew-Id' });
-        const res = await call(`/messages/${encodeURIComponent(id)}?${qs}`);
+        const res = await call(`/messages/${encodeURIComponent(id)}?${metaQs}`);
         if (res.status === 404) continue;
         const m = (await ok(res, 'messages.get')) as ApiMessage;
-        const tag = m.payload?.headers?.find((h) => h.name.toLowerCase() === 'x-orbitcrew-id')?.value;
-        if (tag === orbitcrewId) return { gmailMessageId: m.id };
+        if (hasTag(m)) return { gmailMessageId: m.id };
       }
       return null;
     },

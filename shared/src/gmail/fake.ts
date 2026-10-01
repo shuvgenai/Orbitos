@@ -4,7 +4,7 @@ import type { GmailMessage, GmailPort, HistoryPage, SendArgs } from './port.ts';
 type Queued = { seq: number; message: GmailMessage };
 
 export class FakeGmail implements GmailPort {
-  readonly sent: { orbitcrewId: string; gmailMessageId: string; raw: string }[] = [];
+  readonly sent: { gmailThreadId: string; orbitcrewId: string; gmailMessageId: string; raw: string }[] = [];
   private readonly startHistoryId: number;
   private counter: number;
   private readonly queued: Queued[] = [];
@@ -37,6 +37,7 @@ export class FakeGmail implements GmailPort {
       throw new GmailApiError(status, `Gmail history.list failed with status ${status}`);
     }
     const from = Number(historyId);
+    // Fake-only convenience: real Gmail answers a malformed id with 400, not 404.
     if (!Number.isInteger(from) || from < this.startHistoryId) return { expired: true };
     return {
       messages: this.queued.filter((q) => q.seq > from).map((q) => q.message),
@@ -53,7 +54,7 @@ export class FakeGmail implements GmailPort {
 
   async sendInThread(args: SendArgs): Promise<{ gmailMessageId: string }> {
     const gmailMessageId = `sent-${this.sent.length + 1}`;
-    this.sent.push({ orbitcrewId: args.orbitcrewId, gmailMessageId, raw: buildRaw(args) });
+    this.sent.push({ gmailThreadId: args.gmailThreadId, orbitcrewId: args.orbitcrewId, gmailMessageId, raw: buildRaw(args) });
     if (this.sendFailsAfterAccepting) {
       this.sendFailsAfterAccepting = false;
       throw new Error('connection reset after Gmail accepted the message');
@@ -61,8 +62,14 @@ export class FakeGmail implements GmailPort {
     return { gmailMessageId };
   }
 
-  async findSentByTag(orbitcrewId: string): Promise<{ gmailMessageId: string } | null> {
-    const hit = this.sent.find((s) => s.orbitcrewId === orbitcrewId);
+  async findSentByTag(
+    orbitcrewId: string,
+    opts?: { gmailThreadId?: string },
+  ): Promise<{ gmailMessageId: string } | null> {
+    const threadId = opts?.gmailThreadId;
+    const hit = this.sent.find(
+      (s) => s.orbitcrewId === orbitcrewId && (threadId === undefined || s.gmailThreadId === threadId),
+    );
     return hit ? { gmailMessageId: hit.gmailMessageId } : null;
   }
 }
