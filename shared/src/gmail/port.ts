@@ -24,6 +24,8 @@ export type SendArgs = {
   orbitcrewId: string;
   /** The lead's original RFC Message-ID; sets In-Reply-To and References so other clients keep the reply in the thread. */
   inReplyToMessageId?: string;
+  /** Aborts the HTTP request after this long. Defaults to the client's sendTimeoutMs (60 s). */
+  timeoutMs?: number;
 };
 
 export interface GmailPort {

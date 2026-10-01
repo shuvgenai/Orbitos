@@ -23,9 +23,9 @@ export type ConfirmDeps = {
   prisma: PrismaClient;
   gmail: GmailPort;
   secret: string;
-  /** Task 12 supplies the real one. The request is opaque here. */
-  /** Deadline for one Gmail send call; must stay well under SENDING_GRACE_MS. Default 60 s. */
+  /** Deadline for one Gmail send call, used both to abort the request and to stop waiting for it. Must stay well under SENDING_GRACE_MS. Default 60 s. */
   sendTimeoutMs?: number;
+  /** Task 12 supplies the real one. The request is opaque here. */
   requireSession: (req: unknown) => Promise<{ userId: string; freshAt: Date } | null>;
 };
 
@@ -92,8 +92,9 @@ export async function handleConfirmGet(deps: ConfirmDeps, token: string, req: un
   const { approval } = g;
   // A send that did not finish: the page offers the retry, which checks the Sent folder first.
   if (approval.state === 'sending' || (approval.state === 'failed' && approval.decision)) {
-    // A retry past the deadline would be refused by POST, so do not offer it.
-    if (approval.expiresAt.getTime() <= Date.now()) return EXPIRED;
+    // A failed row's retry past the deadline is refused by POST, so do not offer it. A `sending` row
+    // is different: POST is its only way to reconcile a reply that did reach the customer.
+    if (approval.state === 'failed' && approval.expiresAt.getTime() <= Date.now()) return EXPIRED;
     return { status: 200, view: 'send_failed' };
   }
   if (approval.state !== 'issued' || approval.decision) return ALREADY_DECIDED;
@@ -255,13 +256,15 @@ async function sendAndRecord(
   }
   let gmailMessageId: string;
   try {
-    ({ gmailMessageId } = await withDeadline(deps.sendTimeoutMs ?? SEND_TIMEOUT_MS, deps.gmail.sendInThread({
+    const timeoutMs = deps.sendTimeoutMs ?? SEND_TIMEOUT_MS;
+    ({ gmailMessageId } = await withDeadline(timeoutMs, deps.gmail.sendInThread({
       gmailThreadId: lead.gmailThreadId,
       toEmail: lead.fromEmail,
       subject,
       body,
       orbitcrewId: approval.id,
       inReplyToMessageId: lead.messageId,
+      timeoutMs, // aborts the request itself; the deadline below only stops us waiting
     })));
   } catch (err) {
     // 9 (failure). Ambiguous: Gmail may have accepted it. Leave `sending`; a retry checks the Sent folder.
