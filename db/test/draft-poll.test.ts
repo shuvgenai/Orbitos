@@ -1,4 +1,5 @@
 // db/test/draft-poll.test.ts
+import { createHash } from 'node:crypto';
 import { afterAll, expect, test, vi } from 'vitest';
 import { handleDraftPoll } from '../../frontdesk/src/engine/draft-poll.ts';
 import { newLead, newWorkspace, testPrisma } from './helpers.ts';
@@ -29,6 +30,8 @@ test('a valid draft becomes an approval and a queued notice', async () => {
   expect(approval.category).toBe('routine');
   expect(approval.draftText).toContain('happy to help');
   expect(await prisma.job.count({ where: { approvalId: approval.id, kind: 'notice' } })).toBe(1);
+  expect((await prisma.job.findFirstOrThrow({ where: { approvalId: approval.id, kind: 'notice' } })).dedupeKey)
+    .toBe(`notice:${approval.id}`);
   const after = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
   expect(after.state).toBe('awaiting_owner');
 });
@@ -79,6 +82,9 @@ test('the same corrected comment seen again is a retry, not a second failure', a
   expect(await handleDraftPoll(deps, { id: 'j1', leadId: lead.id })).toBe('retry');
   expect(engine.comment).toHaveBeenCalledTimes(1);
   expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('drafting');
+  const job = await prisma.job.findUniqueOrThrow({ where: { dedupeKey: `draft_poll:${lead.id}` } });
+  expect(job.payload).toEqual({ corrective_comment_posted: true,
+    corrected_comment_sha256: createHash('sha256').update(malformed).digest('hex') });
 });
 
 test('a different malformed comment after the correction fails the lead', async () => {
@@ -106,4 +112,59 @@ test('ten minutes with no valid draft marks the lead draft_failed', async () => 
   expect(out).toBe('failed');
   const after = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
   expect(after.state).toBe('draft_failed');
+});
+
+test('the lead.updatedAt fallback times out a lead that has no draft_poll job row', async () => {
+  const ws = await newWorkspace(prisma);
+  const lead = await newLead(prisma, ws.id);
+  await prisma.lead.update({ where: { id: lead.id }, data: { paperclipIssueId: 'i1', state: 'drafting',
+    updatedAt: new Date('2026-10-01T09:00:00Z') } });
+  const engine = { comments: vi.fn().mockResolvedValue([]), comment: vi.fn(), createIssue: vi.fn() };
+  expect(await handleDraftPoll({ prisma, engine, now: () => new Date('2026-10-01T09:10:01Z') },
+    { id: 'j1', leadId: lead.id })).toBe('failed');
+  expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('draft_failed');
+});
+
+test('a valid draft followed by a malformed comment still becomes an approval, with no correction', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue([validDraft, malformed]), comment: vi.fn(), createIssue: vi.fn() };
+  expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('approved');
+  expect(engine.comment).not.toHaveBeenCalled();
+  expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('awaiting_owner');
+});
+
+test('two concurrent polls make exactly one approval and one notice', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue([validDraft]), comment: vi.fn(), createIssue: vi.fn() };
+  const deps = { prisma, engine, now: () => new Date() };
+  const outs = await Promise.all([handleDraftPoll(deps, { id: 'j1', leadId: lead.id }),
+    handleDraftPoll(deps, { id: 'j1', leadId: lead.id })]);
+  expect(outs).toEqual(['approved', 'approved']);
+  expect(await prisma.approval.count({ where: { leadId: lead.id } })).toBe(1);
+  expect(await prisma.job.count({ where: { leadId: lead.id, kind: 'notice' } })).toBe(1);
+});
+
+test('a JSON fence in another case still draws the one correction', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue(['```JSON\n{"kind":"draft"}\n```']), comment: vi.fn(),
+    createIssue: vi.fn() };
+  expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('corrected');
+  expect(engine.comment).toHaveBeenCalledTimes(1);
+});
+
+test('a comment with no fence is not a draft attempt: no correction, just retry', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue(['{"kind":"draft"}', 'working on it']), comment: vi.fn(),
+    createIssue: vi.fn() };
+  expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('retry');
+  expect(engine.comment).not.toHaveBeenCalled();
+});
+
+test('a drafting lead with no issue is failed visibly', async () => {
+  const ws = await newWorkspace(prisma);
+  const lead = await newLead(prisma, ws.id);
+  await prisma.lead.update({ where: { id: lead.id }, data: { state: 'drafting' } });
+  const engine = { comments: vi.fn(), comment: vi.fn(), createIssue: vi.fn() };
+  expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('failed');
+  expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('draft_failed');
 });
