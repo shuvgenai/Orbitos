@@ -466,3 +466,79 @@ session row. With Paperclip's heartbeat left at its 30 s default, Scout would ac
 long-lived session outside any issue, which is exactly the cross-lead context D7 and D6 exist to
 prevent. COST-2 already says heartbeats are off; this is the reason it is load-bearing rather than
 a budget preference, and it belongs in the runtime posture check.
+
+## 10. The toolset allowlist was wrong: 21 real toolsets were left enabled
+
+Found while answering "where are Hermes' functions". The authoritative registry is
+`CONFIGURABLE_TOOLSETS` in `/opt/hermes/hermes_cli/tools_config.py` inside the pinned image. It holds
+**28** keys, each with the tool names it exposes:
+
+| Key | Exposes |
+|---|---|
+| `web` | web_search, web_extract |
+| `browser` | navigate, click, type, scroll |
+| `terminal` | terminal, process |
+| `file` | read, write, patch, search |
+| `code_execution` | execute_code |
+| `vision` | vision_analyze |
+| `video` | video_analyze |
+| `image_gen` | image_generate |
+| `video_gen` | video_generate |
+| `x_search` | x_search |
+| `tts` | text_to_speech |
+| `stt` | voice transcription |
+| `skills` | list, view, manage |
+| `todo` | todo_list |
+| `kanban` | task board tools |
+| `memory` | persistent memory across sessions |
+| `context_engine` | runtime tools from the active context engine |
+| `session_search` | search past conversations |
+| `connections` | remote connector tools and account authorization |
+| `clarify` | clarify |
+| `delegation` | delegate_task |
+| `cronjob` | create/list/update/pause/resume/run |
+| `homeassistant` | smart home device control |
+| `spotify` | playback, search, playlists, library |
+| `discord` | fetch messages, search members, create thread |
+| `discord_admin` | list channels/roles, pin, assign roles |
+| `yuanbao` | group info, member queries, DM |
+| `computer_use` | background desktop control via cua-driver |
+
+The hermes-paperclip-adapter README lists only nine names, and three of those (`mcp`, `creative`,
+`productivity`) are not in the registry at all. Sections 4 and 8 of this log, both profile configs and
+the posture check were all built from that README, so they disabled seven real toolsets and three
+names Hermes ignores.
+
+**That left 21 real toolsets enabled on both agents**, every one of them reachable by a model reading
+hostile lead email: `video`, `image_gen`, `video_gen`, `x_search`, `tts`, `stt`, `skills`, `todo`,
+`kanban`, `context_engine`, `session_search`, `connections`, `clarify`, `delegation`, `cronjob`,
+`homeassistant`, `spotify`, `discord`, `discord_admin`, `yuanbao`, `computer_use`.
+
+Three of those contradict approved decisions outright:
+
+- `delegation` exposes `delegate_task`. SEC-2a and Eng v3 D4 both say "no delegation" by name.
+- `cronjob` lets the agent create its own schedules. COST-2 says the Friday routine is the only one.
+- `skills` lets it manage skills, next to CEO R7's "self-made skills OFF".
+
+And `discord`, `spotify`, `homeassistant`, `yuanbao` and `connections` are outbound side channels. The
+threat model in D4 is a hostile email talking Scout into exfiltrating the owner's private context;
+these are exactly the paths for it, independent of the container boundary, because they leave over
+the network rather than through the filesystem.
+
+Fixed: both profiles now disable the full registry minus what each agent needs (Scout 27 disabled,
+`web` allowed; Orbi all 28). `ALL_TOOLSETS` in `ops/src/posture.ts` is the single shared list, which
+`template/test/engine.test.ts` now imports instead of keeping its own copy. Verified in the rebuilt
+image:
+
+```
+$ hermes -p scout config get agent.disabled_toolsets
+- browser - terminal - file - code_execution - vision - video - image_gen - video_gen - x_search
+- tts - stt - skills - todo - kanban - memory - context_engine - session_search - connections
+- clarify - delegation - cronjob - homeassistant - spotify - discord - discord_admin - yuanbao
+- computer_use
+```
+
+**The lesson for every later task: read the registry in the pinned image, never the adapter README.**
+A static test cannot see upstream adding a toolset, because the registry lives inside the image. A
+count assertion makes a version bump stop and look, but the real guard is the runtime posture check in
+E3-T7, which must diff this list against the running image and fail on anything new.

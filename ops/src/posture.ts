@@ -37,19 +37,43 @@ export type PostureInput = {
   adapters: Record<Agent, unknown>;
 };
 
-// Every Hermes toolset. The allowlist is expressed by subtraction, so a toolset added upstream must
-// be added here too, or it would pass unnoticed.
-const ALL_TOOLSETS = [
-  'terminal',
-  'file',
+// Hermes' CONFIGURABLE_TOOLSETS registry, copied from /opt/hermes/hermes_cli/tools_config.py in the
+// pinned image. The allowlist is expressed by subtraction, so anything missing from this list is
+// ENABLED on both agents: an upgrade that adds a toolset must add it here in the same change.
+//
+// The hermes-paperclip-adapter README lists only nine names, three of which the registry does not
+// have (mcp, creative, productivity). Trusting it left 21 real toolsets enabled, including
+// delegation, which SEC-2a forbids by name, and cronjob, which COST-2 forbids. Read the registry,
+// not the README.
+export const ALL_TOOLSETS = [
   'web',
   'browser',
+  'terminal',
+  'file',
   'code_execution',
   'vision',
-  'mcp',
-  'creative',
-  'productivity',
+  'video',
+  'image_gen',
+  'video_gen',
+  'x_search',
+  'tts',
+  'stt',
+  'skills',
+  'todo',
+  'kanban',
   'memory',
+  'context_engine',
+  'session_search',
+  'connections',
+  'clarify',
+  'delegation',
+  'cronjob',
+  'homeassistant',
+  'spotify',
+  'discord',
+  'discord_admin',
+  'yuanbao',
+  'computer_use',
 ] as const;
 
 const ALLOWED_TOOLSETS: Record<Agent, readonly string[]> = { orbi: [], scout: ['web'] };

@@ -92,18 +92,8 @@ type HermesConfig = {
   cron?: { enabled?: boolean };
 };
 
-const ALL_TOOLSETS = [
-  'terminal',
-  'file',
-  'web',
-  'browser',
-  'code_execution',
-  'vision',
-  'mcp',
-  'creative',
-  'productivity',
-  'memory',
-] as const;
+// One source of truth, shared with the posture check, so the profiles and the gate cannot drift.
+import { ALL_TOOLSETS } from '../../ops/src/posture.ts';
 
 const profiles = {
   orbi: parse(readFileSync(new URL('../engine/hermes/orbi.config.yaml', import.meta.url), 'utf8')) as HermesConfig,
