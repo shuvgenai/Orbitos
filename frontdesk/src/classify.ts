@@ -43,6 +43,19 @@ function whenAborted(signal: AbortSignal): Promise<never> {
   });
 }
 
+const errorName = (err: unknown): string => (err instanceof Error ? err.name : typeof err);
+
+// A short code chosen from the error type. Never derived from err.message content.
+function failureReason(err: unknown): string {
+  if (!(err instanceof Error)) return 'unknown';
+  if (err.name === 'AbortError' || err.name === 'APIUserAbortError' || err.name === 'APIConnectionTimeoutError') return 'aborted';
+  if (err.name === 'ZodError') return 'schema_mismatch';
+  if (err instanceof SyntaxError) return 'invalid_json';
+  if (err.message === 'classifier returned no text block') return 'no_text_block';
+  if (err.name.endsWith('APIError')) return 'api_error';
+  return 'unknown';
+}
+
 export async function classifyLead(deps: ClassifyDeps, lead: LeadForClassify): Promise<Verdict | 'failed'> {
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     const controller = new AbortController();
@@ -52,8 +65,9 @@ export async function classifyLead(deps: ClassifyDeps, lead: LeadForClassify): P
     try {
       answer = await Promise.race([deps.classifier.ask(lead.cleanBody, controller.signal), whenAborted(controller.signal)]);
     } catch (err) {
-      // The DecisionCall row only says 'failed', so the cause (timeout, 5xx, invalid output) lives here.
-      log.warn({ err, attempt, leadId: lead.id }, 'classify: attempt failed');
+      // The DecisionCall row only says 'failed', so the cause lives here. Content-free: the error text can
+      // echo the customer's email (zod and JSON.parse quote what they received), so only name and reason.
+      log.warn({ errName: errorName(err), reason: failureReason(err), attempt, leadId: lead.id }, 'classify: attempt failed');
     } finally {
       clearTimeout(timer);
       controller.abort(); // release anything still listening, e.g. an in-flight request

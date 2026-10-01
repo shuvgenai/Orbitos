@@ -1,4 +1,8 @@
 import { afterEach, expect, test, vi } from 'vitest';
+
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('pino', () => ({ pino: () => ({ warn }) }));
+
 import { CLASSIFIER_MODEL, classifyLead } from './classify.ts';
 
 afterEach(() => vi.useRealTimers());
@@ -98,6 +102,7 @@ test('a failed attempt logs its fake-clock latency', async () => {
     throw new Error('503 upstream');
   });
   await classifyLead({ prisma: asPrisma(prisma), classifier: c, now: () => t }, lead);
+  expect(prisma.decisionCall.create).toHaveBeenCalledTimes(2);
   for (const [arg] of prisma.decisionCall.create.mock.calls as [{ data: Record<string, unknown> }][]) {
     expect(arg.data).toMatchObject({ outcome: 'failed', latencyMs: 250 });
   }
@@ -112,4 +117,17 @@ test('if logging the first failure throws, classifyLead propagates and does not 
   await expect(classifyLead({ prisma: asPrisma(prisma), classifier: c, now: () => 0 }, lead)).rejects.toThrow('db down');
   expect(c.ask).toHaveBeenCalledTimes(1);
   expect(prisma.decisionCall.create).toHaveBeenCalledTimes(1);
+});
+
+test('the failure log names the cause but never carries the error text', async () => {
+  warn.mockClear();
+  const prisma = makePrisma();
+  const c = classifier(async () => {
+    throw new SyntaxError('Unexpected token in JSON: SECRET-LEAD-TEXT');
+  });
+  await classifyLead({ prisma: asPrisma(prisma), classifier: c, now: () => 0 }, lead);
+  expect(warn).toHaveBeenCalledTimes(2);
+  const logged = JSON.stringify(warn.mock.calls);
+  expect(logged).not.toContain('SECRET-LEAD-TEXT');
+  expect(warn.mock.calls[0]![0]).toEqual({ errName: 'SyntaxError', reason: 'invalid_json', attempt: 1, leadId: 'l1' });
 });
