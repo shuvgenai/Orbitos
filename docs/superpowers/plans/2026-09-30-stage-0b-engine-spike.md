@@ -576,7 +576,7 @@ git commit -m "feat(engine): one image for Paperclip and Hermes with a config-re
 - Produces: two Hermes `config.yaml` files. Both set `memory.memory_enabled: false`, `memory.user_profile_enabled: false`, `skills.write_approval: true`, `skills.auto_load: []`, `cron.enabled: false`, and an `agent.disabled_toolsets` list. Scout omits `web` from that list; Orbi includes it.
 - Produces: the toolset vocabulary the posture check in Task 5 uses: `terminal`, `file`, `web`, `browser`, `code_execution`, `vision`, `mcp`, `creative`, `productivity`, `memory`.
 
-- [ ] **Step 1: Record where Hermes reads a profile config from**
+- [x] **Step 1: Record where Hermes reads a profile config from**
 
 The two upstream documents disagree. The configuration reference says a profile maps to a sibling directory (`hermes -p work` reads `~/.hermes-work/`), while the Docker guide says profiles live under `/opt/data/profiles/<name>/`. Settle it against the built image:
 
@@ -587,7 +587,7 @@ docker run --rm --entrypoint sh orbit-engine:spike -c 'HERMES_PROFILE=scout herm
 
 Write the exact output and the resolved path into spike log section 4. Task 1 already established that Hermes keys its data off `HERMES_HOME=/opt/data`, so the expected path is `/opt/data/profiles/scout/config.yaml`. What is still unknown is whether a profile's config file is named `config.yaml` inside that directory or something else. If the resolved path differs, change the two destination paths in `entrypoint.sh` and the matching assertions in `template/test/engine.test.ts` to the real path, and note the change in the log. Do not leave the entrypoint writing to a path Hermes never reads; a config that is never loaded is the silent failure this task exists to prevent.
 
-- [ ] **Step 2: Add the failing tests**
+- [x] **Step 2: Add the failing tests**
 
 Append to `template/test/engine.test.ts`:
 
@@ -644,11 +644,11 @@ test.each(['orbi', 'scout'] as const)('%s runs no schedule of its own (COST-2, F
 });
 ```
 
-- [ ] **Step 3: Run it and confirm it fails**
+- [x] **Step 3: Run it and confirm it fails**
 
 Run: `pnpm test:unit` -> Expected: FAIL, cannot find `../engine/hermes/orbi.config.yaml`.
 
-- [ ] **Step 4: Write Scout's profile**
+- [x] **Step 4: Write Scout's profile**
 
 `template/engine/hermes/scout.config.yaml`:
 
@@ -687,7 +687,7 @@ cron:
   enabled: false
 ```
 
-- [ ] **Step 5: Write Orbi's profile**
+- [x] **Step 5: Write Orbi's profile**
 
 `template/engine/hermes/orbi.config.yaml`:
 
@@ -722,7 +722,7 @@ cron:
   enabled: false
 ```
 
-- [ ] **Step 6: Confirm Hermes accepts both configs**
+- [x] **Step 6: Confirm Hermes accepts both configs**
 
 ```bash
 docker build -t orbit-engine:spike \
@@ -736,12 +736,12 @@ Expected: the shown config reports memory off and the disabled toolsets. Record 
 
 `memory`, `skills` and `agent.disabled_toolsets` come from the Hermes configuration reference. `cron.enabled` does not: the reference documents a `~/.hermes/cron/` directory but no config key that turns scheduling off. Check this key specifically against `hermes config show`. If Hermes has no such key, find the real control (an empty cron directory, a CLI flag, or nothing at all), use it, and change the `cron_enabled` rule in Task 5 to assert whatever actually holds. If scheduling cannot be turned off from config, record that and drop the `cron_enabled` rule rather than asserting a key that does nothing; COST-2 is then enforced by Paperclip's heartbeat setting alone, which Task 6 Step 5 confirms.
 
-- [ ] **Step 7: Run the tests and the typecheck**
+- [x] **Step 7: Run the tests and the typecheck**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 Run: `pnpm typecheck` -> Expected: no output.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add template/engine/hermes template/test/engine.test.ts docs/superpowers/spikes
@@ -763,7 +763,7 @@ git commit -m "feat(engine): Hermes profiles for Orbi and Scout with memory off 
 - Produces: the host variable names `PAPERCLIP_REF`, `HERMES_REF`, `PAPERCLIP_AUTH_SECRET`, `PAPERCLIP_SIGNING_SECRET`, `PAPERCLIP_PUBLIC_URL`, `ENGINE_ANTHROPIC_API_KEY`.
 - Produces: `template/engine/paperclip-adapters.json` with the shape `{ "<agent>": { adapter, provider, toolsets, maxTurnsPerRun, persistSession, worktreeMode, checkpoints, timeoutSec, graceSec, quiet } }`. Task 5 asserts it; E3-T7 applies it.
 
-- [ ] **Step 1: Write the failing compose tests**
+- [x] **Step 1: Write the failing compose tests**
 
 In `template/test/compose.test.ts`, widen the `Service` type:
 
@@ -873,11 +873,11 @@ test('the Front Desk reaches the engine over the internal network, with no key i
 
 The published-port test and the `data` network test already in this file cover the engine once it exists; do not duplicate them.
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `pnpm test:unit` -> Expected: FAIL, `services.paperclip` is undefined.
 
-- [ ] **Step 3: Add the engine service to the compose file**
+- [x] **Step 3: Add the engine service to the compose file**
 
 In `template/compose.yml`, add after the `redis` service:
 
@@ -931,7 +931,7 @@ volumes:
   hermes_data: {} # HERMES_HOME: both profiles, sessions and logs (DAT-3 purge target, E3-T5)
 ```
 
-- [ ] **Step 4: Add the engine variable names to the example env file**
+- [x] **Step 4: Add the engine variable names to the example env file**
 
 Append to `template/.env.example`:
 
@@ -944,7 +944,7 @@ PAPERCLIP_SIGNING_SECRET=
 ENGINE_ANTHROPIC_API_KEY=
 ```
 
-- [ ] **Step 5: Write the adapter configuration file**
+- [x] **Step 5: Write the adapter configuration file**
 
 `template/engine/paperclip-adapters.json`:
 
@@ -979,7 +979,7 @@ ENGINE_ANTHROPIC_API_KEY=
 
 `timeoutSec` is 600 because D5 gives a draft 10 minutes before the poll times out and hands the lead to Orbi; a longer engine timeout would keep a run alive after ORBIT stopped waiting. `maxTurnsPerRun` values are COST-3. `persistSession` is `true` because D7 wants one session per issue; Task 6 verifies what that actually keys on.
 
-- [ ] **Step 6: Add the adapter assertions**
+- [x] **Step 6: Add the adapter assertions**
 
 Append to `template/test/engine.test.ts`:
 
@@ -1008,12 +1008,12 @@ test('the engine run timeout does not outlive the 10-minute draft poll (D5)', ()
 });
 ```
 
-- [ ] **Step 7: Run the tests and the typecheck**
+- [x] **Step 7: Run the tests and the typecheck**
 
 Run: `pnpm test:unit` -> Expected: all pass.
 Run: `pnpm typecheck` -> Expected: no output.
 
-- [ ] **Step 8: Start the full template stack and confirm the engine survives the read-only filesystem**
+- [x] **Step 8: Start the full template stack and confirm the engine survives the read-only filesystem**
 
 Create a throwaway `template/.env` from `template/.env.example` with generated values. Never commit it; the repo already ignores env files at any depth.
 
@@ -1033,7 +1033,7 @@ docker compose -f template/compose.yml --env-file template/.env logs paperclip |
 
 Add whatever path it could not write as a named volume in the compose file and to the `arrayContaining` list in the read-only test, so the next person inherits the finding. Record it in spike log section 6.
 
-- [ ] **Step 9: Confirm the engine has no route to the Gmail or Resend credentials**
+- [x] **Step 9: Confirm the engine has no route to the Gmail or Resend credentials**
 
 ```bash
 docker compose -f template/compose.yml --env-file template/.env exec paperclip env | grep -Ei 'gmail|resend|token_encryption' || echo clean
@@ -1041,7 +1041,7 @@ docker compose -f template/compose.yml --env-file template/.env exec paperclip e
 
 Expected: `clean`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add template/compose.yml template/.env.example template/engine/paperclip-adapters.json template/test

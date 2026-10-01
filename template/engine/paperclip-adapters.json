@@ -1,0 +1,28 @@
+{
+  "orbi": {
+    "adapter": "hermes_local",
+    "provider": "anthropic",
+    "toolsets": "",
+    "maxTurnsPerRun": 20,
+    "persistSession": true,
+    "worktreeMode": false,
+    "checkpoints": false,
+    "timeoutSec": 600,
+    "graceSec": 10,
+    "quiet": true,
+    "extraArgs": ["-p", "orbi"]
+  },
+  "scout": {
+    "adapter": "hermes_local",
+    "provider": "anthropic",
+    "toolsets": "web",
+    "maxTurnsPerRun": 30,
+    "persistSession": true,
+    "worktreeMode": false,
+    "checkpoints": false,
+    "timeoutSec": 600,
+    "graceSec": 10,
+    "quiet": true,
+    "extraArgs": ["-p", "scout"]
+  }
+}

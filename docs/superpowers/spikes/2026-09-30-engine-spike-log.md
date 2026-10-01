@@ -219,10 +219,34 @@ $ docker exec <c> ls -la /opt/data/profiles/scout/
 -rwxr-xr-x 1 node node 1024 config.yaml
 ```
 
-Still unverified: whether Hermes accepts the `memory`, `skills` and `cron` keys as written.
-`hermes config show` has no section for any of them, and only the `model` key was echoed back. The
-`memory` and `skills` key names come from the Hermes configuration reference; `cron.enabled` was
-inferred and is the least trustworthy of the three.
+### Which config keys Hermes actually honours
+
+Checked with `hermes -p scout config get <key>` against the full stack:
+
+| Key | Result |
+|---|---|
+| `memory.memory_enabled` | `false` — recognized and read |
+| `skills.write_approval` | `true` — recognized and read |
+| `agent.disabled_toolsets` | the list is read back verbatim |
+| `cron.enabled` | **rejected:** `⚠ 'cron.enabled' is not a recognized config key — Hermes may not read it; the value printed above comes from your config file.` |
+
+`cron.enabled` was the one key the plan inferred rather than read from the reference, and it is the
+one key that does nothing. `hermes cron --help` shows why: scheduling is a per-job system
+(`cron list|create|edit|pause|resume|remove`), with no global switch. So COST-2's "no schedules"
+means an empty job list, not a config flag.
+
+It was removed from both profile files, and the static test now asserts its **absence**, because a
+key Hermes ignores reads as containment that is not there. The runtime check is:
+
+```
+$ hermes -p orbi cron list
+No scheduled jobs.
+$ hermes -p scout cron list
+No scheduled jobs.
+```
+
+Both empty on a fresh instance. That assertion belongs to the runtime posture check in E3-T7, since
+the Stage 0b posture function is pure and reads files only.
 
 ## 5. Session behaviour across two issues
 
@@ -337,3 +361,43 @@ Also noted: the adapter deletes `PAPERCLIP_API_KEY` from the child environment a
 the run's own auth token (`execute.ts:501`), and sets `PAPERCLIP_RUN_ID`, `PAPERCLIP_TASK_ID`,
 `PAPERCLIP_WAKE_REASON` and `PAPERCLIP_WAKE_COMMENT_ID`. That is consistent with the
 `X-Paperclip-Run-Id` rule the Front Desk bridge has to honour in E3-T3.
+
+## 7. The engine service in the instance template (Task 4)
+
+The full stack starts healthy with the engine's root filesystem read-only. Review Focus 2 holds with
+exactly two volumes, `/paperclip` and `/opt/data`, plus a tmpfs at `/tmp`:
+
+```
+$ docker compose -f template/compose.yml --env-file template/.env up -d --wait
+Container orbit-instance-postgres-1   Healthy
+Container orbit-instance-redis-1      Healthy
+Container orbit-instance-web-1        Healthy
+Container orbit-instance-worker-1     Healthy
+Container orbit-instance-frontdesk-1  Healthy
+Container orbit-instance-api-1        Healthy
+Container orbit-instance-paperclip-1  Healthy
+```
+
+SEC-2a check, the one E3-T2 asks for:
+
+```
+$ docker compose ... exec paperclip env | grep -Ei 'gmail|resend|token_encryption'
+clean
+```
+
+Both profile directories arrive owned by uid 1000, and `/opt/data` itself is `node:node`, so the
+build-time chown does survive into a fresh named volume as intended:
+
+```
+drwxr-xr-x 3 node node 4096 /opt/data
+drwxr-xr-x 4 node node 4096 /opt/data/profiles   (orbi, scout)
+```
+
+The healthcheck needs a long retry budget on first boot: the image's own labels say 278 migrations,
+so `retries: 30` at a 10 s interval replaces the 10 the plan proposed.
+
+`paperclip-adapters.json` carries `extraArgs: ["-p","<agent>"]` per agent. That is the profile
+selector the adapter has no field for, and without it both agents would share
+`/opt/data/config.yaml`, which would make D4's per-agent allowlist unexpressible. `HERMES_HOME` via
+the adapter's `env` map works equally well and was rejected only because `-p` is the documented
+Hermes mechanism and keeps one data root.
