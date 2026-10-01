@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@orbit/db": "workspace:*",
     "@orbit/shared": "workspace:*",
     "pino": "10.3.1",
-    "tsx": "4.23.15"
+    "tsx": "4.23.15",
+    "zod": "4.6.5"
   }
 }
