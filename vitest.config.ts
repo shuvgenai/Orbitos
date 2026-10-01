@@ -17,6 +17,7 @@ export default defineConfig({
             'frontdesk/**/*.test.ts',
             'template/test/compose.test.ts',
             'template/test/engine.test.ts',
+            'template/test/no-unapproved-send.test.ts',
           ],
         },
       },
