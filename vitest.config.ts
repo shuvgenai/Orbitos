@@ -14,6 +14,7 @@ export default defineConfig({
             'shared/**/*.test.ts',
             'design/**/*.test.ts',
             'ops/**/*.test.ts',
+            'frontdesk/**/*.test.ts',
             'template/test/compose.test.ts',
             'template/test/engine.test.ts',
           ],
