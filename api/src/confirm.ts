@@ -28,6 +28,8 @@ export type ConfirmDeps = {
 };
 
 const FRESH_WINDOW_MS = 24 * 3600_000;
+/** How long a row may sit in `sending` before a Sent-folder miss is allowed to mark it `failed`. A floor on waiting for Gmail's index. */
+const SENDING_GRACE_MS = 10 * 60_000;
 
 const AUTHORITY_FOR = {
   routine: 'approve_routine',
@@ -46,7 +48,7 @@ const SEND_FAILED: ConfirmResult = { status: 502, view: 'send_failed' };
 const loadApproval = (prisma: PrismaClient, id: string) =>
   prisma.approval.findUnique({
     where: { id },
-    include: { lead: true, decision: { select: { id: true } } },
+    include: { lead: true, decision: true },
   });
 type LoadedApproval = NonNullable<Awaited<ReturnType<typeof loadApproval>>>;
 
@@ -85,7 +87,7 @@ export async function handleConfirmGet(deps: ConfirmDeps, token: string, req: un
   if ('early' in g) return g.early;
   const { approval } = g;
   // A send that did not finish: the page offers the retry, which checks the Sent folder first.
-  if (approval.state === 'sending') return { status: 200, view: 'send_failed' };
+  if (approval.state === 'sending' || (approval.state === 'failed' && approval.decision)) return { status: 200, view: 'send_failed' };
   if (approval.state !== 'issued' || approval.decision) return ALREADY_DECIDED;
   if (approval.expiresAt.getTime() <= Date.now()) return EXPIRED;
   return { status: 200, view: 'draft' };
@@ -108,23 +110,51 @@ export async function handleConfirmPost(
   const { approval, userId } = g;
   const { lead } = approval;
 
-  // 4. A row already in `sending` means an earlier send may or may not have reached Gmail. The Sent
-  // folder is the only evidence. A hit finishes the job; a miss or an error sends NOTHING, because
-  // "not found" cannot prove "not sent". Gmail's index lags, and a second reply to a customer is
-  // worse than a stuck page.
-  if (approval.state === 'sending') {
+  const subject = /^re:s/i.test(lead.subject) ? lead.subject : `Re: ${lead.subject}`;
+  const headerFields = [lead.fromEmail, subject, lead.messageId, lead.gmailThreadId, approval.id];
+
+  // 4. A row in `sending` (or in `failed`, after the self-repair below) means an earlier send may or
+  // may not have reached Gmail. The Sent folder is the only evidence, and it is consulted on EVERY
+  // attempt before anything else happens. A hit finishes the job. A miss or an error never sends
+  // from the `sending` state: "not found" cannot prove "not sent" while Gmail's index may lag.
+  if (approval.state === 'sending' || (approval.state === 'failed' && approval.decision)) {
+    let hit: { gmailMessageId: string } | null;
     try {
-      const hit = await deps.gmail.findSentByTag(approval.id, { gmailThreadId: lead.gmailThreadId });
-      if (!hit) {
-        log.warn({ approvalId: approval.id }, 'confirm: retry found no sent reply, not resending');
-        return SEND_FAILED;
-      }
-      await finishSent(deps.prisma, approval.id, hit.gmailMessageId);
-      return { status: 200, view: 'sent' };
+      hit = await deps.gmail.findSentByTag(approval.id, { gmailThreadId: lead.gmailThreadId });
     } catch (err) {
       log.error({ approvalId: approval.id, ...errorCode(err) }, 'confirm: Sent-folder check failed, not resending');
       return SEND_FAILED;
     }
+    try {
+      if (hit) {
+        // failed -> sending -> sent: the state machine has no direct failed -> sent edge.
+        if (approval.state === 'failed') await transitionApproval(deps.prisma, approval.id, 'failed', 'sending');
+        await finishSent(deps.prisma, approval.id, hit.gmailMessageId);
+        return { status: 200, view: 'sent' };
+      }
+      if (approval.state === 'sending') {
+        // Self-repair, bounded: only after SENDING_GRACE_MS on the row's own sendingAt clock, and only
+        // after the check above missed. The owner then sees `failed` and may press again.
+        const since = approval.sendingAt?.getTime();
+        if (since !== undefined && Date.now() - since > SENDING_GRACE_MS) {
+          await transitionApproval(deps.prisma, approval.id, 'sending', 'failed');
+          log.warn({ approvalId: approval.id }, 'confirm: sending too long with no sent reply, marked failed');
+        } else {
+          log.warn({ approvalId: approval.id }, 'confirm: retry found no sent reply, not resending');
+        }
+        return SEND_FAILED;
+      }
+    } catch (err) {
+      log.error({ approvalId: approval.id, ...errorCode(err) }, 'confirm: recording the retry failed, not resending');
+      return SEND_FAILED;
+    }
+    // state === 'failed' and the Sent check missed: the owner is pressing again. Same guards as a first send.
+    if (approval.expiresAt.getTime() <= Date.now()) return EXPIRED;
+    if (headerFields.some(hasLineBreak)) return { status: 422, view: 'rejected_header' };
+    // Compare-and-set: of two simultaneous re-presses, one wins failed -> sending and sends.
+    if (!(await transitionApproval(deps.prisma, approval.id, 'failed', 'sending'))) return ALREADY_DECIDED;
+    const retryBody = approval.decision!.finalText ?? approval.draftText;
+    return sendAndRecord(deps, approval, subject, retryBody);
   }
 
   // Anything that is not waiting (sent, failed, void, or already carrying a decision) is decided.
@@ -137,8 +167,6 @@ export async function handleConfirmPost(
 
   // 5. Reject line breaks in every header-bound field before composing. buildRaw throws on the same
   // input as a backstop, but that would surface as a 500 after the decision was written.
-  const subject = /^re:\s/i.test(lead.subject) ? lead.subject : `Re: ${lead.subject}`;
-  const headerFields = [lead.fromEmail, subject, lead.messageId, lead.gmailThreadId, approval.id];
   if (headerFields.some(hasLineBreak)) {
     log.warn({ approvalId: approval.id }, 'confirm: header field contains a line break, refused');
     return { status: 422, view: 'rejected_header' };
@@ -174,6 +202,16 @@ export async function handleConfirmPost(
 
   // 8. The send. Past this line the row is `sending` and stays there on any doubt.
   const body = action === 'send_edited' ? finalText! : approval.draftText;
+  return sendAndRecord(deps, approval, subject, body);
+}
+
+async function sendAndRecord(
+  deps: ConfirmDeps,
+  approval: LoadedApproval,
+  subject: string,
+  body: string,
+): Promise<ConfirmResult> {
+  const { lead } = approval;
   let gmailMessageId: string;
   try {
     ({ gmailMessageId } = await deps.gmail.sendInThread({
