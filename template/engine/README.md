@@ -42,9 +42,13 @@ measurements are in `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`.
   prompts. Its own comment says agents "operate in a sandbox", but Hermes profiles do not sandbox
   the filesystem. The toolset allowlist and this container boundary are the only things left
   (SEC-2a, Eng v3 D4), which is why the posture check is not optional.
-- **Paperclip enables heartbeats by default** (30 s) and automatic database backups (hourly, 7-day
-  retention, into `/paperclip/instances/default/data/backups`). COST-2 says no heartbeats, so both
-  have to be turned off per instance.
+- **The banner's "Heartbeat enabled (30000ms)" is the scheduler tick, not a per-agent setting.**
+  Timer wakes are off per agent by default: `runtimeConfig.heartbeat.enabled` defaults to false, and
+  a timer wake on an agent without it is skipped as `heartbeat.disabled`. COST-2 holds with no
+  action. Provisioning must not turn it on, and must keep `wakeOnDemand` true, or assignment and
+  comment wakes stop too and the agents never run.
+- **Paperclip does enable automatic database backups by default** (hourly, 7-day retention, into
+  `/paperclip/instances/default/data/backups`), which duplicates ORBIT's own off-host backup.
 - **The image has no `ps`.** Read `/proc/<pid>/cmdline` instead.
 - The Hermes image also ships a Playwright browser pack at `/opt/hermes/.playwright`, and Paperclip
   ships other agent runtimes (`OPENCODE_ALLOW_ALL_MODELS`, `GEMINI_SANDBOX`). Nothing in ORBIT uses

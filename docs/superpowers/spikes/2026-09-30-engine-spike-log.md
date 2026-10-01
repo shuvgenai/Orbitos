@@ -113,8 +113,10 @@ restated `CMD`:
 
 Three things in that banner need action and are not in the plan yet:
 
-1. **`Heartbeat enabled (30000ms)`** contradicts COST-2 ("There are no scheduled heartbeats"). It is
-   on by default, so turning it off is a provisioning step (E3-T7) and belongs in the posture check.
+1. **`Heartbeat enabled (30000ms)`** is the scheduler's tick interval, not a per-agent setting.
+   **Corrected in section 11:** timer wakes are off per agent by default, so this line does not
+   contradict COST-2 on its own. `HEARTBEAT_SCHEDULER_INTERVAL_MS` is floored at 10000 ms in
+   `/app/server/src/config.ts:366`, so the tick itself cannot be switched off.
 2. **`DB Backup enabled (every 60m, keep 7d)`** writing inside `/paperclip`. ORBIT already has its
    own nightly off-host backup (section 10 of the PRD). Either this is turned off or it is accepted
    and counted in the footprint; it is duplicated work and duplicated disk either way.
@@ -459,13 +461,15 @@ directly (`taskKey: session.issueId` at 19159, `taskKey: action.issueId` at 1926
 see the first draft, which is the behaviour D7 wanted. No config change, and the two-lead run in
 Task 6 becomes confirmation rather than the experiment.
 
-**One exception, and it makes the heartbeat default a correctness problem, not just a cost one.**
+**One exception, which is why COST-2 is a correctness rule and not only a cost preference.**
 `deriveTaskKeyWithHeartbeatFallback` (line 5546) returns a synthetic `HEARTBEAT_TASK_KEY` when there
 is no issue and the wake source is `timer`. Every timer wake for an agent therefore shares one
-session row. With Paperclip's heartbeat left at its 30 s default, Scout would accumulate a single
-long-lived session outside any issue, which is exactly the cross-lead context D7 and D6 exist to
-prevent. COST-2 already says heartbeats are off; this is the reason it is load-bearing rather than
-a budget preference, and it belongs in the runtime posture check.
+session row. If anyone ever turns a heartbeat on for Scout, it would accumulate a single long-lived
+session outside any issue, which is exactly the cross-lead context D6 and D7 exist to prevent.
+
+Timer wakes are off by default (section 11), so this is a guard against a future change rather than
+a live defect. The runtime posture check still has to assert it, because one checkbox in the
+Paperclip UI is all it takes.
 
 ## 10. The toolset allowlist was wrong: 21 real toolsets were left enabled
 
@@ -542,3 +546,36 @@ $ hermes -p scout config get agent.disabled_toolsets
 A static test cannot see upstream adding a toolset, because the registry lives inside the image. A
 count assertion makes a version bump stop and look, but the real guard is the runtime posture check in
 E3-T7, which must diff this list against the running image and fail on anything new.
+
+## 11. Heartbeats are off per agent by default (corrects sections 3 and 9)
+
+Traced from the banner line to the gate that actually decides whether an agent is woken on a timer:
+
+- `/app/server/src/config.ts:366` —
+  `heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000)`.
+  This is the only thing the banner's "Heartbeat enabled (30000ms)" reports: how often the scheduler
+  ticks. It is floored at 10 s and has no off switch.
+- `/app/server/src/services/heartbeat.ts:16466` — `parseHeartbeatPolicy` reads the per-agent
+  `runtimeConfig.heartbeat` object: `enabled: asBoolean(heartbeat.enabled, false)`. **The default is
+  false.**
+- Line 26151 — `if (source === "timer" && !policy.enabled)` writes a `heartbeat.disabled` skip
+  record and returns null.
+
+So the scheduler ticks every 30 s and skips every agent that has not explicitly had a heartbeat
+turned on. COST-2 ("There are no scheduled heartbeats... Teammates wake on assignment and comments")
+holds on a fresh instance with no action needed.
+
+What this changes:
+
+- The provisioning script (E3-T7) does not need to turn heartbeats off. It needs to **not turn them
+  on**, and to verify that nothing else did.
+- The runtime posture check should assert `runtimeConfig.heartbeat.enabled !== true` for both agents,
+  rather than fixing a bad default.
+- Other per-agent fields in the same object are worth knowing for COST-1 and COST-3:
+  `intervalSec`, `maxConcurrentRuns`, `maxDailyRuns` (aliases `dailyRunLimit`, `dailyRunCap`,
+  `maxRunsPerDay`), `skipTimerWhenNoActionableWork` (aliases `requireActionableTimerWork`,
+  `issueOnlyTimer`) and `wakeOnDemand`. Note `wakeOnDemand` gates the non-timer path: if it is false,
+  assignment and comment wakes are skipped too, which would silently stop Orbi and Scout from ever
+  running. The posture check must require it true while requiring `enabled` false.
+
+Paperclip's hourly database backup from section 3 stands as written; that one really is on by default.
