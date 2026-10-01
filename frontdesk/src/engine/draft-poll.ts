@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@orbit/db/client';
 import { enqueueJob } from '@orbit/db/jobs';
 import { parseAgentComment } from '@orbit/shared/agent-output';
@@ -25,10 +26,12 @@ const CORRECTION =
 
 // Atomic: only one caller can flip the marker, so two polls can never both post the correction.
 // It lives on the job row so a worker restart cannot reset it.
-async function claimCorrection(prisma: PrismaClient, jobId: string): Promise<boolean> {
+// The comment's SHA-256 is stored with it, so the same stale comment is recognised on later polls.
+async function claimCorrection(prisma: PrismaClient, jobId: string, sha: string): Promise<boolean> {
   const count = await prisma.$executeRaw`
     UPDATE jobs
-    SET payload = payload || '{"corrective_comment_posted": true}'::jsonb, updated_at = now()
+    SET payload = payload || jsonb_build_object('corrective_comment_posted', true, 'corrected_comment_sha256', ${sha}::text),
+        updated_at = now()
     WHERE id = ${jobId}::uuid
       AND COALESCE(payload->>'corrective_comment_posted', '') <> 'true'`;
   return count === 1;
@@ -59,14 +62,22 @@ export async function handleDraftPoll(
     return lead.state === 'awaiting_owner' ? 'approved' : 'failed';
   }
 
+  // The window starts when the bridge handed the lead to Scout: the draft_poll job's createdAt, which is
+  // written once and never rewritten. lead.updatedAt moves on any write to the lead, so it is only the
+  // fallback for a lead with no job row.
+  const pollJob = await prisma.job.findUnique({
+    where: { dedupeKey: `draft_poll:${lead.id}` },
+    select: { createdAt: true },
+  });
+  const startedAt = (pollJob?.createdAt ?? lead.updatedAt).getTime();
+  const timedOut = () => deps.now().getTime() - startedAt > DRAFT_TIMEOUT_MS;
+
   const all = await deps.engine.comments(lead.paperclipIssueId);
   // Only the newest comment that carries a JSON block is judged; prose-only comments are not drafts.
   const candidate = [...all].reverse().find((c) => c.includes(FENCE_MARKER));
 
   if (candidate === undefined) {
-    const startedAt = lead.updatedAt.getTime(); // Task 8 moved the lead to drafting at this instant
-    if (deps.now().getTime() - startedAt > DRAFT_TIMEOUT_MS) return failLead(deps, lead.id, 'timeout');
-    return 'retry';
+    return timedOut() ? failLead(deps, lead.id, 'timeout') : 'retry';
   }
 
   const parsed = parseAgentComment(candidate, 'draft');
@@ -78,7 +89,16 @@ export async function handleDraftPoll(
       dedupeKey: `draft_poll:${lead.id}`, // the bridge's key: finds the real row, or repairs a missing one
       leadId: lead.id,
     });
-    if (!(await claimCorrection(prisma, row.id))) return failLead(deps, lead.id, 'malformed_after_correction');
+    const sha = createHash('sha256').update(candidate).digest('hex');
+    const stored = (await prisma.job.findUniqueOrThrow({ where: { id: row.id }, select: { payload: true } })).payload as
+      | { corrective_comment_posted?: boolean; corrected_comment_sha256?: string }
+      | null;
+    if (stored?.corrective_comment_posted === true) {
+      // Same comment we already corrected: Scout has not answered yet, so wait (the timeout is the backstop).
+      if (stored.corrected_comment_sha256 === sha) return timedOut() ? failLead(deps, lead.id, 'timeout') : 'retry';
+      return failLead(deps, lead.id, 'second_malformed_draft');
+    }
+    if (!(await claimCorrection(prisma, row.id, sha))) return 'retry'; // a concurrent poll just claimed it
     await deps.engine.comment(lead.paperclipIssueId, CORRECTION);
     (deps.log ?? log).info({ leadId: lead.id, issueId: lead.paperclipIssueId, jobId: job.id }, 'draft-poll: correction posted');
     return 'corrected';
