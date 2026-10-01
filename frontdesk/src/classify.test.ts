@@ -75,9 +75,9 @@ test('a success logs its verdict, tokens, cost and fake-clock latency', async ()
 test('the timeout aborts the signal, and a call that ignores it is still cut off', async () => {
   vi.useFakeTimers();
   const prisma = makePrisma();
-  const signals: AbortSignal[] = [];
+  const abortedAtCall: boolean[] = [];
   const c = classifier(async (_b: string, signal: AbortSignal) => {
-    signals.push(signal);
+    abortedAtCall.push(signal.aborted); // read now: finally aborts every controller afterwards
     return new Promise(() => {}); // never settles, ignores the signal
   });
   const pending = classifyLead({ prisma: asPrisma(prisma), classifier: c, now: () => Date.now(), timeoutMs: 15_000 }, lead);
@@ -85,6 +85,31 @@ test('the timeout aborts the signal, and a call that ignores it is still cut off
   await vi.advanceTimersByTimeAsync(15_000);
   expect(await pending).toBe('failed');
   expect(c.ask).toHaveBeenCalledTimes(2);
-  expect(signals.map((s) => s.aborted)).toEqual([true, true]);
+  // A reused controller would already be aborted when attempt 2 starts.
+  expect(abortedAtCall).toEqual([false, false]);
   expect(prisma.decisionCall.create).toHaveBeenCalledTimes(2);
+});
+
+test('a failed attempt logs its fake-clock latency', async () => {
+  const prisma = makePrisma();
+  let t = 5000;
+  const c = classifier(async () => {
+    t += 250;
+    throw new Error('503 upstream');
+  });
+  await classifyLead({ prisma: asPrisma(prisma), classifier: c, now: () => t }, lead);
+  for (const [arg] of prisma.decisionCall.create.mock.calls as [{ data: Record<string, unknown> }][]) {
+    expect(arg.data).toMatchObject({ outcome: 'failed', latencyMs: 250 });
+  }
+});
+
+test('if logging the first failure throws, classifyLead propagates and does not retry', async () => {
+  const prisma = makePrisma();
+  prisma.decisionCall.create.mockRejectedValueOnce(new Error('db down'));
+  const c = classifier(async () => {
+    throw new Error('503 upstream');
+  });
+  await expect(classifyLead({ prisma: asPrisma(prisma), classifier: c, now: () => 0 }, lead)).rejects.toThrow('db down');
+  expect(c.ask).toHaveBeenCalledTimes(1);
+  expect(prisma.decisionCall.create).toHaveBeenCalledTimes(1);
 });

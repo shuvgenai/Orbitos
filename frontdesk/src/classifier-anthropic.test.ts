@@ -26,7 +26,8 @@ test('returns the verdict with tokens and cost from the usage block', async () =
   const fetchMock = vi.fn().mockResolvedValue(reply('{"verdict":"not_lead","confidence":0.8}', { input_tokens: 2000, output_tokens: 10 }));
   const out = await make(fetchMock).ask('x', new AbortController().signal);
   expect(out).toMatchObject({ verdict: 'not_lead', confidence: 0.8, inputTokens: 2000, outputTokens: 10 });
-  expect(out.costUsd).toBeCloseTo((2000 * 1 + 10 * 5) / 1_000_000);
+  // 2000 in at $1/MTok + 10 out at $5/MTok = 2050 / 1e6. The default 2-digit tolerance would pass for 0.
+  expect(out.costUsd).toBeCloseTo(0.00205, 8);
   expect(HAIKU_INPUT_USD_PER_MTOK).toBe(1);
   expect(HAIKU_OUTPUT_USD_PER_MTOK).toBe(5);
 });

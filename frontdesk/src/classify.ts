@@ -1,5 +1,8 @@
 import type { PrismaClient } from '@orbit/db/client';
 import { logDecisionCall } from '@orbit/db/decision-calls';
+import { pino } from 'pino';
+
+const log = pino({ name: 'frontdesk-classify' });
 
 // Anthropic ids are complete as written: no date suffix.
 export const CLASSIFIER_MODEL = 'claude-haiku-4-5';
@@ -48,8 +51,9 @@ export async function classifyLead(deps: ClassifyDeps, lead: LeadForClassify): P
     let answer: Answer | undefined;
     try {
       answer = await Promise.race([deps.classifier.ask(lead.cleanBody, controller.signal), whenAborted(controller.signal)]);
-    } catch {
-      // Falls through to the failed log below. The error itself carries nothing we store.
+    } catch (err) {
+      // The DecisionCall row only says 'failed', so the cause (timeout, 5xx, invalid output) lives here.
+      log.warn({ err, attempt, leadId: lead.id }, 'classify: attempt failed');
     } finally {
       clearTimeout(timer);
       controller.abort(); // release anything still listening, e.g. an in-flight request
