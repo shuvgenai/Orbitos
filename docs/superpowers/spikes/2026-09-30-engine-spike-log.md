@@ -437,3 +437,32 @@ disk alongside the rest of the stack. The engine's configuration is covered stat
 check, and its boot is verified on the staging instance (PRD section 9). Revisit if CI gets a larger
 runner. The engine's Compose variables are still set in that job, because Compose interpolates them
 while parsing even for a service scaled to zero.
+
+## 9. D7 answered from the Paperclip schema, not from a two-lead run
+
+`/app/packages/db/src/schema/agent_task_sessions.ts` holds the session rows the adapter reads
+`prevSessionId` from. Its unique index:
+
+```ts
+uniqueIndex("agent_task_sessions_company_agent_adapter_task_uniq").on(
+  table.companyId, table.agentId, table.adapterType, table.taskKey,
+)
+```
+
+`taskKey` comes from `deriveTaskKey` in `/app/server/src/services/heartbeat.ts:5519`, which reads
+`taskKey ?? taskId ?? issueId` from the context or payload, and two call sites pass the issue
+directly (`taskKey: session.issueId` at 19159, `taskKey: action.issueId` at 19266).
+
+**Verdict: D7 holds, by construction.** With `persistSession: true`, one Hermes session exists per
+`(company, agent, adapter, issue)`. Two leads are two issues, so they are two sessions, and
+`--resume` is only ever passed the session belonging to that issue. A retry on the same issue does
+see the first draft, which is the behaviour D7 wanted. No config change, and the two-lead run in
+Task 6 becomes confirmation rather than the experiment.
+
+**One exception, and it makes the heartbeat default a correctness problem, not just a cost one.**
+`deriveTaskKeyWithHeartbeatFallback` (line 5546) returns a synthetic `HEARTBEAT_TASK_KEY` when there
+is no issue and the wake source is `timer`. Every timer wake for an agent therefore shares one
+session row. With Paperclip's heartbeat left at its 30 s default, Scout would accumulate a single
+long-lived session outside any issue, which is exactly the cross-lead context D7 and D6 exist to
+prevent. COST-2 already says heartbeats are off; this is the reason it is load-bearing rather than
+a budget preference, and it belongs in the runtime posture check.
