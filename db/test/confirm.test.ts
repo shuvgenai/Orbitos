@@ -215,3 +215,54 @@ test('send_edited with no text is refused before anything is recorded', async ()
   expect(gmail.sent).toHaveLength(0);
   expect(await prisma.decision.count({ where: { approvalId: approval.id } })).toBe(0);
 });
+
+// ---- a row stuck in sending must not strand the owner ----
+
+const backdateSending = (approvalId: string, minutes: number) =>
+  prisma.approval.update({ where: { id: approvalId }, data: { sendingAt: new Date(Date.now() - minutes * 60_000) } });
+
+test('sending for 11 minutes with a Sent miss becomes failed, then the owner can press again and it sends once', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendWith({ status: 503 }); // rejected, nothing recorded
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await backdateSending(approval.id, 11);
+  const out = await handleConfirmPost(deps, token, {} as never, 'send');
+  expect(out.view).toBe('send_failed');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('failed');
+  expect(gmail.sent).toHaveLength(0);
+
+  const again = await handleConfirmPost(deps, token, {} as never, 'send');
+  expect(again.view).toBe('sent');
+  expect(gmail.sent).toHaveLength(1);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sent');
+  expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('already_decided');
+  expect(gmail.sent).toHaveLength(1);
+});
+
+test('sending for 11 minutes WITH a Sent hit still completes to sent and sends nothing', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendAfterAccepting();
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await backdateSending(approval.id, 11);
+  expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('sent');
+  expect(gmail.sent).toHaveLength(1);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sent');
+});
+
+test('sending for 9 minutes with a Sent miss stays sending', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendWith({ status: 503 });
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await backdateSending(approval.id, 9);
+  expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('send_failed');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sending');
+});
+
+test('a failed row whose reply turns out to be in Sent completes to sent without resending', async () => {
+  const { token, deps, gmail, approval } = await fixture();
+  gmail.failNextSendAfterAccepting();
+  await handleConfirmPost(deps, token, {} as never, 'send');
+  await prisma.approval.update({ where: { id: approval.id }, data: { state: 'failed' } });
+  expect((await handleConfirmPost(deps, token, {} as never, 'send')).view).toBe('sent');
+  expect(gmail.sent).toHaveLength(1);
+});
