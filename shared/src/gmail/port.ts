@@ -28,5 +28,8 @@ export interface GmailPort {
   listSince(historyId: string): Promise<HistoryPage | { expired: true }>;
   listByDate(since: Date): Promise<HistoryPage>;
   sendInThread(args: SendArgs): Promise<{ gmailMessageId: string }>;
-  findSentByTag(orbitcrewId: string): Promise<{ gmailMessageId: string } | null>;
+  findSentByTag(
+    orbitcrewId: string,
+    opts?: { gmailThreadId?: string },
+  ): Promise<{ gmailMessageId: string } | null>;
 }

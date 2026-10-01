@@ -115,3 +115,61 @@ test('a bare From header has no fromName', async () => {
   expect(page.messages[0]!.fromEmail).toBe('lee@example.com');
   expect(page.messages[0]!.fromName).toBeUndefined();
 });
+
+const tagged = (id: string, tag?: string) => ({
+  id,
+  payload: { headers: tag ? [{ name: 'X-Orbitcrew-Id', value: tag }] : [] },
+});
+
+test('findSentByTag with a thread id returns the thread message carrying the tag', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(json({ messages: [tagged('m1'), tagged('m2', 'appr-1')] }));
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toEqual({ gmailMessageId: 'm2' });
+  expect(String(fetchMock.mock.calls[0]![0])).toContain('/threads/t1');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('findSentByTag with a thread id returns null when no message carries the tag', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(json({ messages: [tagged('m1'), tagged('m2', 'appr-other')] }));
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toBeNull();
+});
+
+test('findSentByTag with a thread id propagates a server error instead of answering null', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 500 }));
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  await expect(gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).rejects.toMatchObject({ status: 500 });
+});
+
+test('findSentByTag without a thread id falls back to scanning SENT', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(json({ messages: [{ id: 'm1' }, { id: 'm2' }] }))
+    .mockResolvedValueOnce(json(tagged('m1')))
+    .mockResolvedValueOnce(json(tagged('m2', 'appr-1')));
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  expect(await gmail.findSentByTag('appr-1')).toEqual({ gmailMessageId: 'm2' });
+  expect(String(fetchMock.mock.calls[0]![0])).toContain('labelIds=SENT');
+});
+
+test('listByDate sends an after: term and takes historyId from the profile', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(json({ messages: [{ id: 'g1' }] }))
+    .mockResolvedValueOnce(json({ historyId: '999' })) // profile
+    .mockResolvedValueOnce(
+      json({
+        id: 'g1',
+        threadId: 't',
+        internalDate: '5',
+        payload: { mimeType: 'text/plain', headers: [{ name: 'From', value: 'a@b.example' }], body: { data: b64('x') } },
+      }),
+    );
+  const gmail = createGmailClient({ accessToken: async () => 'token', fetch: fetchMock });
+  const since = new Date('2026-03-01T00:00:00Z');
+  const page = await gmail.listByDate(since);
+  const q = new URL(String(fetchMock.mock.calls[0]![0])).searchParams.get('q');
+  expect(q).toContain(`after:${since.getTime() / 1000}`);
+  expect(page.historyId).toBe('999');
+  expect(page.messages).toHaveLength(1);
+});

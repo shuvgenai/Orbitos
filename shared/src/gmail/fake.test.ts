@@ -97,3 +97,16 @@ test('listByDate returns only messages received at or after the date', async () 
   const page = await gmail.listByDate(new Date('2026-03-01T00:00:00Z'));
   expect(page.messages.map((m) => m.messageId)).toEqual(['<new@x>']);
 });
+
+test('a send is findable by tag with its thread id, and not under a different thread', async () => {
+  const gmail = new FakeGmail({ historyId: '1' });
+  const { gmailMessageId } = await gmail.sendInThread({
+    gmailThreadId: 't1',
+    toEmail: 'maya@okafor.example',
+    subject: 'Re: x',
+    body: 'b',
+    orbitcrewId: 'appr-1',
+  });
+  expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't1' })).toEqual({ gmailMessageId });
+  expect(await gmail.findSentByTag('appr-1', { gmailThreadId: 't2' })).toBeNull();
+});
