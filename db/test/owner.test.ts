@@ -24,3 +24,11 @@ test('creating the same owner twice does not duplicate or fail', async () => {
   expect(b.id).toBe(a.id);
   expect(await prisma.userAuthority.count({ where: { userId: a.id } })).toBe(3);
 });
+
+test('the address is stored lowercased and trimmed, and a differently cased repeat is the same owner', async () => {
+  const ws = await newWorkspace(prisma);
+  const a = await createOwner(prisma, { workspaceId: ws.id, email: ' Owner@Firm.com' });
+  const b = await createOwner(prisma, { workspaceId: ws.id, email: 'OWNER@firm.com ' });
+  expect(a.email).toBe('owner@firm.com');
+  expect(b.id).toBe(a.id);
+});
