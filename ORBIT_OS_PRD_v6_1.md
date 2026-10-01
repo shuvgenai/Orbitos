@@ -58,7 +58,7 @@ Launch target: customer zero (OrbitumAI's founder inbox) in October 2026, capped
 - **Layout restored:** four ORBIT programs (web, API, worker, Front Desk service) plus Redis/Bull, as in the original plan. Timers and all pending work are Postgres rows, and a reconciler re-queues work if Redis loses it (Eng v3 D2, D9; E4).
 - **One Postgres server with two databases** (orbit, paperclip) and separate logins (E6, back in scope).
 - **Connector:** Paperclip's `hermes_local` adapter at launch, because `hermes_gateway` is broken upstream (paperclipai/paperclip #14426). The switch back is tracked in `TODOS.md` (Eng v3 D3, D10).
-- **Containment:** Paperclip and Hermes run in their own container with no Gmail or Resend secrets. Scout gets only web search and web fetch (Eng v3 D4).
+- **Containment:** Paperclip and Hermes run in their own container with no Gmail or Resend secrets. Neither agent holds a Hermes toolset: Orbi's issue tools come from Paperclip, and Scout has none at all (CEO v2 D10 as resolved on 2026-10-01, superseding Eng v3 D4).
 - **Privacy:** Hermes persistent memory is off, Hermes sessions are purged at 90 days, and each lead gets its own session (Eng v3 D6, D7).
 - **Draft handoff:** ORBIT polls the Paperclip issue every 15 s for Scout's JSON draft. One retry, then Orbi and the digest (Eng v3 D5). This resolves v6.0 N-2.
 - **Unclear leads:** Orbi decides lead / not_lead. A "lead" verdict goes to Scout for a draft, with no ack (Eng v3 D8).
@@ -167,7 +167,7 @@ Per instance
   +------------ Paperclip + Hermes container (no Gmail / Resend secrets) -------------+
   | [PAPERCLIP] company, issues, budgets, Orbi's Friday routine, tailnet-only UI      |
   |    `hermes_local` adapter --> Hermes per run: profiles orbi, scout               |
-  |    toolsets: scout = web search + web fetch; orbi = Paperclip issue tools        |
+  |    toolsets: none on either agent; orbi's issue tools come from Paperclip        |
   |    persistent memory OFF; one session per issue (per lead)                      |
   +----------------------------------------------------------------------------------+
   [POSTGRES server] databases: orbit (ORBIT logins) | paperclip (paperclip login)
@@ -351,7 +351,7 @@ Until about 10 instances, the fleet runs on scripts and a registry file. The con
 - FLT-7 **Posture report** per instance after every provision and upgrade:
   - No public database, Redis, Paperclip or Hermes port; engine UIs on the tailnet only.
   - The Paperclip/Hermes container holds no Gmail token and no Resend key, uses only the `paperclip` database login, and has a read-only filesystem except its data directories.
-  - Toolsets match the allowlist (Scout: web search + web fetch; Orbi: Paperclip issue tools); no terminal, file-write, browser or delegation; persistent memory off; self-made skills off; cron off.
+  - Toolsets match the allowlist, which is empty for both agents (Orbi's issue tools come from Paperclip; Scout has no web toolset per CEO v2 D10); no terminal, file-write, browser or delegation; persistent memory off; self-made skills off; cron off.
   - The Front Desk static checks pass (only the Front Desk service holds Gmail send scope; no approval bypass).
   - Versions match the template.
 - FLT-10 **Operator access:** OrbitumAI only, over Tailscale. Every operator action is audited on the affected instance.
@@ -478,7 +478,7 @@ Backups, escalation chains, delegation, authority-change requests and office-cha
 ## 16. Security and Compliance
 - SEC-1 No database, Redis, Paperclip or Hermes port is reachable from the public internet. Engines run on loopback or private networks; operator access is over Tailscale only.
 - SEC-2 Only the Front Desk service can send through Gmail, and it is code. The web and API programs never hold Gmail credentials; the API writes decisions and the Front Desk sender executes them. A static test enforces this across the four programs.
-- SEC-2a **Engine containment:** Paperclip and Hermes run in their own container with no Gmail token, no Resend key, only the `paperclip` database login and a read-only filesystem except their data directories. Scout's toolsets are web search and web fetch only; Orbi's are Paperclip issue tools only; no terminal, file-write, browser or delegation on either. Hermes profiles do not sandbox the filesystem, so this container boundary is required.
+- SEC-2a **Engine containment:** Paperclip and Hermes run in their own container with no Gmail token, no Resend key, only the `paperclip` database login and a read-only filesystem except their data directories. Scout holds no Hermes toolset and Orbi's issue tools come from Paperclip, so the allowlist is empty for both. CEO v2 D10 asked for search without fetch; the pinned image ships `web` as one toolset holding web_search and web_extract, and a search query carries data out as readily as a fetch URL, so the founder dropped the toolset outright on 2026-10-01. Scout drafts from the lead's email, the owner's tone samples and the facts file. The research and draft split in `TODOS.md` P3 is how research returns. no terminal, file-write, browser or delegation on either. Hermes profiles do not sandbox the filesystem, so this container boundary is required.
 - SEC-3 Approval is enforced outside the model. The send path validates a per-message approval ID issued by ORBIT, or the standing template approval for the ack only (§12).
 - SEC-4 Inbound filters drop 2FA codes, password resets and banking notices before any model call.
 - SEC-5 Secrets are stored in Paperclip secret references and as encrypted connection tokens with per-instance keys. They never appear in prompts, logs, agent files or client code. A rotation runbook exists.
@@ -582,11 +582,12 @@ The sources leave these open or contradict each other. They were not decided in 
 | N-14 | Does a discarded draft get a receipt? | RCPT-1 says "one receipt per sent message". Design 12A says discard reasons are "stored on the receipt". |
 | N-15 | What is the body truncation limit before model calls? | The v5.1 limit (32K) was Jev's context size. Jev is deferred. |
 | N-17 | Do OrbitumAI operators need 2FA at launch (including on the Paperclip UI over the tailnet)? | v5.1 SEC-9 and FLT-10 required TOTP for operators through the console. With no console, operator access is scripts and engine UIs over Tailscale. |
-| N-18 | How is "Scout: web search only" (CEO2-D10) enforced, given that the pinned Hermes image exposes `web` as a single toolset holding both web_search and web_extract? | Two mechanisms fit. (a) Disable `web` entirely: Scout drafts from the lead email, the tone samples and the facts file, and loses search. (b) Keep `web` and block fetch at the container egress, allowing only the search API host, with the posture check asserting the egress rules. Note that search queries are themselves an exfiltration channel, which is the risk S3-EXFIL was closing. |
 
 (v6.0 N-2, broken-draft handling, is resolved by Eng v3 D5: FD-3.)
 
 (N-16, owner account creation, is answered by the founder on 2026-10-01: the provisioning script creates the owner account from an owner email provisioning input. The invitation flow moves to Phase 2 with multi-person offices. APP-1, SIGN-1, PRV-1 and PRV-2 are updated, and the Stage 0 schema needs no change because it has no invitations table.)
+
+(N-18, how "Scout: web search only" is enforced, is answered by the founder on 2026-10-01: drop the `web` toolset. The pinned Hermes image bundles web_search with web_extract, so search without fetch is not configurable, and a search query exfiltrates as readily as a fetch URL. Scout drafts from the lead's email, the owner's tone samples and the facts file. SEC-2a, FLT-7, the §5 containment line and the §6 diagram are updated; `template/engine/hermes/scout.config.yaml`, `template/engine/paperclip-adapters.json` and `ops/src/posture.ts` enforce it, and the posture check now rejects `web` on either agent.)
 
 (N-7, N-8, N-11 and N-12 are answered by the founder on 2026-10-01, closing the five that D11 gated before stage 1. None of them adds a screen.
 - **N-7:** a Spending block on Settings (company, Orbi, Scout, daily Decision Layer cap) plus one spend line at the end of the daily digest. COST-1, FD-2 and FD-10 are updated.
@@ -606,7 +607,7 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
    - Verify: the app and notice emails use only DESIGN.md tokens.
 4. **E3-T1 + E-T2 (spike)** — Week-2 engine spike: run Orbi and Scout through Paperclip `hermes_local` at pinned versions on Node 24; confirm profile selection, toolset allowlist, memory off and a per-issue session setting.
    - Verify: a Scout run posts a JSON draft comment on a Paperclip issue; a second issue starts an empty session; Paperclip and Hermes run on Node 24.
-5. **E3-T2 + E-T6 (template)** — Separate Paperclip + Hermes container (no Gmail/Resend secrets, `paperclip` DB login only, read-only FS except data dirs; toolsets Scout = web search/fetch, Orbi = issue tools); one Postgres server with `orbit` and `paperclip` databases and separate logins.
+5. **E3-T2 + E-T6 (template)** — Separate Paperclip + Hermes container (no Gmail/Resend secrets, `paperclip` DB login only, read-only FS except data dirs; no Hermes toolset on either agent, Scout included, per CEO v2 D10 as resolved on 2026-10-01); an injection test confirms a hostile email cannot make Scout reach the network, because it has no tool that can; one Postgres server with `orbit` and `paperclip` databases and separate logins.
    - Verify: the posture check fails when a Gmail secret or a terminal toolset is added to that container; the paperclip login cannot read orbit tables.
 6. **E-T5 (sender)** — Approval ID states `issued / sending / sent / failed / void` with a DB lock, the `X-Orbitcrew-Id` tag, and a Sent-folder check on unclear results.
    - Verify: a forced-timeout test sends exactly one email; a concurrent-send test sends once.
@@ -755,7 +756,7 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
 | CEO2-D7 (S2-ORBI) | CEO review v2 | Orbi verdict timeout: 10 minutes plus one corrective comment, then the digest entry "unclear, Orbi did not answer" and an owner alert. No ack. Fake-clock test. |
 | CEO2-D8 (S2-DISCONNECT) | CEO review v2 | A revoked or expired Gmail token pauses the Front Desk and raises the banner, a content-free owner notice and a founder alert. Revoked-token test. N-9 stays open. |
 | CEO2-D9 (S2-N1) | CEO review v2 | No OpenRouter fallback at launch. A provider outage goes to the digest with alerts. Answers N-1. |
-| CEO2-D10 (S3-EXFIL) | CEO review v2 | Scout gets web search only; the posture check asserts no fetch; an injection test covers it. **Not yet applied: the pinned Hermes image exposes `web` as one toolset holding both web_search and web_extract, so this needs a mechanism decision (see §22 N-18).** |
+| CEO2-D10 (S3-EXFIL) | CEO review v2 | Scout gets web search only; the posture check asserts no fetch; an injection test covers it. **Resolved 2026-10-01 (answers N-18):** the pinned image ships `web` as one toolset holding web_search and web_extract, and a search query exfiltrates as readily as a fetch URL, so the founder dropped the toolset. Scout holds no Hermes toolset; the posture check asserts the empty allowlist on both agents. Research returns with the `TODOS.md` P3 split. |
 | CEO2-D11 (S5-OPENQ) | CEO review v2 | N-7, N-8, N-11, N-12 and N-16 are answered before the stage 1 build. All five answered 2026-10-01; see §22. |
 | CEO2-D12 (S8-OPSTIME) | CEO review v2 | Ops minutes are logged per instance monthly; the capacity trigger is 25 instances or more than 10 h/week for 4 weeks. |
 | CEO2-D13 (S8-HOURS) | CEO review v2 | Hours given back = (15 min − confirm-page time) per sent reply + 2 min per ack, labeled an estimate, with open time recorded from day one. Answers N-4. |

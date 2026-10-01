@@ -79,7 +79,10 @@ export const ALL_TOOLSETS = [
   'computer_use',
 ] as const;
 
-const ALLOWED_TOOLSETS: Record<Agent, readonly string[]> = { orbi: [], scout: ['web'] };
+// Neither agent may hold a Hermes toolset. Orbi's issue tools come from Paperclip, and Scout lost
+// `web` with CEO v2 D10 (founder 2026-10-01): the toolset bundles web_search with web_extract, so
+// "search only" is not configurable, and a search query leaks as readily as a fetch.
+const ALLOWED_TOOLSETS: Record<Agent, readonly string[]> = { orbi: [], scout: [] };
 const TURN_CAPS: Record<Agent, number> = { orbi: 20, scout: 30 }; // COST-3
 
 // Both upstream images keep their own data roots: /paperclip is Paperclip's HOME and PAPERCLIP_HOME,

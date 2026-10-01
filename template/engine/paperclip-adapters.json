@@ -20,7 +20,7 @@
   "scout": {
     "adapter": "hermes_local",
     "provider": "anthropic",
-    "toolsets": "web",
+    "toolsets": "",
     "maxTurnsPerRun": 30,
     "persistSession": true,
     "worktreeMode": false,
