@@ -10,7 +10,13 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
-          include: ['shared/**/*.test.ts', 'design/**/*.test.ts', 'ops/**/*.test.ts', 'template/test/compose.test.ts'],
+          include: [
+            'shared/**/*.test.ts',
+            'design/**/*.test.ts',
+            'ops/**/*.test.ts',
+            'template/test/compose.test.ts',
+            'template/test/engine.test.ts',
+          ],
         },
       },
       {
