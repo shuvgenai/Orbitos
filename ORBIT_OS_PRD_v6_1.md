@@ -706,7 +706,7 @@ Merged from CEO (T1–T11), Eng v1 (E-T1–E-T8), Eng v2 (E2-T1–E2-T10), Desig
 | OH-P4 | Design doc | Instant fixed-template acknowledgment under a standing approval; the full reply still needs a tap. |
 | OH-P5 | Design doc | Dedicated instance per customer with managed setup stays. |
 | OH-AC | Design doc | Approach C: a prototype that becomes the Front Desk. **Engine deferral reversed by the founder (2026-09-30):** Paperclip + Hermes run from launch. The fleet console stays deferred. |
-| OH-RULES | Design doc | Launch behavior rules: ack conditions and caps, the classifier-to-action table (the "unsure" row amended by ENG3-D8), thread scope, the template, in-thread sending, the confirm-page actions and timeouts, 30 s polling, the latency budget, idempotency, owner-selected tone samples, the success criteria. |
+| OH-RULES | Design doc | Launch behavior rules: ack conditions and caps, the classifier-to-action table (the "unsure" row amended by ENG3-D8), thread scope, the template, in-thread sending, the confirm-page actions and timeouts, 30 s polling, the latency budget, idempotency, owner-selected tone samples (narrowed to owner-reviewed by the N-8 answer of 2026-10-01: the setup pass selects the sample from the owner's sent mail and Settings lets the owner replace it), the success criteria. |
 | OH-SPEC | Design doc | FD-6 amended for the standing template approval; AUTH-4 escalation and backups moved to Phase 2. (The decision #14 change to "added when needed" is reversed; see OH-AC.) |
 | ENG2-D1 | Eng review v2 | One ORBIT program plus Postgres, no Redis. **Superseded by ENG3-D2.** |
 | ENG2-D2 (R3-1) | Eng review v2 | The firm's forwarded emails are stored but never sent to AI until the terms are signed. |
