@@ -54,27 +54,52 @@ test('no comment yet means retry, with no approval created', async () => {
   expect(await prisma.approval.count({ where: { leadId: lead.id } })).toBe(0);
 });
 
-test('a malformed block draws exactly one corrective comment', async () => {
+const malformed = '```json\n{"kind":"draft"}\n```';
+const malformed2 = '```json\n{"kind":"draft","schemaVersion":1}\n```';
+
+async function draftingLead() {
   const ws = await newWorkspace(prisma);
   const lead = await newLead(prisma, ws.id);
   await prisma.lead.update({ where: { id: lead.id }, data: { paperclipIssueId: 'i1', state: 'drafting' } });
-  const engine = { comments: vi.fn().mockResolvedValue(['```json\n{"kind":"draft"}\n```']), comment: vi.fn(),
-    createIssue: vi.fn() };
+  return lead;
+}
+
+test('a malformed block draws exactly one corrective comment', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue([malformed]), comment: vi.fn(), createIssue: vi.fn() };
   expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('corrected');
   expect(engine.comment).toHaveBeenCalledTimes(1);
-  // A second malformed answer must not draw a second correction.
-  expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('failed');
+});
+
+test('the same corrected comment seen again is a retry, not a second failure', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue([malformed]), comment: vi.fn(), createIssue: vi.fn() };
+  const deps = { prisma, engine, now: () => new Date() };
+  expect(await handleDraftPoll(deps, { id: 'j1', leadId: lead.id })).toBe('corrected');
+  expect(await handleDraftPoll(deps, { id: 'j1', leadId: lead.id })).toBe('retry');
   expect(engine.comment).toHaveBeenCalledTimes(1);
-  const after = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
-  expect(after.state).toBe('draft_failed');
+  expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('drafting');
+});
+
+test('a different malformed comment after the correction fails the lead', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue([malformed]), comment: vi.fn(), createIssue: vi.fn() };
+  const deps = { prisma, engine, now: () => new Date() };
+  expect(await handleDraftPoll(deps, { id: 'j1', leadId: lead.id })).toBe('corrected');
+  engine.comments.mockResolvedValue([malformed, malformed2]);
+  expect(await handleDraftPoll(deps, { id: 'j1', leadId: lead.id })).toBe('failed');
+  expect(engine.comment).toHaveBeenCalledTimes(1);
+  expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('draft_failed');
 });
 
 test('ten minutes with no valid draft marks the lead draft_failed', async () => {
   const ws = await newWorkspace(prisma);
   const lead = await newLead(prisma, ws.id);
   const started = new Date('2026-10-01T09:00:00Z');
-  await prisma.lead.update({ where: { id: lead.id }, data: { paperclipIssueId: 'i1', state: 'drafting',
-    updatedAt: started } });
+  await prisma.lead.update({ where: { id: lead.id }, data: { paperclipIssueId: 'i1', state: 'drafting' } });
+  // The window runs from the draft_poll job's creation, not from the lead's (movable) updatedAt.
+  await prisma.job.create({ data: { workspaceId: ws.id, kind: 'draft_poll', dedupeKey: `draft_poll:${lead.id}`,
+    leadId: lead.id, createdAt: started } });
   const engine = { comments: vi.fn().mockResolvedValue([]), comment: vi.fn(), createIssue: vi.fn() };
   const out = await handleDraftPoll({ prisma, engine, now: () => new Date('2026-10-01T09:10:01Z') },
     { id: 'j1', leadId: lead.id });
