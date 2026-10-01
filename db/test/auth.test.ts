@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { afterAll, expect, test, vi } from 'vitest';
 import { issueSignInLink, redeemSignInLink } from '../../api/src/auth.ts';
 import { readSession } from '../../api/src/session.ts';
+import { createOwner } from '../src/owner.ts';
 import { newWorkspace, testPrisma, withOwner } from './helpers.ts';
 
 const prisma = testPrisma();
@@ -56,6 +58,7 @@ test('the stored token is a hash, not the token itself', async () => {
   const row = await prisma.signInLink.findFirstOrThrow({ where: { userId: owner.id } });
   expect(row.tokenHash).not.toBe(token);
   expect(row.tokenHash).toHaveLength(64);
+  expect(row.tokenHash).toBe(createHash('sha256').update(token).digest('hex'));
 });
 
 test('an expired link is refused', async () => {
@@ -127,7 +130,15 @@ test('the session stores a hash and carries a 30-day lifetime and freshAt', asyn
   expect(Math.abs(row.freshAt.getTime() - Date.now())).toBeLessThan(10_000);
 });
 
-test.each(['//evil.example', 'https://evil.example/x', '/\\evil.example', 'c/abc'])(
+test.each([
+  '//evil.example',
+  'https://evil.example/x',
+  '/\\evil.example',
+  'c/abc',
+  '/\t/evil.example',
+  '/\n/evil.example',
+  '',
+])(
   'an off-site or non-path redirect %s is replaced with /',
   async (bad) => {
     const { deps, mailer } = await fixture();
@@ -155,4 +166,40 @@ test('a workspace with no such address mails nothing even when another workspace
   const out = await issueSignInLink({ ...a.deps, workspaceId: empty.id }, 'owner@example.com', '/');
   expect(out).toEqual({ sent: true });
   expect(a.mailer.send).not.toHaveBeenCalled();
+});
+
+test('a bad redirect path already stored in a row is cleaned again at redemption', async () => {
+  const { deps, mailer, owner } = await fixture();
+  await issueSignInLink(deps, 'owner@example.com', '/ok');
+  await prisma.signInLink.updateMany({ where: { userId: owner.id }, data: { redirectPath: '//evil.example' } });
+  const out = await redeemSignInLink(deps, tokenFrom(mailer));
+  if ('error' in out) throw new Error(out.error);
+  expect(out.redirectPath).toBe('/');
+});
+
+test('the response does not wait on the mail provider', async () => {
+  const { deps, mailer } = await fixture();
+  mailer.send.mockReturnValue(new Promise(() => {})); // never settles
+  const out = await Promise.race([
+    issueSignInLink(deps, 'owner@example.com', '/'),
+    new Promise((r) => setTimeout(() => r('timed out'), 2000)),
+  ]);
+  expect(out).toEqual({ sent: true });
+  expect(mailer.send).toHaveBeenCalledTimes(1);
+});
+
+test('a failing mail provider is swallowed and the answer is unchanged', async () => {
+  const { deps, mailer } = await fixture();
+  mailer.send.mockRejectedValue(new Error('provider down'));
+  expect(await issueSignInLink(deps, 'owner@example.com', '/')).toEqual({ sent: true });
+});
+
+test('the address is matched case-insensitively and ignoring surrounding spaces', async () => {
+  const ws = await newWorkspace(prisma);
+  const owner = await createOwner(prisma, { workspaceId: ws.id, email: '  Owner@Firm.COM ' });
+  expect(owner.email).toBe('owner@firm.com');
+  const mailer = { send: vi.fn().mockResolvedValue(undefined) };
+  const deps = { prisma, mailer, baseUrl: 'https://orbit.example', workspaceId: ws.id };
+  await issueSignInLink(deps, ' OWNER@firm.com', '/');
+  expect(mailer.send.mock.calls[0]![0].to).toBe('owner@firm.com');
 });

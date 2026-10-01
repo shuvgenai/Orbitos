@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { pino } from 'pino';
 import type { PrismaClient } from '@orbit/db/client';
 import type { MailerPort } from '@orbit/shared/mailer';
+import { normalizeEmail } from '@orbit/db/owner';
 import { hashToken, sessionCookie, SESSION_TTL_MS } from './session.ts';
 
 // Logs carry identifiers and codes only. Never the token, its hash, or the email address.
@@ -19,7 +20,15 @@ export type AuthDeps = {
 
 /** Only a same-site path may be a redirect target; anything else becomes the home page. */
 function safePath(path: string): string {
-  return path.startsWith('/') && !path.startsWith('//') && !path.includes('\\') ? path : '/';
+  // Control characters are refused outright: a browser strips tab and newline when it parses a URL,
+  // so "/\t/evil.example" would resolve as "//evil.example", and a newline is a header-injection risk.
+  if (path.length === 0 || path.length > 2048 || /[\x00-\x1f\x7f]/.test(path)) return '/';
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) return '/';
+  try {
+    return new URL(path, 'https://x').origin === 'https://x' ? path : '/';
+  } catch {
+    return '/';
+  }
 }
 
 /**
@@ -32,7 +41,7 @@ export async function issueSignInLink(
   redirectPath: string,
 ): Promise<{ sent: true }> {
   const matches = await deps.prisma.user.findMany({
-    where: { email, ...(deps.workspaceId ? { workspaceId: deps.workspaceId } : {}) },
+    where: { email: normalizeEmail(email),...(deps.workspaceId ? { workspaceId: deps.workspaceId } : {}) },
     orderBy: { createdAt: 'asc' },
   });
   const user = matches[0];
@@ -42,10 +51,10 @@ export async function issueSignInLink(
 
   const token = randomBytes(32).toString('base64url');
   if (!user) {
-    // Do the same token work as the matched path and discard it. This narrows the timing difference
-    // between a known and an unknown address; it does not remove it (no insert, no mail). A rate
-    // limit on this endpoint is the real defence against probing.
-    hashToken(token);
+    // Same token work and one indexed read on token_hash, comparable to the matched path's insert.
+    // The mail is not awaited on either path, so the network never shows in the response time. What
+    // remains is one insert versus one indexed read; a rate limit on the route is the real defence.
+    await deps.prisma.signInLink.findUnique({ where: { tokenHash: hashToken(token) } });
     return { sent: true };
   }
   const link = await deps.prisma.signInLink.create({
@@ -56,17 +65,20 @@ export async function issueSignInLink(
       expiresAt: new Date(Date.now() + LINK_TTL_MS),
     },
   });
-  try {
-    await deps.mailer.send({
-      to: user.email,
-      subject: 'Your Orbit sign-in link',
-      text: `Open this link to sign in. It works once and expires in 15 minutes.\n\n${deps.baseUrl}/s/${token}`,
-      headers: { 'X-Orbitcrew': '1' },
-    });
-  } catch {
-    // Same answer as every other case: a failure must not tell the caller the address exists.
-    log.error({ signInLinkId: link.id, code: 'mail_failed' }, 'sign-in mail failed');
-  }
+  // Not awaited: waiting on the mail provider would make a known address slower than an unknown one.
+  // A failure is logged by link id and never surfaced, for the same reason.
+  void (async () => {
+    try {
+      await deps.mailer.send({
+        to: user.email,
+        subject: 'Your Orbit sign-in link',
+        text: `Open this link to sign in. It works once and expires in 15 minutes.\n\n${deps.baseUrl}/s/${token}`,
+        headers: { 'X-Orbitcrew': '1' },
+      });
+    } catch {
+      log.error({ signInLinkId: link.id, code: 'mail_failed' }, 'sign-in mail failed');
+    }
+  })();
   return { sent: true };
 }
 
@@ -101,5 +113,5 @@ export async function redeemSignInLink(
   if (!won) return { error: 'used' };
 
   log.info({ signInLinkId: link.id, userId: link.userId }, 'sign-in link redeemed');
-  return { cookie: sessionCookie(sessionToken), redirectPath: link.redirectPath ?? '/' };
+  return { cookie: sessionCookie(sessionToken), redirectPath: safePath(link.redirectPath ?? '/') };
 }
