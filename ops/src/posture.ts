@@ -6,7 +6,10 @@
 // to the runtime check in E3-T7, because they are not expressible in the template:
 //   - `hermes -p <profile> cron list` must be empty. Hermes has no config key that disables
 //     scheduling; cron.enabled is not a recognized key.
-//   - Paperclip's heartbeat must be off. It defaults to on at 30 s.
+//   - Both agents must have runtimeConfig.heartbeat.enabled false and wakeOnDemand true. The
+//     default is already off, so this guards against someone turning it on: a timer wake has no
+//     issue, so it shares one synthetic session per agent, which is the cross-lead context D6 and
+//     D7 forbid.
 
 export type PostureCode =
   | 'engine_holds_forbidden_secret'
