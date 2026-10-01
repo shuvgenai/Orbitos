@@ -130,6 +130,42 @@ test('orbi may use no Hermes toolset; its issue tools come from Paperclip (SEC-2
   expect([...disabled].sort()).toEqual([...ALL_TOOLSETS].sort());
 });
 
-test.each(['orbi', 'scout'] as const)('%s runs no schedule of its own (COST-2, FLT-7)', (name) => {
-  expect(profiles[name].cron?.enabled).toBe(false);
+// Hermes has no config key that disables scheduling: `config get cron.enabled` answers "not a
+// recognized config key". Cron is per-job, so COST-2 means an empty job list, asserted at runtime
+// with `hermes -p <profile> cron list`. A cron key in these files would read as containment that is
+// not there, so its absence is the thing worth testing.
+test.each(['orbi', 'scout'] as const)('%s declares no cron key, because Hermes has none', (name) => {
+  expect(profiles[name].cron).toBeUndefined();
+});
+
+const adapters = JSON.parse(
+  readFileSync(new URL('../engine/paperclip-adapters.json', import.meta.url), 'utf8'),
+) as Record<
+  string,
+  { adapter: string; toolsets: string; maxTurnsPerRun: number; timeoutSec: number; persistSession: boolean; extraArgs: string[] }
+>;
+
+test('both agents run on hermes_local until the upstream gateway fix (Eng v3 D3)', () => {
+  expect(Object.keys(adapters).sort()).toEqual(['orbi', 'scout']);
+  for (const [name, cfg] of Object.entries(adapters)) expect(cfg.adapter, name).toBe('hermes_local');
+});
+
+test('turn caps match COST-3', () => {
+  expect(adapters.orbi!.maxTurnsPerRun).toBe(20);
+  expect(adapters.scout!.maxTurnsPerRun).toBe(30);
+});
+
+test('the adapter toolsets match the profile allowlist (SEC-2a)', () => {
+  expect(adapters.scout!.toolsets).toBe('web');
+  expect(adapters.orbi!.toolsets).toBe('');
+});
+
+// The adapter has no profile field, so without -p both agents would share /opt/data/config.yaml and
+// the per-agent allowlist in D4 could not be expressed at all (spike log section 6).
+test.each(['orbi', 'scout'] as const)('%s selects its own Hermes profile with -p', (name) => {
+  expect(adapters[name]!.extraArgs).toEqual(['-p', name]);
+});
+
+test('the engine run timeout does not outlive the 10-minute draft poll (D5)', () => {
+  for (const [name, cfg] of Object.entries(adapters)) expect(cfg.timeoutSec, name).toBeLessThanOrEqual(600);
 });

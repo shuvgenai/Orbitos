@@ -23,6 +23,8 @@ agent:
     - productivity
     - memory
 
-cron:
-  # Orbi's Friday routine is a Paperclip routine, not a Hermes cron job (COST-2).
-  enabled: false
+# Scheduling is deliberately absent from this file. Hermes has no config key that turns cron
+# off: `hermes config get cron.enabled` answers "'cron.enabled' is not a recognized config key".
+# Cron is a per-job system (`hermes cron list|create|pause`), so "no schedules" means an empty
+# job list, which the runtime posture check asserts with `hermes -p orbi cron list` (COST-2,
+# FLT-7). Do not add a cron key here; it would read as containment that is not there.

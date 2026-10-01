@@ -7,6 +7,9 @@ type Service = {
   networks?: string[];
   environment?: Record<string, string>;
   healthcheck?: unknown;
+  read_only?: boolean;
+  volumes?: string[];
+  tmpfs?: string[];
 };
 const compose = parse(readFileSync(new URL('../compose.yml', import.meta.url), 'utf8'), { merge: true }) as {
   services: Record<string, Service>;
@@ -15,8 +18,16 @@ const compose = parse(readFileSync(new URL('../compose.yml', import.meta.url), '
 const services = compose.services;
 const PROGRAMS = ['web', 'api', 'worker', 'frontdesk'];
 
-test('the stack defines the four programs, Postgres and Redis', () => {
-  expect(Object.keys(services).sort()).toEqual(['api', 'frontdesk', 'postgres', 'redis', 'web', 'worker']);
+test('the stack defines the four programs, Postgres, Redis and the engine', () => {
+  expect(Object.keys(services).sort()).toEqual([
+    'api',
+    'frontdesk',
+    'paperclip',
+    'postgres',
+    'redis',
+    'web',
+    'worker',
+  ]);
 });
 
 test('postgres, redis, worker and frontdesk publish no ports (SEC-1)', () => {
@@ -37,13 +48,58 @@ test('the data network has no internet route, and holds Postgres and Redis alone
   expect(services.redis!.networks).toEqual(['data']);
 });
 
-test('only frontdesk receives Gmail credentials and the model key (SEC-2, SEC-10)', () => {
+test('only frontdesk receives Gmail credentials and the token key (SEC-2)', () => {
   for (const [name, svc] of Object.entries(services)) {
     const keys = Object.keys(svc.environment ?? {});
-    const secret = keys.filter((k) => k.startsWith('GMAIL_') || k === 'ANTHROPIC_API_KEY' || k === 'TOKEN_ENCRYPTION_KEY');
-    if (name === 'frontdesk') expect(secret.length).toBe(4);
-    else expect(secret, name).toEqual([]);
+    const secret = keys.filter((k) => k.startsWith('GMAIL_') || k === 'TOKEN_ENCRYPTION_KEY');
+    if (name === 'frontdesk') {
+      expect(secret.sort()).toEqual(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY']);
+    } else {
+      expect(secret, name).toEqual([]);
+    }
   }
+});
+
+// SEC-10: the engine gets its own model key, so a compromised engine cannot spend or speak as the
+// Front Desk. Same variable name inside each container, different value on the host.
+test('the engine and the Front Desk hold separate model keys (SEC-10)', () => {
+  expect(services.frontdesk!.environment!.ANTHROPIC_API_KEY).toBe('${ANTHROPIC_API_KEY:?}');
+  expect(services.paperclip!.environment!.ANTHROPIC_API_KEY).toBe('${ENGINE_ANTHROPIC_API_KEY:?}');
+});
+
+test('no service but api and worker holds the Resend key (SEC-2a)', () => {
+  for (const [name, svc] of Object.entries(services)) {
+    if (name === 'api' || name === 'worker') continue;
+    expect(Object.keys(svc.environment ?? {}), name).not.toContain('RESEND_API_KEY');
+  }
+});
+
+test('the engine uses the paperclip database login only (SEC-2a)', () => {
+  const url = services.paperclip!.environment!.DATABASE_URL!;
+  expect(url).toContain('paperclip_app');
+  expect(url).toContain('/paperclip');
+  expect(url).not.toContain('orbit_app');
+});
+
+// Both upstream images keep their own data roots: /paperclip is Paperclip's HOME and
+// PAPERCLIP_HOME, /opt/data is Hermes' HERMES_HOME. Without a volume on each, a read-only root
+// filesystem stops the container on first boot (Review Focus 2).
+test('the engine root filesystem is read-only, with a volume for every writable path', () => {
+  const engine = services.paperclip!;
+  expect(engine.read_only).toBe(true);
+  const targets = (engine.volumes ?? []).map((v) => v.split(':')[1]);
+  expect(targets).toEqual(expect.arrayContaining(['/paperclip', '/opt/data']));
+  expect(engine.tmpfs).toEqual(['/tmp']);
+});
+
+test('the engine runs in private authenticated mode (DEP-5)', () => {
+  expect(services.paperclip!.environment!.PAPERCLIP_DEPLOYMENT_MODE).toBe('authenticated');
+  expect(services.paperclip!.environment!.PAPERCLIP_DEPLOYMENT_EXPOSURE).toBe('private');
+});
+
+test('the Front Desk reaches the engine over the internal network, with no key in the template', () => {
+  expect(services.frontdesk!.environment!.PAPERCLIP_API_URL).toBe('http://paperclip:3100');
+  expect(Object.keys(services.frontdesk!.environment ?? {})).not.toContain('PAPERCLIP_API_KEY');
 });
 
 test('the web program holds no secrets and no database access', () => {

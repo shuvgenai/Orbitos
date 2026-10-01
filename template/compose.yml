@@ -42,6 +42,38 @@ services:
       timeout: 3s
       retries: 20
 
+  paperclip:
+    # The engine: Paperclip plus Hermes in one container (Eng v3 D3). No Gmail token, no Resend key,
+    # no TOKEN_ENCRYPTION_KEY, and the paperclip database login only (SEC-2a). See engine/README.md.
+    build:
+      context: ./engine
+      args:
+        PAPERCLIP_REF: ${PAPERCLIP_REF:?}
+        HERMES_REF: ${HERMES_REF:?}
+    restart: unless-stopped
+    read_only: true # SEC-2a; every writable path below is a volume
+    environment:
+      DATABASE_URL: postgresql://paperclip_app:${PAPERCLIP_DB_PASSWORD:?}@postgres:5432/paperclip
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated # DEP-5
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: private # DEP-5
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:?}
+      BETTER_AUTH_SECRET: ${PAPERCLIP_AUTH_SECRET:?}
+      PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_SIGNING_SECRET:?}
+      ANTHROPIC_API_KEY: ${ENGINE_ANTHROPIC_API_KEY:?} # its own key, not the Front Desk's (SEC-10)
+    volumes:
+      - paperclip_home:/paperclip # the image's own HOME and PAPERCLIP_HOME
+      - hermes_data:/opt/data # HERMES_HOME: both profiles, their sessions and logs
+    tmpfs: ["/tmp"] # Hermes' XDG_RUNTIME_DIR is /tmp/hermes-runtime
+    ports: ["127.0.0.1:3100:3100"] # reached over the host's tailnet only (SEC-1, DEP-5)
+    networks: [data, egress] # data to reach Postgres and the Front Desk; egress for model calls
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30 # first boot runs 278 migrations
+
   web:
     <<: *program
     build: { context: .., args: { APP: web } }
@@ -88,6 +120,7 @@ services:
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:?}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?}
+      PAPERCLIP_API_URL: http://paperclip:3100 # the service key is created per instance (E3-T7)
     networks: [data, egress]
     depends_on:
       postgres: { condition: service_healthy }
@@ -101,3 +134,5 @@ networks:
 
 volumes:
   pgdata: {}
+  paperclip_home: {} # Paperclip data and its own hourly backups; DEC-2 wipes it with `down -v`
+  hermes_data: {} # HERMES_HOME: profiles, sessions, logs (DAT-3 purge target, E3-T5)
