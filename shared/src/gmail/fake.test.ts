@@ -163,3 +163,9 @@ test('syntheticLead populates headers in the real client shape and original casi
     Date: lead.receivedAt.toUTCString(),
   });
 });
+
+test('failNextListWith carries an optional reason on the error', async () => {
+  const gmail = new FakeGmail({ historyId: '100' });
+  gmail.failNextListWith({ status: 403, reason: 'rateLimitExceeded' });
+  await expect(gmail.listSince('100')).rejects.toMatchObject({ status: 403, reason: 'rateLimitExceeded' });
+});

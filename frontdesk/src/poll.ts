@@ -19,10 +19,15 @@ const log = pino({ name: 'frontdesk-poll' });
 
 const RESYNC_WINDOW_MS = 7 * 24 * 3600_000;
 
-// A 401 or 403 means the token is gone. Everything else (429, 5xx, and errors with no status
-// at all, such as a network TypeError) is transient and must propagate so the caller retries.
+// Revoked: 401 always; 403 unless Gmail says it is a rate or quota limit (those are retryable, like
+// 429 and 5xx). A 403 with no reason counts as revoked: a wrongly stopped poller is loud, a poller
+// that retries a dead token forever is silent. Errors with no status at all (a network TypeError)
+// are never a revocation and propagate.
+const RETRYABLE_403 = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded']);
 function isRevocation(err: unknown): boolean {
-  return err instanceof GmailApiError && (err.status === 401 || err.status === 403);
+  if (!(err instanceof GmailApiError)) return false;
+  if (err.status === 401) return true;
+  return err.status === 403 && !(err.reason !== undefined && RETRYABLE_403.has(err.reason));
 }
 
 async function handleRevocation(deps: PollDeps): Promise<void> {
@@ -87,8 +92,15 @@ export async function pollOnce(deps: PollDeps): Promise<PollResult> {
     if ('expired' in first) {
       // Gmail drops history older than about a week. Resyncing by date is the only way to
       // close the gap; skipping would lose every lead that arrived in it.
-      page = await deps.gmail.listByDate(new Date(Date.now() - RESYNC_WINDOW_MS));
+      const windowStart = new Date(Date.now() - RESYNC_WINDOW_MS);
+      page = await deps.gmail.listByDate(windowStart);
       resynced = true;
+      // A lead older than the window is lost, and "nothing arrived" looks the same as "we looked in
+      // the wrong place", so say what we looked at.
+      log.warn(
+        { workspaceId: deps.workspaceId, windowStart: windowStart.toISOString(), messages: page.messages.length },
+        'poll: history id expired, resynced by date',
+      );
     } else {
       page = first;
     }
@@ -104,12 +116,15 @@ export async function pollOnce(deps: PollDeps): Promise<PollResult> {
   // batch; the unique key makes the already-persisted messages no-ops.
   for (const msg of page.messages) {
     try {
+      // Slice 1 runs a single poller, so this lookup outside the transaction cannot race another tick.
+      // A filtered first message also marks its thread known: FD-1b handles only the first inbound
+      // message of a thread and leaves later replies to the owner in Gmail. Intended; do not "fix".
       const known = await deps.prisma.lead.findFirst({
         where: { workspaceId: deps.workspaceId, gmailThreadId: msg.gmailThreadId },
         select: { id: true },
       });
       if (known) continue; // FD-1b: first inbound only
-      const drop = shouldDrop(
+      const drop = Boolean(shouldDrop(
         {
           fromEmail: msg.fromEmail,
           headers: msg.headers,
@@ -117,8 +132,8 @@ export async function pollOnce(deps: PollDeps): Promise<PollResult> {
           partMimeTypes: msg.parts.map((p) => p.mimeType),
         },
         deps.ownerAddress,
-      );
-      if (!(await persist(deps, msg, drop !== false))) continue;
+      ));
+      if (!(await persist(deps, msg, drop))) continue;
       if (drop) dropped += 1;
       else created += 1;
     } catch (err) {

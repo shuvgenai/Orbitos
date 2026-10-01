@@ -3,13 +3,30 @@ import type { GmailMessage, GmailPort, HistoryPage, SendArgs } from './port.ts';
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
-/** Thrown for any non-2xx Gmail response. Callers branch on `status`: 401/403 mean a revoked token, 429/5xx are retryable. */
+/**
+ * Thrown for any non-2xx Gmail response. Callers branch on `status` and `reason`: 401 is a revoked
+ * token; 403 is too UNLESS the reason is a rate or quota limit (rateLimitExceeded,
+ * userRateLimitExceeded, quotaExceeded), which is retryable like 429 and 5xx.
+ * `reason` is Gmail's error.errors[0].reason, else error.status, else undefined.
+ */
 export class GmailApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly reason: string | undefined;
+  constructor(status: number, message: string, reason?: string) {
     super(message);
     this.name = 'GmailApiError';
     this.status = status;
+    this.reason = reason;
+  }
+}
+
+async function parseReason(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { error?: { errors?: { reason?: unknown }[]; status?: unknown } };
+    const reason = body?.error?.errors?.[0]?.reason ?? body?.error?.status;
+    return typeof reason === 'string' ? reason : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -118,7 +135,7 @@ export function createGmailClient(deps: {
   }
 
   async function ok(res: Response, what: string): Promise<unknown> {
-    if (!res.ok) throw new GmailApiError(res.status, `Gmail ${what} failed with status ${res.status}`);
+    if (!res.ok) throw new GmailApiError(res.status, `Gmail ${what} failed with status ${res.status}`, await parseReason(res));
     return res.json();
   }
 
