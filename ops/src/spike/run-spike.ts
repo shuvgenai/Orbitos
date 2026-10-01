@@ -28,12 +28,16 @@ function description(lead: string, canary: string | null): string {
 // answer from Paperclip, so it must not end the run: retry a bounded number of times, then give up
 // loudly. E3-T3 needs the same property in the worker job.
 const TRANSPORT_RETRIES = 5;
+// A hung socket never rejects, so retries alone are not enough: without a deadline the poll waits
+// for ever instead of failing. The forward in front of this port accepts connections and then
+// stalls, which is exactly the shape a reverse proxy in front of a restarting engine produces.
+const REQUEST_TIMEOUT_MS = 20_000;
 
 async function fetchWithRetry(url: string | URL, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= TRANSPORT_RETRIES; attempt += 1) {
     try {
-      return await fetch(url, init);
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch (err) {
       lastError = err;
       console.log(`transport error (attempt ${attempt}/${TRANSPORT_RETRIES}): ${(err as Error).message}`);
