@@ -12,7 +12,10 @@
     "./body": "./src/body.ts",
     "./gmail/port": "./src/gmail/port.ts",
     "./gmail/fake": "./src/gmail/fake.ts",
-    "./gmail/client": "./src/gmail/client.ts"
+    "./gmail/client": "./src/gmail/client.ts",
+    "./approval-link": "./src/approval-link.ts",
+    "./mailer": "./src/mailer.ts",
+    "./mailer-resend": "./src/mailer-resend.ts"
   },
   "dependencies": {
     "zod": "4.6.5"
