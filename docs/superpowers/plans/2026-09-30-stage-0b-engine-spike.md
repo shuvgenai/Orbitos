@@ -85,7 +85,7 @@ Five conditions the spec implies that no happy path exercises. Each has its test
 - Produces: `template/engine/pinned-versions.json` with the shape `{ recordedOn: string, paperclip: { image: string, tag: string, digest: string }, hermes: { image: string, tag: string, digest: string } }`. Every `digest` starts with `sha256:`. Tasks 2, 4 and 5 read this file.
 - Produces: `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`, an append-only record. Tasks 2, 3 and 6 append to it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `template/test/engine.test.ts`:
 
@@ -117,7 +117,7 @@ test('the pinning date is recorded', () => {
 });
 ```
 
-- [ ] **Step 2: Add the test file to the unit project**
+- [x] **Step 2: Add the test file to the unit project**
 
 In `vitest.config.ts`, change the `unit` project's `include` array from:
 
@@ -139,12 +139,12 @@ to:
 
 `template/test/postgres-logins.test.ts` stays in the `db` project only. Do not switch the `unit` include to a `template/test/*.test.ts` glob, because that would pull the database test into the unit run.
 
-- [ ] **Step 3: Run it and confirm it fails**
+- [x] **Step 3: Run it and confirm it fails**
 
 Run: `pnpm test:unit`
 Expected: FAIL, cannot find `../engine/pinned-versions.json`.
 
-- [ ] **Step 4: Resolve the Paperclip digest**
+- [x] **Step 4: Resolve the Paperclip digest**
 
 Paperclip publishes `ghcr.io/paperclipai/paperclip` with canonical `sha-<FULL_SHA>` tags. Pick the newest `sha-` tag and resolve it:
 
@@ -161,7 +161,7 @@ docker image inspect ghcr.io/paperclipai/paperclip:<the sha- tag> --format '{{in
 
 Record the command and its full output in the spike log (Step 6).
 
-- [ ] **Step 5: Resolve the Hermes digest**
+- [x] **Step 5: Resolve the Hermes digest**
 
 Hermes publishes `nousresearch/hermes-agent` with `X.Y.Z`, `main` and `latest`/`stable` tags. Pick the newest `X.Y.Z` tag, never `latest`:
 
@@ -169,7 +169,7 @@ Hermes publishes `nousresearch/hermes-agent` with `X.Y.Z`, `main` and `latest`/`
 docker buildx imagetools inspect nousresearch/hermes-agent:<X.Y.Z>
 ```
 
-- [ ] **Step 6: Write the spike log with the recorded facts**
+- [x] **Step 6: Write the spike log with the recorded facts**
 
 `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`:
 
@@ -219,7 +219,7 @@ PRD section 7 requires 24.11 or newer. Verdict:
 (any step that did not behave as the plan expected, with the exact error)
 ```
 
-- [ ] **Step 7: Record the Node version in each image**
+- [x] **Step 7: Record the Node version in each image**
 
 ```bash
 docker run --rm --entrypoint node ghcr.io/paperclipai/paperclip@<digest> --version
@@ -228,7 +228,7 @@ docker run --rm --entrypoint node nousresearch/hermes-agent@<digest> --version
 
 Write both outputs into spike log section 2. If the version the engine will actually run (decided in Task 2) is below `v24.11.0`, stop and report: PRD section 7 names 24.11 as Paperclip's floor, and a lower runtime is a spec violation, not a detail to work around.
 
-- [ ] **Step 8: Write the pinned versions file**
+- [x] **Step 8: Write the pinned versions file**
 
 `template/engine/pinned-versions.json`, with the real digests from Steps 4 and 5:
 
@@ -248,12 +248,12 @@ Write both outputs into spike log section 2. If the version the engine will actu
 }
 ```
 
-- [ ] **Step 9: Run the tests and the typecheck**
+- [x] **Step 9: Run the tests and the typecheck**
 
 Run: `pnpm test:unit` -> Expected: all pass, including the three new engine tests.
 Run: `pnpm typecheck` -> Expected: no output.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add template/engine/pinned-versions.json template/test/engine.test.ts vitest.config.ts docs/superpowers/spikes
@@ -271,8 +271,24 @@ git commit -m "feat(engine): pin the Paperclip and Hermes images by digest"
 
 **Interfaces:**
 - Consumes: `template/engine/pinned-versions.json` from Task 1, through the build arguments `PAPERCLIP_REF` and `HERMES_REF`, each a full `image@sha256:...` reference.
-- Produces: an image whose entrypoint is `/engine/entrypoint.sh`, which copies `/engine/config/<profile>.config.yaml` to `/engine/.hermes-<profile>/config.yaml` for `orbi` and `scout`, checks that `hermes` is on `PATH`, and then starts Paperclip. `HOME` is `/engine`, `PAPERCLIP_HOME` is `/engine/paperclip`.
-- Produces: the writable path contract Task 4 mounts volumes for: `/engine/paperclip`, `/engine/.hermes-orbi`, `/engine/.hermes-scout`, `/tmp`.
+- Produces: an image whose entrypoint is `/engine/entrypoint.sh`, which copies `/engine/config/<profile>.config.yaml` to `/opt/data/profiles/<profile>/config.yaml` for `orbi` and `scout`, chowns them to uid 1000, checks that `hermes` is on `PATH`, and then hands off to Paperclip's own `tini` plus `docker-entrypoint.sh` chain.
+- Produces: the writable path contract Task 4 mounts volumes for: `/paperclip` (Paperclip's own `HOME` and `PAPERCLIP_HOME`), `/opt/data` (Hermes' `HERMES_HOME`), and a tmpfs at `/tmp` (Hermes' `XDG_RUNTIME_DIR` is `/tmp/hermes-runtime`).
+
+**Facts from Task 1 that this task must respect** (spike log sections 2, 4 and 6; do not re-guess them):
+
+| Fact | Value |
+|---|---|
+| Paperclip `WorkingDir` | `/app` |
+| Paperclip `Entrypoint` | `["/usr/bin/tini","--","docker-entrypoint.sh"]` |
+| Paperclip `Cmd` | `["node","--import","./server/node_modules/tsx/dist/loader.mjs","server/dist/index.js"]` |
+| Paperclip `User` | unset: starts as root on purpose, drops to `USER_UID=1000` in its own entrypoint |
+| Paperclip `HOME` and `PAPERCLIP_HOME` | `/paperclip` |
+| Paperclip Node | `24.21.0` |
+| Hermes `HERMES_HOME` and `HERMES_WRITE_SAFE_ROOT` | `/opt/data` (also its declared `VOLUME`) |
+| Hermes install root | `/opt/hermes`, venv at `/opt/hermes/.venv`, `PATH` entries `/opt/hermes/bin` and `/opt/hermes/.venv/bin` |
+| Hermes `Entrypoint` | `["/opt/hermes/docker/entrypoint-dispatch.sh"]`, no `Cmd` |
+
+Keep both images' own `HOME` defaults. The plan's earlier `/engine/...` layout fought them for no gain.
 
 - [ ] **Step 1: Add the failing static tests**
 
@@ -294,15 +310,27 @@ test('the Dockerfile bakes no secrets and no model key', () => {
   }
 });
 
-test('the container does not run as root (SEC-2a)', () => {
-  expect(dockerfile).toMatch(/^USER (?!root)\S+$/m);
+// The Paperclip image sets no USER: it starts as root and drops to USER_UID=1000 in its own
+// entrypoint (spike log section 6). Asserting a non-root USER line would fail a correct build, so
+// the rule is that this Dockerfile must not override the base image's privilege handling.
+test('the Dockerfile does not pin a USER, leaving the base image to drop privileges (SEC-2a)', () => {
+  expect(dockerfile).not.toMatch(/^USER\s/m);
+});
+
+test('the Dockerfile keeps the base entrypoint reachable rather than discarding it', () => {
+  expect(dockerfile).toContain('/usr/bin/tini');
+  expect(dockerfile).toContain('docker-entrypoint.sh');
 });
 
 test('the entrypoint restores both profile configs on every start (Review Focus 3)', () => {
   for (const profile of ['orbi', 'scout']) {
     expect(entrypoint).toContain(`/engine/config/${profile}.config.yaml`);
-    expect(entrypoint).toContain(`/engine/.hermes-${profile}/config.yaml`);
+    expect(entrypoint).toContain(`/opt/data/profiles/${profile}/config.yaml`);
   }
+});
+
+test('the entrypoint hands off to the base image chain as PID 1', () => {
+  expect(entrypoint).toMatch(/^exec .*tini/m);
 });
 
 test('the entrypoint fails fast rather than starting with missing config', () => {
@@ -323,27 +351,36 @@ Run: `pnpm test:unit` -> Expected: FAIL, cannot find `../engine/Dockerfile`.
 # Starts the instance's engine container: Paperclip, with Hermes available as a local binary
 # for Paperclip's hermes_local adapter (Eng v3 D3).
 #
-# The profile volumes are writable, so Hermes could change its own config between restarts.
-# Copying the baked config over the volume on every start makes the live config a property of
-# the pinned image, not of accumulated container state (FLT-7 "toolsets match the allowlist").
+# HERMES_HOME is /opt/data and is a writable volume, so Hermes could change its own config
+# between restarts. Copying the baked config over the volume on every start makes the live
+# config a property of the pinned image, not of accumulated container state
+# (FLT-7 "toolsets match the allowlist").
+#
+# This runs as root, before Paperclip's own entrypoint drops to uid 1000, which is why the
+# profile directories are chowned here.
 set -euo pipefail
+
+HERMES_DATA="${HERMES_HOME:-/opt/data}"
 
 for profile in orbi scout; do
   src="/engine/config/${profile}.config.yaml"
-  dir="/engine/.hermes-${profile}"
+  dir="${HERMES_DATA}/profiles/${profile}"
   [ -f "$src" ] || { echo "engine: missing baked config $src" >&2; exit 1; }
   mkdir -p "$dir"
   cp "$src" "$dir/config.yaml"
 done
+chown -R "${USER_UID:-1000}:${USER_GID:-1000}" "${HERMES_DATA}/profiles"
 
 command -v hermes >/dev/null || { echo 'engine: hermes is not on PATH' >&2; exit 1; }
 
-exec "$@"
+# Paperclip expects tini as PID 1 and its own docker-entrypoint.sh (spike log section 6).
+# Replacing that chain breaks its privilege drop and signal handling, so hand off to it.
+exec /usr/bin/tini -- docker-entrypoint.sh "$@"
 ```
 
-- [ ] **Step 4: Write the Dockerfile, base A (Hermes image as the base)**
+- [ ] **Step 4: Write the Dockerfile, base A (Paperclip image as the base)**
 
-Try this one first. Hermes installs Python, uv, Node, ripgrep and ffmpeg into its own image, and Paperclip is a Node application, so copying the Node application into the richer base is less likely to break than moving a Python virtual environment the other way.
+Try this one first. Task 1 settled the direction: Paperclip needs Node 24.21, tini and its own entrypoint script, while the Hermes image declares no Node at all. Hermes is the self-contained side, living under `/opt/hermes` with its venv at `/opt/hermes/.venv` and its data under `/opt/data`, so Hermes is the part that moves.
 
 `template/engine/Dockerfile`:
 
@@ -351,36 +388,50 @@ Try this one first. Hermes installs Python, uv, Node, ripgrep and ffmpeg into it
 # The instance's engine container: Paperclip plus Hermes in one image.
 # Both must share a container because Paperclip's hermes_local adapter spawns a local
 # hermes binary (Eng v3 D3). Refs come from template/engine/pinned-versions.json.
+#
+# Paperclip is the base: it carries Node 24.21, tini and the entrypoint that drops privileges.
+# Hermes moves in whole, because everything it needs sits under /opt/hermes and /opt/data.
 ARG PAPERCLIP_REF
 ARG HERMES_REF
 
-FROM ${PAPERCLIP_REF} AS paperclip
+FROM ${HERMES_REF} AS hermes
 
-FROM ${HERMES_REF} AS runtime
-COPY --from=paperclip /app /app
+FROM ${PAPERCLIP_REF} AS runtime
+
+# /opt/hermes holds the CLI, its Python venv and the Playwright pack. /opt/data is Hermes' own
+# data root (HERMES_HOME); it is a mount point at runtime, created here so the entrypoint can
+# write into it before the volume is populated.
+COPY --from=hermes /opt/hermes /opt/hermes
+RUN mkdir -p /opt/data/profiles
+
+# Hermes resolves its CLI and venv through PATH, and keys every data path off HERMES_HOME.
+ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:${PATH}" \
+    HERMES_HOME=/opt/data \
+    HERMES_WRITE_SAFE_ROOT=/opt/data \
+    HERMES_DISABLE_LAZY_INSTALLS=1 \
+    HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright \
+    XDG_RUNTIME_DIR=/tmp/hermes-runtime
+
 COPY hermes/orbi.config.yaml /engine/config/orbi.config.yaml
 COPY hermes/scout.config.yaml /engine/config/scout.config.yaml
 COPY entrypoint.sh /engine/entrypoint.sh
-RUN chmod +x /engine/entrypoint.sh \
- && mkdir -p /engine/paperclip /engine/.hermes-orbi /engine/.hermes-scout \
- && chown -R node:node /engine
-ENV HOME=/engine \
-    PAPERCLIP_HOME=/engine/paperclip \
-    HOST=0.0.0.0 \
-    NODE_ENV=production
-WORKDIR /app
-USER node
+RUN chmod +x /engine/entrypoint.sh
+
+# No USER line: the base image starts as root by design and drops to USER_UID in its own
+# entrypoint (spike log section 6). PAPERCLIP_HOME stays the image default, /paperclip.
+# Setting ENTRYPOINT resets the inherited CMD, so the base image's command is restated here
+# verbatim and passed through by entrypoint.sh.
 ENTRYPOINT ["/engine/entrypoint.sh"]
-CMD ["node", "server.js"]
+CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
 ```
 
-Two values above are guesses this step must replace with facts: the Paperclip application directory (`/app`) and its start command (`node server.js`). Read both off the upstream image rather than assuming:
+Two things this step must confirm rather than assume, because Task 1 could not read them from the image config:
 
-```bash
-docker image inspect ghcr.io/paperclipai/paperclip@<digest> --format '{{json .Config}}'
-```
+1. **Whether the Hermes venv still works after the copy.** A venv hard-codes its interpreter path. If `/opt/hermes/.venv/bin/python` points at a Python that exists only in the Hermes image, the copy brings a broken venv. Check with `docker run --rm --entrypoint sh orbit-engine:spike -c 'hermes --version'` in Step 6. If it fails on a missing interpreter, copy the interpreter too by adding its directory to the `COPY --from=hermes` list; read the path from `docker run --rm --entrypoint sh <hermes ref> -c 'readlink -f /opt/hermes/.venv/bin/python; cat /opt/hermes/.venv/pyvenv.cfg'`.
+2. **Whether anything Hermes needs lives outside `/opt/hermes`.** The same command shows `pyvenv.cfg`'s `home` key. Anything it names outside `/opt` has to be copied as well.
 
-Use the real `WorkingDir`, `Entrypoint` and `Cmd` from that output in the `WORKDIR`, `COPY --from=paperclip` source and `CMD` lines. Record them in spike log section 6. If the Paperclip image runs as a user other than `node`, use that name in the `chown` and `USER` lines.
+Record both answers in spike log section 6.
 
 - [ ] **Step 5: Build it**
 
@@ -398,48 +449,53 @@ Expected: a successful build.
 - [ ] **Step 6: Confirm both programs are present and runnable**
 
 ```bash
-docker run --rm --entrypoint sh orbit-engine:spike -c 'hermes --version; node --version; ls /app'
+docker run --rm --entrypoint sh orbit-engine:spike -c 'hermes --version; node --version; ls /app; ls /opt/hermes'
 ```
 
-Expected: a Hermes version, a Node version of `v24.11.0` or newer, and the Paperclip application files. Record the full output in spike log section 6.
+Expected: a Hermes version, Node `v24.21.0`, the Paperclip application files and the Hermes install root. Record the full output in spike log section 6. A Python error here means the venv did not survive the copy; follow Step 4's note 1 before moving on.
 
-- [ ] **Step 7: If base A failed, write base B instead (Paperclip image as the base)**
+- [ ] **Step 7: If base A failed, write base B instead (Hermes image as the base)**
 
-Only if Step 5 or Step 6 failed. Record the exact failure in the spike log first, then replace the Dockerfile with:
+Only if Step 5 or Step 6 failed in a way Step 4's two notes do not fix. Record the exact failure in the spike log first, then invert the bases: Hermes as the base, with Paperclip's `/app` and the Node runtime copied in.
 
 ```dockerfile
-# Base B: Paperclip's own image, with Hermes copied in from its image.
-# Used when copying Paperclip into the Hermes image fails (see the spike log).
+# Base B: Hermes' own image, with Paperclip copied in.
+# Used when the Hermes venv cannot be moved into the Paperclip image (see the spike log).
 ARG PAPERCLIP_REF
 ARG HERMES_REF
 
-FROM ${HERMES_REF} AS hermes
+FROM ${PAPERCLIP_REF} AS paperclip
 
-FROM ${PAPERCLIP_REF} AS runtime
-USER root
-COPY --from=hermes /opt /opt
-ENV PATH="/opt/hermes/bin:${PATH}"
+FROM ${HERMES_REF} AS runtime
+COPY --from=paperclip /app /app
+COPY --from=paperclip /usr/local/bin/node /usr/local/bin/node
+COPY --from=paperclip /usr/bin/tini /usr/bin/tini
+COPY --from=paperclip /usr/local/bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY hermes/orbi.config.yaml /engine/config/orbi.config.yaml
 COPY hermes/scout.config.yaml /engine/config/scout.config.yaml
 COPY entrypoint.sh /engine/entrypoint.sh
-RUN chmod +x /engine/entrypoint.sh \
- && mkdir -p /engine/paperclip /engine/.hermes-orbi /engine/.hermes-scout \
- && chown -R node:node /engine
-ENV HOME=/engine \
-    PAPERCLIP_HOME=/engine/paperclip \
+RUN chmod +x /engine/entrypoint.sh && mkdir -p /paperclip /opt/data/profiles
+ENV HOME=/paperclip \
+    PAPERCLIP_HOME=/paperclip \
+    PAPERCLIP_CONFIG=/paperclip/instances/default/config.json \
     HOST=0.0.0.0 \
-    NODE_ENV=production
-USER node
+    PORT=3100 \
+    SERVE_UI=true \
+    NODE_ENV=production \
+    USER_UID=1000 \
+    USER_GID=1000
+WORKDIR /app
 ENTRYPOINT ["/engine/entrypoint.sh"]
+CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
 ```
 
-Correct `/opt` and `/opt/hermes/bin` to the directories that actually hold Hermes and its executable:
+Base B carries more risk than base A: the Paperclip image's environment has to be restated by hand (the block above is copied from spike log section 6), and `docker-entrypoint.sh` may expect packages the Hermes image lacks. Confirm the real paths of `node`, `tini` and `docker-entrypoint.sh` before building:
 
 ```bash
-docker run --rm --entrypoint sh nousresearch/hermes-agent@<digest> -c 'command -v hermes; ls -l $(command -v hermes)'
+docker run --rm --entrypoint sh ghcr.io/paperclipai/paperclip@<digest> -c 'command -v node tini docker-entrypoint.sh'
 ```
 
-Then repeat Steps 5 and 6. `CMD` is inherited from the Paperclip image in base B, so do not add one.
+Then repeat Steps 5 and 6.
 
 - [ ] **Step 8: If base B also failed, stop and report**
 
@@ -477,12 +533,16 @@ binary, so a Hermes on another host or in another container is unreachable (Eng 
 - Image refs are pinned by digest in `pinned-versions.json`. Nothing here uses a floating tag.
 - `entrypoint.sh` copies the baked `hermes/<profile>.config.yaml` over the profile volume on
   every start, so the live Hermes config always matches the pinned image.
-- Hermes profiles are `orbi` and `scout`. With `HOME=/engine`, profile `scout` reads
-  `/engine/.hermes-scout/config.yaml`. The path Hermes actually uses is recorded in the spike
-  log, section 4; if it differs, the entrypoint is the one place to change.
+- Hermes profiles are `orbi` and `scout`, under `HERMES_HOME=/opt/data/profiles/<name>/`. Both
+  images keep their own data roots: Paperclip writes to `/paperclip`, Hermes to `/opt/data`.
+  The exact per-profile filename is recorded in the spike log, section 4; if it differs, the
+  entrypoint is the one place to change.
 - This container holds no Gmail token, no Resend key and no `TOKEN_ENCRYPTION_KEY`, and uses
   the `paperclip` database login only (SEC-2a). Its model key is `ENGINE_ANTHROPIC_API_KEY`
   on the host, separate from the Front Desk's key (SEC-10).
+- The Hermes image ships a Playwright browser pack at `/opt/hermes/.playwright` and Paperclip
+  ships other agent runtimes (`OPENCODE_ALLOW_ALL_MODELS`, `GEMINI_SANDBOX`). Nothing in ORBIT
+  uses them. The posture check is what keeps them out of reach.
 
 ## When `hermes_gateway` is fixed
 
@@ -525,7 +585,7 @@ docker run --rm --entrypoint sh orbit-engine:spike -c 'hermes --help; hermes con
 docker run --rm --entrypoint sh orbit-engine:spike -c 'HERMES_PROFILE=scout hermes config show 2>&1 | head -40'
 ```
 
-Write the exact output and the resolved path into spike log section 4. If the resolved path is not `/engine/.hermes-scout/config.yaml`, change the two destination paths in `entrypoint.sh` and the matching assertions in `template/test/engine.test.ts` to the real path, and note the change in the log. Do not leave the entrypoint writing to a path Hermes never reads; a config that is never loaded is the silent failure this task exists to prevent.
+Write the exact output and the resolved path into spike log section 4. Task 1 already established that Hermes keys its data off `HERMES_HOME=/opt/data`, so the expected path is `/opt/data/profiles/scout/config.yaml`. What is still unknown is whether a profile's config file is named `config.yaml` inside that directory or something else. If the resolved path differs, change the two destination paths in `entrypoint.sh` and the matching assertions in `template/test/engine.test.ts` to the real path, and note the change in the log. Do not leave the entrypoint writing to a path Hermes never reads; a config that is never loaded is the silent failure this task exists to prevent.
 
 - [ ] **Step 2: Add the failing tests**
 
@@ -795,7 +855,7 @@ test('the engine root filesystem is read-only, with a volume for every writable 
   expect(engine.read_only).toBe(true);
   const targets = (engine.volumes ?? []).map((v) => v.split(':')[1]);
   expect(targets).toEqual(
-    expect.arrayContaining(['/engine/paperclip', '/engine/.hermes-orbi', '/engine/.hermes-scout']),
+    expect.arrayContaining(['/paperclip', '/opt/data']),
   );
   expect(engine.tmpfs).toEqual(['/tmp']);
 });
@@ -834,7 +894,6 @@ In `template/compose.yml`, add after the `redis` service:
     read_only: true # SEC-2a; every writable path below is a named volume
     environment:
       HOST: 0.0.0.0
-      PAPERCLIP_HOME: /engine/paperclip
       DATABASE_URL: postgresql://paperclip_app:${PAPERCLIP_DB_PASSWORD:?}@postgres:5432/paperclip
       PAPERCLIP_DEPLOYMENT_MODE: authenticated # DEP-5
       PAPERCLIP_DEPLOYMENT_EXPOSURE: private # DEP-5
@@ -843,10 +902,9 @@ In `template/compose.yml`, add after the `redis` service:
       PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_SIGNING_SECRET:?}
       ANTHROPIC_API_KEY: ${ENGINE_ANTHROPIC_API_KEY:?} # its own key, not the Front Desk's (SEC-10)
     volumes:
-      - paperclip_home:/engine/paperclip
-      - hermes_orbi:/engine/.hermes-orbi
-      - hermes_scout:/engine/.hermes-scout
-    tmpfs: ["/tmp"]
+      - paperclip_home:/paperclip # the image's own HOME and PAPERCLIP_HOME
+      - hermes_data:/opt/data # HERMES_HOME: both profiles, their sessions and logs
+    tmpfs: ["/tmp"] # Hermes' XDG_RUNTIME_DIR is /tmp/hermes-runtime
     ports: ["127.0.0.1:3100:3100"] # reached over the host's tailnet only (SEC-1, DEP-5)
     networks: [data, egress] # data to reach Postgres and the Front Desk; egress for model calls
     depends_on:
@@ -870,8 +928,7 @@ Replace the `volumes:` block at the end of the file with:
 volumes:
   pgdata: {}
   paperclip_home: {} # Paperclip data; DEC-2 wipes it with `docker compose down -v`
-  hermes_orbi: {} # Hermes profile dir: sessions and logs (DAT-3 purge target, E3-T5)
-  hermes_scout: {}
+  hermes_data: {} # HERMES_HOME: both profiles, sessions and logs (DAT-3 purge target, E3-T5)
 ```
 
 - [ ] **Step 4: Add the engine variable names to the example env file**
@@ -1091,7 +1148,7 @@ test('a writable root filesystem fails the check', () => {
 
 test('a missing data volume fails the check (Review Focus 2)', () => {
   const input = clone();
-  input.engine.volumeTargets = input.engine.volumeTargets.filter((t) => t !== '/engine/paperclip');
+  input.engine.volumeTargets = input.engine.volumeTargets.filter((t) => t !== '/paperclip');
   expect(codes(input)).toContain('engine_missing_data_volume');
 });
 
@@ -1179,7 +1236,9 @@ const ALL_TOOLSETS = [
 
 const ALLOWED_TOOLSETS: Record<Agent, readonly string[]> = { orbi: [], scout: ['web'] };
 const TURN_CAPS: Record<Agent, number> = { orbi: 20, scout: 30 }; // COST-3
-const REQUIRED_VOLUMES = ['/engine/paperclip', '/engine/.hermes-orbi', '/engine/.hermes-scout'];
+// Both upstream images keep their own data roots (spike log sections 4 and 6). Without these two
+// mounts a read-only root filesystem stops the container on first boot.
+const REQUIRED_VOLUMES = ['/paperclip', '/opt/data'];
 
 function isForbiddenSecret(key: string): boolean {
   return key.startsWith('GMAIL_') || key.startsWith('RESEND_') || key === 'TOKEN_ENCRYPTION_KEY';
@@ -1709,7 +1768,7 @@ This is the decision the spike exists to settle. Record all three in spike log s
 
 ```bash
 docker compose -f template/compose.yml --env-file template/.env exec paperclip \
-  sh -c 'ls -la /engine/.hermes-scout /engine/.hermes-scout/sessions 2>/dev/null'
+  sh -c 'ls -la /opt/data/profiles/scout; find /opt/data -name "*.db" -o -name "sessions" 2>/dev/null'
 ```
 
 Then write one of these verdicts, in these words:
