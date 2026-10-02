@@ -13,6 +13,7 @@ export type ConfirmView =
   | 'already_decided'
   | 'sent'
   | 'send_failed'
+  | 'not_recorded'
   | 'needs_sign_in'
   | 'rejected_header';
 
@@ -48,6 +49,7 @@ const FORBIDDEN: ConfirmResult = { status: 403, view: 'needs_sign_in' };
 const ALREADY_DECIDED: ConfirmResult = { status: 409, view: 'already_decided' };
 const EXPIRED: ConfirmResult = { status: 410, view: 'expired' };
 const SEND_FAILED: ConfirmResult = { status: 502, view: 'send_failed' };
+const NOT_RECORDED: ConfirmResult = { status: 502, view: 'not_recorded' };
 
 const loadApproval = (prisma: PrismaClient, id: string) =>
   prisma.approval.findUnique({
@@ -232,7 +234,9 @@ export async function handleConfirmPost(
   } catch (err) {
     if (isUniqueViolation(err) || err instanceof MovedOn) return ALREADY_DECIDED;
     log.error({ approvalId: approval.id, ...errorCode(err) }, 'confirm: recording the decision failed, nothing sent');
-    return SEND_FAILED;
+    // Nothing is committed and the row is still `issued`. send_failed would offer Try again, whose bare
+    // value="send" would deliver the unedited draft; a fresh GET re-renders the editor instead.
+    return NOT_RECORDED;
   }
 
   if (!sending) return { status: 200, view: 'already_decided' };

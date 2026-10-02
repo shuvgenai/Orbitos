@@ -196,3 +196,37 @@ test('C1: a failed send with no Sent copy is retried from the rendered page and 
   expect(retry.body).toContain('Sent.');
   expect(gmail.sent).toHaveLength(1);
 });
+
+test('N1: an edited send whose decision write fails offers no Try again, and a fresh GET shows the editor', async () => {
+  const ws = await newWorkspace(prisma);
+  const owner = await createOwner(prisma, { workspaceId: ws.id, email: 'owner@example.com' });
+  const approval = await newApproval(prisma, ws.id);
+  await prisma.lead.update({ where: { id: approval.leadId }, data: { state: 'awaiting_owner' } });
+  const gmail = new FakeGmail({ historyId: '1' });
+  const route = createRoutes({
+    prisma, gmail, mailer: { send: vi.fn() }, baseUrl: 'https://orbit.example', secret: SECRET, workspaceId: ws.id,
+    signInLimiter: createRateLimiter({ max: 5, windowMs: 60_000 }), signInCallerLimiter: createRateLimiter({ max: 20, windowMs: 60_000 }),
+  });
+  const path = `/c/${linkFor(approval)}`;
+  const headers = { cookie: await sessionFor(owner.id) };
+
+  const blip = vi.spyOn(prisma, '$transaction').mockRejectedValueOnce(new Error('deadlock detected'));
+  const failed = await route(req({ method: 'POST', path, headers, body: 'action=send_edited&finalText=' + encodeURIComponent('My own words') }));
+  blip.mockRestore();
+
+  expect(failed.status).toBe(502);
+  expect(failed.body).toMatch(/nothing was sent/i);
+  expect(failed.body).toMatch(/open the link again/i);
+  expect(failed.body).not.toContain('Try again');
+  expect(failed.body).not.toContain('<form');
+  expect(gmail.sent).toHaveLength(0);
+
+  const state = await prisma.approval.findUniqueOrThrow({ where: { id: approval.id }, include: { decision: true } });
+  expect(state.state).toBe('issued');
+  expect(state.decision).toBeNull();
+
+  const page = await route(req({ path, headers }));
+  expect(page.status).toBe(200);
+  expect(page.body).toContain('<textarea');
+  expect(page.body).toContain('value="send_edited"');
+});
