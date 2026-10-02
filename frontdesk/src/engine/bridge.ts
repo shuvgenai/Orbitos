@@ -16,7 +16,8 @@ export type BridgeDeps = {
 export type LeadForDraft = { id: string; workspaceId: string; subject: string; cleanBody: string };
 
 const POLL_DELAY_MS = 15_000;
-const POLL_MAX_ATTEMPTS = 40; // 15s interval across the 10-minute draft timeout
+// Headroom over the 10-minute draft timeout at the 15 s beat (40 polls): the timeout, not this counter, ends a stalled draft.
+const POLL_MAX_ATTEMPTS = 60;
 const TITLE_SUBJECT_MAX = 120;
 
 const read = (prisma: PrismaClient, leadId: string) =>

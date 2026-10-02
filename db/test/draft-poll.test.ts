@@ -168,3 +168,19 @@ test('a drafting lead with no issue is failed visibly', async () => {
   expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('failed');
   expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).state).toBe('draft_failed');
 });
+
+test('I2: the notice job is created with enough attempts to ride out a long mail outage', async () => {
+  const lead = await draftingLead();
+  const engine = { comments: vi.fn().mockResolvedValue([validDraft]), comment: vi.fn(), createIssue: vi.fn() };
+  await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id });
+  const notice = await prisma.job.findFirstOrThrow({ where: { leadId: lead.id, kind: 'notice' } });
+  expect(notice.maxAttempts).toBe(40);
+});
+
+test('T9: a tilde-fenced comment is a draft attempt and draws the correction instead of waiting out the timeout', async () => {
+  const lead = await draftingLead();
+  const tilde = '~~~json\n{"kind":"draft"}\n~~~';
+  const engine = { comments: vi.fn().mockResolvedValue([tilde]), comment: vi.fn(), createIssue: vi.fn() };
+  expect(await handleDraftPoll({ prisma, engine, now: () => new Date() }, { id: 'j1', leadId: lead.id })).toBe('corrected');
+  expect(engine.comment).toHaveBeenCalledTimes(1);
+});
