@@ -54,6 +54,7 @@ const TEXT_FOR_VIEW = {
   expired: 'This link has expired.',
   already_decided: 'This reply has already been handled.',
   sent: 'Sent. The reply is on its way to the customer.',
+  not_recorded: 'Nothing was sent. Open the link again to review the reply.',
   send_failed: 'The send did not complete. Press Try again; Orbit checks your Sent folder first so nothing goes out twice.',
   needs_sign_in: '',
   rejected_header: 'That reply cannot be sent as written.',

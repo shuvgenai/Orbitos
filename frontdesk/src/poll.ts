@@ -5,6 +5,7 @@ import type { GmailMessage, GmailPort, HistoryPage } from '@orbit/shared/gmail/p
 import type { PrismaClient } from '@orbit/db/client';
 import { advanceWatermark, markRevoked, readConnection } from '@orbit/db/gmail-connection';
 import { enqueueJob } from '@orbit/db/jobs';
+import { ALERT_MAX_ATTEMPTS } from './alert.ts';
 import { shouldDrop } from './filter.ts';
 
 export type PollDeps = {
@@ -41,6 +42,7 @@ async function handleRevocation(deps: PollDeps): Promise<void> {
     kind: 'notice',
     dedupeKey: `gmail-revoked:${deps.workspaceId}:${revokedAt.toISOString()}`,
     payload: { type: 'gmail_revoked' }, // content-free: no mail, no addresses
+    maxAttempts: ALERT_MAX_ATTEMPTS, // ingestion has stopped and nothing else retries this: outlast a long mail outage
   });
   await markRevoked(deps.prisma, deps.workspaceId, revokedAt);
 }

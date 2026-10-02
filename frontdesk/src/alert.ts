@@ -20,7 +20,7 @@ const ALERT_LINES = {
 export type AlertReason = keyof typeof ALERT_LINES;
 const isAlertReason = (v: unknown): v is AlertReason => typeof v === 'string' && Object.hasOwn(ALERT_LINES, v);
 
-const ALERT_MAX_ATTEMPTS = 40; // an alert is worth retrying through a long mail outage
+export const ALERT_MAX_ATTEMPTS = 40; // an alert is worth retrying through a long mail outage
 const FROM_ORBIT = { 'X-Orbitcrew': '1' }; // FD-1: the poller drops mail carrying this, so our own mail is never a lead
 
 /** One alert per lead and reason, however many times the code that raises it runs. */

@@ -80,6 +80,8 @@ test('a revoked token stops the poller, records the revocation and queues the al
   expect(conn.revokedAt).not.toBeNull();
   expect(conn.historyId).toBe('100');                 // the watermark did not move
   expect(await prisma.job.count({ where: { workspaceId: ws.id, kind: 'notice' } })).toBe(1);
+  const notice = await prisma.job.findFirstOrThrow({ where: { workspaceId: ws.id, kind: 'notice' } });
+  expect(notice.maxAttempts).toBe(40); // the only copy of this alert: it must outlast a long Resend outage
 });
 
 test('a revoked connection is not polled again until it is reconnected', async () => {
