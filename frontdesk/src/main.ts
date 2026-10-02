@@ -10,6 +10,7 @@ import { createResendMailer } from '@orbit/shared/mailer-resend';
 import { decryptToken } from '@orbit/shared/token-crypto';
 import { createAnthropicClassifier } from './classifier-anthropic.ts';
 import { loadFrontdeskConfig } from './config.ts';
+import { assertOwnerAddress } from './filter.ts';
 import { createPaperclipEngine } from './engine/paperclip.ts';
 import { runJobLoop } from './loop.ts';
 import { advanceLeads } from './pipeline.ts';
@@ -59,6 +60,11 @@ if (connections.length !== 1) {
   fail(`expected exactly one GmailConnection row, found ${connections.length}; see the runbook`);
 }
 const connection = connections[0]!;
+try {
+  assertOwnerAddress(connection.emailAddress);
+} catch (err) {
+  fail((err as Error).message); // a fixed string, safe to log
+}
 const workspaceId = connection.workspaceId;
 const owner = await prisma.user.findFirst({ where: { workspaceId } });
 if (!owner) fail('the workspace has no owner user; see the runbook');

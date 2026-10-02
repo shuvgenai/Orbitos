@@ -34,3 +34,14 @@ test('headers are passed through in the request body', async () => {
   await mailer.send({ ...ARGS, headers: { 'X-Orbitcrew': '1' } });
   expect(JSON.parse(fetchMock.mock.calls[0]![1].body).headers).toEqual({ 'X-Orbitcrew': '1' });
 });
+
+test('T10: the request carries a timeout signal, so a hung socket cannot hold a job forever', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+  await createResendMailer({ apiKey: 'k', from: 'f', fetch: fetchMock }).send(ARGS);
+  expect(fetchMock.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+
+  // And it really aborts: a fetch that never answers is cut off at the deadline.
+  const hung = vi.fn((_url: string, init: { signal: AbortSignal }) =>
+    new Promise<Response>((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))));
+  await expect(createResendMailer({ apiKey: 'k', from: 'f', fetch: hung as unknown as typeof fetch, timeoutMs: 20 }).send(ARGS)).rejects.toBeDefined();
+});

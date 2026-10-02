@@ -24,7 +24,7 @@ const RESYNC_WINDOW_MS = 7 * 24 * 3600_000;
 // 429 and 5xx). A 403 with no reason counts as revoked: a wrongly stopped poller is loud, a poller
 // that retries a dead token forever is silent. Errors with no status at all (a network TypeError)
 // are never a revocation and propagate.
-const RETRYABLE_403 = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded']);
+const RETRYABLE_403 = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded']);
 function isRevocation(err: unknown): boolean {
   if (!(err instanceof GmailApiError)) return false;
   if (err.status === 401) return true;
