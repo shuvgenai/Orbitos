@@ -2,6 +2,7 @@ import type { PrismaClient } from '@orbit/db/client';
 import { claimDueJobs, completeJob, deadJob, failJob, type ClaimedJob } from '@orbit/db/jobs';
 import type { MailerPort } from '@orbit/shared/mailer';
 import { pino } from 'pino';
+import { sendOwnerAlert, UnknownAlertError } from './alert.ts';
 import { handleDraftPoll } from './engine/draft-poll.ts';
 import type { EnginePort } from './engine/port.ts';
 import { sendNotice } from './notice.ts';
@@ -52,8 +53,17 @@ async function dispatch(deps: LoopDeps, job: ClaimedJob): Promise<'done' | { ret
       return outcome === 'retry' || outcome === 'corrected' ? { retryInMs: POLL_INTERVAL_MS } : 'done';
     }
     case 'notice': {
-      // The gmail_revoked alert carries no approval; nothing in this slice mails it, so do not retry it.
-      if (job.approvalId === null) throw new NotRetryable('notice job has no approval');
+      // No approval: an owner alert (a lost Gmail connection, a stalled lead). It is mailed, and retried like a notice.
+      if (job.approvalId === null) {
+        try {
+          await sendOwnerAlert({ prisma: deps.prisma, mailer: deps.mailer }, job);
+        } catch (err) {
+          // A payload this program cannot read will never become readable: do not retry it.
+          if (err instanceof UnknownAlertError) throw new NotRetryable(err.message);
+          throw err;
+        }
+        return 'done';
+      }
       await sendNotice(
         { prisma: deps.prisma, mailer: deps.mailer, baseUrl: deps.baseUrl, secret: deps.secret },
         job.approvalId,
