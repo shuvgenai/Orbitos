@@ -90,6 +90,14 @@ services:
       DATABASE_URL: postgresql://orbit_app:${ORBIT_DB_PASSWORD:?}@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
       RESEND_API_KEY: ${RESEND_API_KEY:?}
+      # Slice 1: the confirm route sends the reply, so the api holds the Gmail credentials (SEC-2 deviation, see the runbook).
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:?}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:?}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?}
+      APPROVAL_LINK_SECRET: ${APPROVAL_LINK_SECRET:?} # HMAC key for confirm links; at least 32 characters
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?} # the tunnel hostname; links already sent break if it changes
+      SETUP_DIR: /setup
+      MAIL_FROM: ${MAIL_FROM:?}
     ports: ["127.0.0.1:8081:8080"]
     networks: [data, edge, egress]
     depends_on:
@@ -121,6 +129,19 @@ services:
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?}
       PAPERCLIP_API_URL: http://paperclip:3100 # the service key is created per instance (E3-T7)
+      # Slice 1: the Front Desk runs the job loop, so it mails the notice and holds the Resend key (SEC-2a deviation).
+      RESEND_API_KEY: ${RESEND_API_KEY:?}
+      APPROVAL_LINK_SECRET: ${APPROVAL_LINK_SECRET:?} # HMAC key for confirm links; at least 32 characters
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?} # the tunnel hostname; links already sent break if it changes
+      SETUP_DIR: /setup
+      MAIL_FROM: ${MAIL_FROM:?}
+    # PAPERCLIP_API_KEY, PAPERCLIP_COMPANY_ID and the two agent ids are per instance and not in this template:
+    # they come from .env.frontdesk, which the program checks at start.
+    env_file:
+      - path: ./.env.frontdesk
+        required: false
+    volumes:
+      - ${SETUP_HOST_DIR:?}:/setup:ro # tone-samples.md and facts.md
     networks: [data, egress]
     depends_on:
       postgres: { condition: service_healthy }
