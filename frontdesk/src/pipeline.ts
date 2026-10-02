@@ -3,6 +3,7 @@ import { pino } from 'pino';
 import { classifyLead, type ClassifierPort } from './classify.ts';
 import { sendToScout, type SetupInputs } from './engine/bridge.ts';
 import type { EnginePort } from './engine/port.ts';
+import { enqueueAlert, type AlertReason } from './alert.ts';
 import { failLead } from './fail-lead.ts';
 
 const log = pino({ name: 'frontdesk-pipeline' });
@@ -71,6 +72,8 @@ export async function advanceLeads(deps: PipelineDeps): Promise<{ advanced: numb
   let advanced = 0;
   for (const lead of leads) {
     try {
+      // `||`, not `??`: an image-only or reply-only message cleans to '', and '' is not text.
+      const text = lead.body!.cleanBody || lead.body!.rawBody;
       let verdict: 'lead' | 'not_lead' | 'unsure' | 'failed';
       if (lead.state === 'classifying' && lead.classification === 'lead') {
         verdict = 'lead';
@@ -80,22 +83,32 @@ export async function advanceLeads(deps: PipelineDeps): Promise<{ advanced: numb
           const claim = await prisma.lead.updateMany({ where: { id: lead.id, state: 'received' }, data: { state: 'classifying' } });
           if (claim.count !== 1) continue;
         }
-        verdict = await classifyLead(
-          { prisma, classifier: deps.classifier, now: () => Date.now() },
-          { id: lead.id, workspaceId: lead.workspaceId, cleanBody: lead.body!.cleanBody ?? lead.body!.rawBody },
-        );
+        // Nothing to classify: the model would reject an empty message and the lead would end silently failed.
+        // Rest it for the owner without paying for the call.
+        verdict = text.trim() === ''
+          ? 'unsure'
+          : await classifyLead(
+              { prisma, classifier: deps.classifier, now: () => Date.now() },
+              { id: lead.id, workspaceId: lead.workspaceId, cleanBody: text },
+            );
         await prisma.lead.update({ where: { id: lead.id }, data: { classification: verdict } });
       }
       if (verdict === 'lead') {
         await sendToScout(
           { prisma, engine: deps.engine, setup: deps.setup },
-          { id: lead.id, workspaceId: lead.workspaceId, subject: lead.subject, cleanBody: lead.body!.cleanBody ?? lead.body!.rawBody },
+          { id: lead.id, workspaceId: lead.workspaceId, subject: lead.subject, cleanBody: text },
         );
       } else {
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: { state: verdict === 'not_lead' ? 'not_lead' : 'awaiting_verdict' },
-        });
+        if (verdict === 'not_lead') {
+          await prisma.lead.update({ where: { id: lead.id }, data: { state: 'not_lead' } });
+        } else {
+          // Resting at awaiting_verdict is silent unless someone is told, so the state and the alert commit together.
+          const reason: AlertReason = text.trim() === '' ? 'empty_body' : verdict === 'failed' ? 'classification_failed' : 'unsure';
+          await prisma.$transaction(async (tx) => {
+            await tx.lead.update({ where: { id: lead.id }, data: { state: 'awaiting_verdict' } });
+            await enqueueAlert(tx as unknown as PrismaClient, { workspaceId: lead.workspaceId, leadId: lead.id, reason });
+          });
+        }
       }
       advanced += 1;
     } catch (err) {

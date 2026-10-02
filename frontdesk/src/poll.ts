@@ -12,6 +12,7 @@ export type PollDeps = {
   gmail: GmailPort;
   workspaceId: string;
   ownerAddress: string;
+  log?: Pick<typeof log, 'error' | 'warn'>;
 };
 export type PollResult = { created: number; dropped: number; resynced: boolean };
 
@@ -138,7 +139,11 @@ export async function pollOnce(deps: PollDeps): Promise<PollResult> {
       else created += 1;
     } catch (err) {
       // A wedged poller must say so. Blocking never loses a lead; skipping would.
-      log.error({ err, gmailMessageId: msg.gmailMessageId }, 'poll: message failed, batch halted before watermark');
+      // The error name only: a driver error from storing the message can quote the customer's email text.
+      (deps.log ?? log).error(
+        { errName: err instanceof Error ? err.name : typeof err, gmailMessageId: msg.gmailMessageId },
+        'poll: message failed, batch halted before watermark',
+      );
       throw err;
     }
   }
