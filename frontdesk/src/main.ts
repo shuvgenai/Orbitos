@@ -14,6 +14,7 @@ import { createPaperclipEngine } from './engine/paperclip.ts';
 import { runJobLoop } from './loop.ts';
 import { advanceLeads } from './pipeline.ts';
 import { pollOnce } from './poll.ts';
+import { startFrontdeskTimers } from './schedule.ts';
 
 const PROGRAM = 'frontdesk';
 const log = pino({ name: PROGRAM });
@@ -34,20 +35,6 @@ function readSetupFile(dir: string, name: string): string {
   } catch {
     return fail(`${name} is missing or empty in SETUP_DIR`);
   }
-}
-
-// One timer, never overlapping itself: a slow tick is skipped, not stacked.
-function every(ms: number, name: string, work: () => Promise<unknown>): void {
-  let running = false;
-  setInterval(() => {
-    if (running) return;
-    running = true;
-    work()
-      .catch((err: unknown) => log.error({ tick: name, errName: err instanceof Error ? err.name : typeof err }, 'tick failed'))
-      .finally(() => {
-        running = false;
-      });
-  }, ms);
 }
 
 let config;
@@ -97,16 +84,18 @@ const port = Number(process.env.PORT ?? 8080);
 if (!Number.isInteger(port) || port < 1 || port > 65535) fail('PORT must be an integer from 1 to 65535');
 startHealthServer({ name: PROGRAM, port }).on('listening', () => log.info({ port, workspaceId }, 'listening'));
 
-every(POLL_EVERY_MS, 'poll', async () => {
-  const result = await pollOnce({ prisma, gmail, workspaceId, ownerAddress: connection.emailAddress });
-  if (result.created > 0) log.info(result, 'poll: new leads');
-  await advanceLeads({ prisma, classifier, engine, setup, workspaceId });
-});
-
-// The loop is here because worker/ is a later sub-project. claimDueJobs is the seam: moving the loop is a deployment change.
-every(LOOP_EVERY_MS, 'loop', () =>
-  runJobLoop(
-    { prisma, engine, mailer, baseUrl: config.PUBLIC_BASE_URL, secret: config.APPROVAL_LINK_SECRET, now: () => new Date() },
-    { workerId: `${PROGRAM}-${process.pid}`, limit: 10 },
-  ),
+startFrontdeskTimers(
+  {
+    poll: async () => {
+      const result = await pollOnce({ prisma, gmail, workspaceId, ownerAddress: connection.emailAddress });
+      if (result.created > 0) log.info(result, 'poll: new leads');
+    },
+    advance: () => advanceLeads({ prisma, classifier, engine, setup, workspaceId }),
+    loop: () =>
+      runJobLoop(
+        { prisma, engine, mailer, baseUrl: config.PUBLIC_BASE_URL, secret: config.APPROVAL_LINK_SECRET, now: () => new Date() },
+        { workerId: `${PROGRAM}-${process.pid}`, limit: 10 },
+      ),
+  },
+  { pollMs: POLL_EVERY_MS, advanceMs: POLL_EVERY_MS, loopMs: LOOP_EVERY_MS },
 );

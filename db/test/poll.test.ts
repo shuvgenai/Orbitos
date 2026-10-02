@@ -235,3 +235,15 @@ test('an inner text/calendar part is dropped as calendar (partMimeTypes reaches 
   const result = await pollOnce({ prisma, gmail, workspaceId: ws.id, ownerAddress: 'owner@example.com' });
   expect(result).toMatchObject({ created: 0, dropped: 1 });
 });
+
+test('I7: a message that fails to store is logged by error name and message id, never the error object', async () => {
+  const ws = await newWorkspace(prisma);
+  await withConnection(prisma, ws.id, { historyId: '100' });
+  const gmail = new FakeGmail({ historyId: '100' });
+  gmail.queue(syntheticLead({ messageId: '<w3@mail.example>', subject: 'bad\u0000subject' })); // Postgres rejects NUL in text
+  const logged: Array<Record<string, unknown>> = [];
+  const log = { error: (o: Record<string, unknown>) => void logged.push(o), warn: () => undefined };
+  await expect(pollOnce({ prisma, gmail, workspaceId: ws.id, ownerAddress: 'owner@example.com', log })).rejects.toBeDefined();
+  expect(logged).toHaveLength(1);
+  expect(Object.keys(logged[0]!).sort()).toEqual(['errName', 'gmailMessageId']);
+});

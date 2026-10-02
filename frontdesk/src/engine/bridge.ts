@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@orbit/db/client';
 import { enqueueJob } from '@orbit/db/jobs';
 import { pino } from 'pino';
+import { failLead } from '../fail-lead.ts';
 import type { EnginePort } from './port.ts';
 
 const log = pino({ name: 'frontdesk-bridge' });
@@ -19,6 +20,8 @@ const POLL_DELAY_MS = 15_000;
 // Headroom over the 10-minute draft timeout at the 15 s beat (40 polls): the timeout, not this counter, ends a stalled draft.
 const POLL_MAX_ATTEMPTS = 60;
 const TITLE_SUBJECT_MAX = 120;
+// Unconfirmed createIssue calls (see below) allowed per lead before it is handed to a human instead.
+const MAX_UNCONFIRMED_ISSUES = 3;
 
 const read = (prisma: PrismaClient, leadId: string) =>
   prisma.lead.findUniqueOrThrow({ where: { id: leadId }, select: { paperclipIssueId: true, state: true } });
@@ -69,11 +72,29 @@ export async function sendToScout(deps: BridgeDeps, lead: LeadForDraft): Promise
       (deps.log ?? log).warn({ leadId: lead.id, state: first.state }, 'bridge: lead is terminal, no issue created');
       throw new LeadNotDraftableError(lead.id);
     }
-    const created = await deps.engine.createIssue({
-      assignee: 'scout',
-      title: titleFor(lead.subject),
-      body: issueBody(lead.cleanBody, deps.setup),
-    });
+    let created: { issueId: string };
+    try {
+      created = await deps.engine.createIssue({
+        assignee: 'scout',
+        title: titleFor(lead.subject),
+        body: issueBody(lead.cleanBody, deps.setup),
+      });
+    } catch (err) {
+      // A refusal with an HTTP status (4xx, 5xx) means no issue was made, so retrying is free. Anything else (a 2xx
+      // with no readable id, a timeout, a dropped connection) may have created the issue and started a paid Scout
+      // run. Count those, and stop after a few: the pipeline re-selects this lead every tick and would otherwise
+      // start a new run each time, forever.
+      const status = (err as { status?: unknown } | null)?.status;
+      if (typeof status === 'number' && status >= 400) throw err;
+      const { issueAttempts } = await deps.prisma.lead.update({
+        where: { id: lead.id }, data: { issueAttempts: { increment: 1 } }, select: { issueAttempts: true },
+      });
+      if (issueAttempts >= MAX_UNCONFIRMED_ISSUES) {
+        await failLead(deps.prisma, { leadId: lead.id, from: ['classifying'], reason: 'create_issue_unconfirmed' }, deps.log ?? log);
+        throw new LeadNotDraftableError(lead.id);
+      }
+      throw err;
+    }
     // Claim the slot only if nobody else has and the lead is still live: a stored id is never
     // overwritten and a finished lead is never pulled back to drafting.
     const { count } = await deps.prisma.lead.updateMany({

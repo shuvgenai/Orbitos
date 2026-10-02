@@ -209,6 +209,8 @@ model Lead {
   classification   Classification?
   confidence       Decimal?        @db.Decimal(4, 3)
   paperclipIssueId String?         @map("paperclip_issue_id")
+  // createIssue calls whose outcome is unknown (the issue may exist at Paperclip); bounds repeats of a paid Scout run.
+  issueAttempts    Int             @default(0) @map("issue_attempts")
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
