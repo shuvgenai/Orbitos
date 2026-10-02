@@ -13,6 +13,8 @@
     "./gmail/port": "./src/gmail/port.ts",
     "./gmail/fake": "./src/gmail/fake.ts",
     "./gmail/client": "./src/gmail/client.ts",
+    "./gmail/access-token": "./src/gmail/access-token.ts",
+    "./config": "./src/config.ts",
     "./approval-link": "./src/approval-link.ts",
     "./mailer": "./src/mailer.ts",
     "./mailer-resend": "./src/mailer-resend.ts"

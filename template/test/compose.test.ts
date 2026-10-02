@@ -48,11 +48,13 @@ test('the data network has no internet route, and holds Postgres and Redis alone
   expect(services.redis!.networks).toEqual(['data']);
 });
 
-test('only frontdesk receives Gmail credentials and the token key (SEC-2)', () => {
+// Slice 1 deviation, recorded in docs/runbooks/slice-1-local.md: the api's confirm route sends the reply, so it
+// holds the Gmail credentials too. Nothing else may.
+test('only frontdesk and api receive Gmail credentials and the token key (SEC-2)', () => {
   for (const [name, svc] of Object.entries(services)) {
     const keys = Object.keys(svc.environment ?? {});
     const secret = keys.filter((k) => k.startsWith('GMAIL_') || k === 'TOKEN_ENCRYPTION_KEY');
-    if (name === 'frontdesk') {
+    if (name === 'frontdesk' || name === 'api') {
       expect(secret.sort()).toEqual(['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY']);
     } else {
       expect(secret, name).toEqual([]);
@@ -67,9 +69,10 @@ test('the engine and the Front Desk hold separate model keys (SEC-10)', () => {
   expect(services.paperclip!.environment!.ANTHROPIC_API_KEY).toBe('${ENGINE_ANTHROPIC_API_KEY:?}');
 });
 
-test('no service but api and worker holds the Resend key (SEC-2a)', () => {
+// Slice 1 deviation: the Front Desk runs the job loop, which mails the notice.
+test('no service but api, worker and frontdesk holds the Resend key (SEC-2a)', () => {
   for (const [name, svc] of Object.entries(services)) {
-    if (name === 'api' || name === 'worker') continue;
+    if (name === 'api' || name === 'worker' || name === 'frontdesk') continue;
     expect(Object.keys(svc.environment ?? {}), name).not.toContain('RESEND_API_KEY');
   }
 });

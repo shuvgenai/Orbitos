@@ -1,6 +1,6 @@
 import type { JobKind } from '@orbit/shared/jobs';
 import type { PrismaClient } from './client.ts';
-import type { Prisma } from './generated/prisma/client.ts';
+import { Prisma } from './generated/prisma/client.ts';
 
 export type EnqueueInput = {
   workspaceId: string;
@@ -34,10 +34,12 @@ export async function enqueueJob(prisma: PrismaClient, input: EnqueueInput): Pro
 export async function claimDueJobs(
   prisma: PrismaClient,
   workerId: string,
-  opts: { limit?: number; leaseSeconds?: number } = {},
+  opts: { limit?: number; leaseSeconds?: number; kinds?: readonly JobKind[] } = {},
 ): Promise<ClaimedJob[]> {
   const limit = opts.limit ?? 10;
   const leaseSeconds = opts.leaseSeconds ?? 120;
+  // A program claims only the kinds it can run, so it never leases (and fails) another program's job.
+  const kindFilter = opts.kinds ? Prisma.sql`AND kind::text = ANY(${[...opts.kinds]}::text[])` : Prisma.empty;
   return prisma.$queryRaw<ClaimedJob[]>`
     UPDATE jobs
     SET state = 'running',
@@ -50,6 +52,7 @@ export async function claimDueJobs(
       WHERE attempts < max_attempts
         AND ((state = 'pending' AND run_at <= now())
           OR (state = 'running' AND locked_until < now()))
+        ${kindFilter}
       ORDER BY run_at
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
@@ -88,6 +91,16 @@ export async function failJob(
   const row = rows[0];
   if (!row) return 'lost';
   return row.state === 'dead' ? 'dead' : 'retry';
+}
+
+// For a failure that retrying cannot fix (and might make worse, e.g. by paying for a second engine run).
+// Same lease guard as failJob: only the current holder can end the job.
+export async function deadJob(prisma: PrismaClient, id: string, workerId: string, error: string): Promise<boolean> {
+  const { count } = await prisma.job.updateMany({
+    where: { id, lockedBy: workerId, state: 'running' },
+    data: { state: 'dead', lastError: error.slice(0, 2000), lockedBy: null, lockedUntil: null },
+  });
+  return count === 1;
 }
 
 // Called by the reconciler: jobs whose worker died on their last attempt become dead

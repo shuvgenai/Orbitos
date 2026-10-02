@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, expect, test } from 'vitest';
-import { claimDueJobs, completeJob, enqueueJob, failJob, markStuckJobsDead } from '../src/jobs.ts';
+import { claimDueJobs, completeJob, deadJob, enqueueJob, failJob, markStuckJobsDead } from '../src/jobs.ts';
 import { newWorkspace, testPrisma } from './helpers.ts';
 
 const prisma = testPrisma();
@@ -103,4 +103,25 @@ test('repeated worker crashes are reclaimed, then the job ends dead', async () =
   expect(await state()).toBe('dead');
   expect(await markStuckJobsDead(prisma)).toBe(0);
   expect(await prisma.job.count({ where: { state: 'running' } })).toBe(0);
+});
+
+test('claim can be limited to the kinds a program runs', async () => {
+  const ws = await newWorkspace(prisma);
+  const mine = await enqueueJob(prisma, { workspaceId: ws.id, kind: 'notice', dedupeKey: key() });
+  const other = await enqueueJob(prisma, { workspaceId: ws.id, kind: 'digest', dedupeKey: key() });
+  const claimed = await claimDueJobs(prisma, 'w1', { kinds: ['notice', 'draft_poll'] });
+  expect(claimed.map((j) => j.id)).toEqual([mine.id]);
+  expect((await prisma.job.findUniqueOrThrow({ where: { id: other.id } })).state).toBe('pending');
+});
+
+test('deadJob ends a running job at once, only for the lease holder', async () => {
+  const ws = await newWorkspace(prisma);
+  const job = await enqueueJob(prisma, { workspaceId: ws.id, kind: 'send', dedupeKey: key(), maxAttempts: 5 });
+  await claimDueJobs(prisma, 'w1');
+  expect(await deadJob(prisma, job.id, 'w2', 'nope')).toBe(false);
+  expect(await deadJob(prisma, job.id, 'w1', 'not retryable')).toBe(true);
+  expect(await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({
+    state: 'dead', lastError: 'not retryable', lockedBy: null,
+  });
+  expect(await claimDueJobs(prisma, 'w1')).toEqual([]);
 });

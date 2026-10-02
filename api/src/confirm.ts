@@ -285,6 +285,11 @@ async function finishSent(prisma: PrismaClient, approvalId: string, gmailMessage
   // False means another request already finished it; either way the reply is out.
   await transitionApproval(prisma, approvalId, 'sending', 'sent');
   await prisma.approval.updateMany({ where: { id: approvalId, gmailMessageId: null }, data: { gmailMessageId } });
+  // The lead follows its reply, so the pipeline never shows a sent lead as still waiting on the owner.
+  await prisma.lead.updateMany({
+    where: { state: 'awaiting_owner', approvals: { some: { id: approvalId } } },
+    data: { state: 'sent' },
+  });
 }
 
 function errorCode(err: unknown): { errorName: string; status?: number } {
