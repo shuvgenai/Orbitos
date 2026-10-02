@@ -2,6 +2,7 @@ import { verifyApprovalLink } from '@orbit/shared/approval-link';
 import type { GmailPort } from '@orbit/shared/gmail/port';
 import type { MailerPort } from '@orbit/shared/mailer';
 import type { PrismaClient } from '@orbit/db/client';
+import { normalizeEmail } from '@orbit/db/owner';
 import { issueSignInLink, redeemSignInLink } from './auth.ts';
 import { handleConfirmGet, handleConfirmPost, type ConfirmAction, type ConfirmResult } from './confirm.ts';
 import type { RateLimiter } from './rate-limit.ts';
@@ -18,7 +19,10 @@ export type RoutesDeps = {
   secret: string;
   /** The instance's one customer workspace: sign-in matches users in it only. */
   workspaceId: string;
+  /** Per caller asking about one address: the probing channel. Tight. */
   signInLimiter: RateLimiter;
+  /** Per caller, whatever address. Looser, so one caller cannot walk a list of addresses. */
+  signInCallerLimiter: RateLimiter;
 };
 
 const SECURITY_HEADERS = {
@@ -61,6 +65,9 @@ const TEXT_FOR_VIEW = {
  * and a 404 must never claim a link "expired" (it may never have existed).
  */
 function renderConfirm(result: ConfirmResult, path: string, draft: string | null): ApiResponse {
+  // Only the 'draft' view carries a form. A refused edit is 422 with that view: show the form again with a plain
+  // note, never a success-sounding page for a reply that was not sent.
+  const note = result.status === 422 && result.view === 'draft' ? '<p>That edit was empty. Nothing was sent.</p>' : '';
   switch (result.status) {
     case 401:
       return html(401, signInForm(path));
@@ -71,13 +78,14 @@ function renderConfirm(result: ConfirmResult, path: string, draft: string | null
     default:
       break;
   }
-  if (result.status === 200 && result.view === 'draft' && draft !== null) {
-    return html(200,
-      `<form method="post"><p>Review the reply, then choose.</p><textarea name="finalText" rows="12" cols="60">${escape(draft)}</textarea>` +
+  if (result.view === 'draft') {
+    if (draft === null) return html(result.status, '<p>This reply cannot be shown right now. Nothing was sent.</p>');
+    return html(result.status,
+      `${note}<form method="post"><p>Review the reply, then choose.</p><textarea name="finalText" rows="12" cols="60">${escape(draft)}</textarea>` +
       `<p><button name="action" value="send">Send as drafted</button> <button name="action" value="send_edited">Send my edit</button> ` +
       `<button name="action" value="discard">Discard</button></p></form>`);
   }
-  return html(result.status, `<p>${escape(TEXT_FOR_VIEW[result.view] || 'Done.')}</p>`);
+  return html(result.status, `<p>${escape(TEXT_FOR_VIEW[result.view] || 'Something went wrong. Nothing was sent.')}</p>`);
 }
 
 // A malformed escape becomes an empty token, which every handler treats as an unknown link.
@@ -99,6 +107,14 @@ export function createRoutes(deps: RoutesDeps): (req: ApiRequest) => Promise<Api
   };
   const authDeps = { prisma: deps.prisma, mailer: deps.mailer, baseUrl: deps.baseUrl.replace(/\/+$/, ''), workspaceId: deps.workspaceId };
 
+  // Only called after a confirm handler returned the 'draft' view, i.e. after the link, session and authority gates
+  // passed, so showing the draft is authorised.
+  async function draftFor(token: string): Promise<string | null> {
+    const link = verifyApprovalLink(token, deps.secret, new Date());
+    if (!link.ok) return null;
+    return (await deps.prisma.approval.findUnique({ where: { id: link.approvalId }, select: { draftText: true } }))?.draftText ?? null;
+  }
+
   return async (req) => {
     const confirm = /^\/c\/([^/]+)$/.exec(req.path);
     const redeem = /^\/s\/([^/]+)$/.exec(req.path);
@@ -106,15 +122,7 @@ export function createRoutes(deps: RoutesDeps): (req: ApiRequest) => Promise<Api
     if (confirm && req.method === 'GET') {
       const token = dec(confirm[1]!);
       const result = await handleConfirmGet(confirmDeps, token, req);
-      let draft: string | null = null;
-      if (result.status === 200 && result.view === 'draft') {
-        // Only reached once the gate passed (valid link, session, authority), so showing the draft is authorised.
-        const link = verifyApprovalLink(token, deps.secret, new Date());
-        if (link.ok) {
-          draft = (await deps.prisma.approval.findUnique({ where: { id: link.approvalId }, select: { draftText: true } }))?.draftText ?? null;
-        }
-      }
-      return renderConfirm(result, req.path, draft);
+      return renderConfirm(result, req.path, result.view === 'draft' ? await draftFor(token) : null);
     }
 
     if (confirm && req.method === 'POST') {
@@ -123,13 +131,16 @@ export function createRoutes(deps: RoutesDeps): (req: ApiRequest) => Promise<Api
       const action = fields.get('action') ?? '';
       const finalText = fields.get('finalText') ?? undefined;
       const result = await handleConfirmPost(confirmDeps, token, req, action as ConfirmAction, finalText);
-      return renderConfirm(result, req.path, null);
+      return renderConfirm(result, req.path, result.view === 'draft' ? await draftFor(token) : null);
     }
 
     if (req.path === '/signin' && req.method === 'POST') {
       // Rate limiting is the real defence for the small timing difference the sign-in path keeps by design.
-      if (!deps.signInLimiter.allow(req.ip)) return text(429, 'Too many requests. Try again later.', { 'retry-after': '900' });
+      // Two buckets, both always counted: the caller, and the caller asking about one address (the probing channel).
       const fields = form(req.body);
+      const perCaller = deps.signInCallerLimiter.allow(req.ip);
+      const perAddress = deps.signInLimiter.allow(`${req.ip}|${normalizeEmail(fields.get('email') ?? '')}`);
+      if (!perCaller || !perAddress) return text(429, 'Too many requests. Try again later.', { 'retry-after': '900' });
       await issueSignInLink(authDeps, fields.get('email') ?? '', fields.get('redirect') ?? '/');
       return html(200, '<p>If that address is registered, a sign-in link is on its way.</p>');
     }

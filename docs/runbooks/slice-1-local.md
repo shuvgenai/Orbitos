@@ -119,11 +119,12 @@ press Send. The reply arrives in the sender's inbox in the same thread.
 - **A sleeping machine stops the poller.** Nothing polls while the laptop sleeps, so leads wait in Gmail until
   it wakes (the watermark means nothing is lost, only late). Keep the machine awake for a live test. If it
   sleeps for over a week, Gmail's history expires and the poller resyncs by date.
-- **The sign-in rate limiter does not survive a restart.** It is in memory in one process (5 requests per 15
-  minutes per client address). A restart clears it. The sign-in path keeps a small timing difference between
-  known and unknown addresses by design, and this limiter is the real defence against probing it. The client
-  address is read from `cf-connecting-ip` / `x-forwarded-for`, which is only trustworthy because the api is
-  reachable solely through the tunnel on 127.0.0.1.
+- **The sign-in rate limiter does not survive a restart.** It is in memory in one process: 5 requests per 15
+  minutes per caller and address, and 20 per 15 minutes per caller, with a hard cap on tracked callers. A restart
+  clears it. The sign-in path keeps a small timing difference between known and unknown addresses by design, and
+  this limiter is the real defence against probing it. The caller is identified by `cf-connecting-ip` only when
+  `TRUST_CF_CONNECTING_IP=true` (set in compose, because the api is reachable solely through the tunnel on
+  127.0.0.1); run the api by hand without it and every request shares the socket address, one stricter bucket.
 - **An External OAuth app in Testing expires its refresh token after 7 days.** The poller then sees a 401,
   marks the connection revoked, and stops. Re-do step 2 and 3, or use an Internal app.
 - **A revoked connection raises an alert job that this slice does not mail.** It is marked dead in the `jobs`

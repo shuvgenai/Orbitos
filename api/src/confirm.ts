@@ -173,6 +173,7 @@ export async function handleConfirmPost(
             });
           }
           if (!(await transitionApproval(tx as unknown as PrismaClient, approval.id, 'failed', 'void'))) throw new MovedOn();
+          await discardLead(tx as unknown as PrismaClient, approval.id);
         });
       } catch (err) {
         if (isUniqueViolation(err) || err instanceof MovedOn) return ALREADY_DECIDED;
@@ -226,6 +227,7 @@ export async function handleConfirmPost(
       // The transaction client has the one model transitionApproval touches.
       const moved = await transitionApproval(tx as unknown as PrismaClient, approval.id, 'issued', sending ? 'sending' : 'void');
       if (!moved) throw new MovedOn();
+      if (!sending) await discardLead(tx as unknown as PrismaClient, approval.id);
     });
   } catch (err) {
     if (isUniqueViolation(err) || err instanceof MovedOn) return ALREADY_DECIDED;
@@ -279,6 +281,14 @@ async function sendAndRecord(
     log.error({ approvalId: approval.id, ...errorCode(err) }, 'confirm: sent, but recording it failed; row left in sending');
   }
   return { status: 200, view: 'sent' };
+}
+
+// A discarded reply means the lead is closed, so it must not keep showing as waiting on the owner.
+async function discardLead(prisma: PrismaClient, approvalId: string): Promise<void> {
+  await prisma.lead.updateMany({
+    where: { state: 'awaiting_owner', approvals: { some: { id: approvalId } } },
+    data: { state: 'discarded' },
+  });
 }
 
 async function finishSent(prisma: PrismaClient, approvalId: string, gmailMessageId: string): Promise<void> {

@@ -28,7 +28,9 @@ try {
 }
 
 const prisma = createPrisma(config.DATABASE_URL);
-const connections = await prisma.gmailConnection.findMany({ take: 2 });
+// The error name only: a driver message carries the host and user from DATABASE_URL.
+const connections = await prisma.gmailConnection.findMany({ take: 2 }).catch((err: unknown) =>
+  fail(`could not read the database (${err instanceof Error ? err.name : typeof err})`));
 if (connections.length !== 1) fail(`expected exactly one GmailConnection row, found ${connections.length}; see the runbook`);
 const workspaceId = connections[0]!.workspaceId;
 
@@ -41,6 +43,13 @@ const gmail = createGmailClient({
   }),
 });
 
+const signInLimiter = createRateLimiter({ max: 5, windowMs: 15 * 60_000 });
+const signInCallerLimiter = createRateLimiter({ max: 20, windowMs: 15 * 60_000 });
+setInterval(() => {
+  signInLimiter.sweep();
+  signInCallerLimiter.sweep();
+}, 60_000).unref();
+
 const route = createRoutes({
   prisma,
   gmail,
@@ -48,24 +57,35 @@ const route = createRoutes({
   baseUrl: config.PUBLIC_BASE_URL,
   secret: config.APPROVAL_LINK_SECRET,
   workspaceId,
-  // 5 sign-in requests per 15 minutes per address. In memory: a restart clears it.
-  signInLimiter: createRateLimiter({ max: 5, windowMs: 15 * 60_000 }),
+  // In memory: a restart clears them. Per caller-and-address, tight; per caller, looser.
+  signInLimiter,
+  signInCallerLimiter,
 });
 
-// The api is reached only through the host's tunnel on 127.0.0.1, so the forwarded header is the client address.
+// Any client can send a header, so the caller's address is taken from one only when the operator says every request
+// comes through Cloudflare, which overwrites cf-connecting-ip (TRUST_CF_CONNECTING_IP=true). Otherwise it is the socket
+// address, which behind the tunnel is one shared bucket: stricter, never spoofable.
+const trustCf = process.env.TRUST_CF_CONNECTING_IP === 'true';
 const clientIp = (h: Record<string, string | string[] | undefined>, socketIp: string | undefined): string => {
-  const raw = h['cf-connecting-ip'] ?? h['x-forwarded-for'];
-  const first = (Array.isArray(raw) ? raw[0] : raw)?.split(',')[0]?.trim();
-  return first || socketIp || 'unknown';
+  const cf = h['cf-connecting-ip'];
+  const fromHeader = trustCf ? (Array.isArray(cf) ? cf[0] : cf)?.trim() : undefined;
+  return fromHeader || socketIp || 'unknown';
 };
 
 const port = Number(process.env.PORT ?? 8080);
+if (!Number.isInteger(port) || port < 1 || port > 65535) fail('PORT must be an integer from 1 to 65535');
 createServer((req, res) => {
   const chunks: Buffer[] = [];
   let size = 0;
   req.on('data', (c: Buffer) => {
     size += c.length;
-    if (size <= MAX_BODY_BYTES) chunks.push(c);
+    if (size > MAX_BODY_BYTES) {
+      // Stop reading: answer 413 and drop the connection instead of buffering the rest.
+      if (!res.headersSent) res.writeHead(413, { connection: 'close' }).end();
+      req.destroy();
+      return;
+    }
+    chunks.push(c);
   });
   req.on('end', () => {
     void (async () => {
