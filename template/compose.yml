@@ -96,8 +96,8 @@ services:
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?}
       APPROVAL_LINK_SECRET: ${APPROVAL_LINK_SECRET:?} # HMAC key for confirm links; at least 32 characters
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?} # the tunnel hostname; links already sent break if it changes
-      SETUP_DIR: /setup
       MAIL_FROM: ${MAIL_FROM:?}
+      TRUST_CF_CONNECTING_IP: "true" # the api is reached only through the Cloudflare tunnel, which sets this header
     ports: ["127.0.0.1:8081:8080"]
     networks: [data, edge, egress]
     depends_on:

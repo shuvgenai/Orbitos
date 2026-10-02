@@ -65,7 +65,9 @@ const setup = {
 
 const prisma = createPrisma(config.DATABASE_URL);
 // Slice 1 is one owner, one inbox: the single Gmail connection names the workspace and the owner's address.
-const connections = await prisma.gmailConnection.findMany({ take: 2 });
+// The error name only: a driver message carries the host and user from DATABASE_URL.
+const connections = await prisma.gmailConnection.findMany({ take: 2 }).catch((err: unknown) =>
+  fail(`could not read the database (${err instanceof Error ? err.name : typeof err})`));
 if (connections.length !== 1) {
   fail(`expected exactly one GmailConnection row, found ${connections.length}; see the runbook`);
 }
@@ -92,6 +94,7 @@ const mailer = createResendMailer({ apiKey: config.RESEND_API_KEY, from: config.
 const classifier = createAnthropicClassifier({ apiKey: config.ANTHROPIC_API_KEY });
 
 const port = Number(process.env.PORT ?? 8080);
+if (!Number.isInteger(port) || port < 1 || port > 65535) fail('PORT must be an integer from 1 to 65535');
 startHealthServer({ name: PROGRAM, port }).on('listening', () => log.info({ port, workspaceId }, 'listening'));
 
 every(POLL_EVERY_MS, 'poll', async () => {

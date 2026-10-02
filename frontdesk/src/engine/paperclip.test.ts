@@ -45,7 +45,7 @@ test('a 2xx answer with no issue id is an error, not an undefined id', async () 
 
 test('comments asks for ascending order and returns bodies oldest first', async () => {
   const fetch = vi.fn()
-    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c1', body: 'first' }, { id: 'c2', body: 'second' }] }))
+    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c1', body: 'first', createdAt: '2026-10-01T10:00:00Z' }, { id: 'c2', body: 'second', createdAt: '2026-10-01T10:01:00Z' }] }))
     .mockResolvedValueOnce(json(200, { comments: [] }));
   const engine = createPaperclipEngine({ ...cfg, fetch });
   expect(await engine.comments('iss-1')).toEqual(['first', 'second']);
@@ -67,9 +67,9 @@ test('comments re-sorts by createdAt when the server ignores the order parameter
 
 test('comments follows pages with afterCommentId and stops when a page adds nothing new', async () => {
   const fetch = vi.fn()
-    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c1', body: 'a' }] }))
-    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c2', body: 'b' }] }))
-    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c2', body: 'b' }] })); // server ignores the cursor
+    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c1', body: 'a', createdAt: '2026-10-01T10:00:00Z' }] }))
+    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c2', body: 'b', createdAt: '2026-10-01T10:01:00Z' }] }))
+    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c2', body: 'b', createdAt: '2026-10-01T10:01:00Z' }] })); // server ignores the cursor
   const engine = createPaperclipEngine({ ...cfg, fetch });
   expect(await engine.comments('iss-1')).toEqual(['a', 'b']);
   expect(new URL(fetch.mock.calls[1]![0]).searchParams.get('afterCommentId')).toBe('c1');
@@ -93,4 +93,23 @@ test('the issue id is encoded into the path', async () => {
   const fetch = vi.fn().mockResolvedValue(json(201, {}));
   await createPaperclipEngine({ ...cfg, fetch }).comment('a/b', 'x');
   expect(fetch.mock.calls[0]![0]).toBe('http://paperclip:3100/api/issues/a%2Fb/comments');
+});
+
+test('a server that returns newest-first without createdAt is refused, not passed through reversed', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c2', body: 'new' }, { id: 'c1', body: 'old' }] }))
+    .mockResolvedValueOnce(json(200, { comments: [] }));
+  await expect(createPaperclipEngine({ ...cfg, fetch }).comments('iss-1')).rejects.toBeInstanceOf(PaperclipError);
+});
+
+test('an unparseable createdAt is refused', async () => {
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(json(200, { comments: [{ id: 'c1', body: 'x', createdAt: 'yesterday-ish' }] }))
+    .mockResolvedValueOnce(json(200, { comments: [] }));
+  await expect(createPaperclipEngine({ ...cfg, fetch }).comments('iss-1')).rejects.toBeInstanceOf(PaperclipError);
+});
+
+test('no comments is an empty list, not an error', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(json(200, { comments: [] }));
+  expect(await createPaperclipEngine({ ...cfg, fetch }).comments('iss-1')).toEqual([]);
 });

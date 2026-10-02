@@ -24,13 +24,17 @@ const ERROR_BACKOFF_MS = 30_000; // times attempts
 const POLL_INTERVAL_MS = 15_000; // a deliberate reschedule is a fixed beat, not a growing one
 
 /** An error that says retrying cannot help (and may cost money): see LeadNotDraftableError. */
-class NotRetryable extends Error {}
+class NotRetryable extends Error {
+  // The reason is a fixed string written in this file, so it is safe to record.
+  override name = 'NotRetryable';
+}
 const isNotRetryable = (err: unknown): boolean =>
   err instanceof NotRetryable || (err as { retryable?: unknown } | null)?.retryable === false;
 
 /** Content-free: a name and, when present, an HTTP status. Never the message, which can echo a lead. */
 function describe(err: unknown): string {
   const name = err instanceof Error ? err.name : typeof err;
+  if (err instanceof NotRetryable) return `${name}: ${err.message}`;
   const status = (err as { status?: unknown } | null)?.status;
   return typeof status === 'number' ? `${name} (status ${status})` : name;
 }

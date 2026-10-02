@@ -73,10 +73,14 @@ export function createPaperclipEngine(cfg: PaperclipConfig): EnginePort {
         }
         after = fresh[fresh.length - 1]!.id;
       }
-      if (all.every((c) => typeof c.createdAt === 'string')) {
-        all.sort((a, b) => Date.parse(a.createdAt!) - Date.parse(b.createdAt!)); // stable
-      }
-      return all.map((c) => c.body);
+      // Never guess the order: the draft poll picks the newest valid draft from it. Without a usable timestamp on every
+      // comment we cannot verify the server honoured `order`, so fail loudly rather than hand back a possibly reversed list.
+      const times = all.map((c) => (typeof c.createdAt === 'string' ? Date.parse(c.createdAt) : Number.NaN));
+      if (times.some(Number.isNaN)) throw new PaperclipError(502, 'list comments (missing or unreadable createdAt)');
+      return all
+        .map((c, i) => ({ body: c.body, t: times[i]!, i }))
+        .sort((a, b) => a.t - b.t || a.i - b.i) // stable on ties
+        .map((c) => c.body);
     },
 
     // reopen: the issue sits blocked after Scout's draft; a comment alone would not wake the agent.

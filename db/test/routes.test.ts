@@ -12,11 +12,12 @@ afterAll(() => prisma.$disconnect());
 
 const SECRET = 's'.repeat(32);
 
-function setup(workspaceId: string, max = 5) {
+function setup(workspaceId: string, max = 5, callerMax = 20) {
   const mailer = { send: vi.fn().mockResolvedValue(undefined) };
   const route = createRoutes({
     prisma, gmail: new FakeGmail({ historyId: '1' }), mailer, baseUrl: 'https://orbit.example', secret: SECRET,
     workspaceId, signInLimiter: createRateLimiter({ max, windowMs: 60_000 }),
+    signInCallerLimiter: createRateLimiter({ max: callerMax, windowMs: 60_000 }),
   });
   return { route, mailer };
 }
@@ -62,6 +63,7 @@ test('the owner sees the draft, escaped, and can discard it', async () => {
   const owner = await createOwner(prisma, { workspaceId: ws.id, email: 'owner@example.com' });
   const approval = await newApproval(prisma, ws.id);
   await prisma.approval.update({ where: { id: approval.id }, data: { draftText: 'Hi <script>x</script>' } });
+  await prisma.lead.update({ where: { id: approval.leadId }, data: { state: 'awaiting_owner' } });
   const { route } = setup(ws.id);
   const path = `/c/${linkFor(approval)}`;
   const headers = { cookie: await sessionFor(owner.id) };
@@ -74,6 +76,8 @@ test('the owner sees the draft, escaped, and can discard it', async () => {
   const done = await route(req({ method: 'POST', path, headers, body: 'action=discard' }));
   expect(done.status).toBe(200);
   expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('void');
+  // The lead follows its discarded reply.
+  expect((await prisma.lead.findUniqueOrThrow({ where: { id: approval.leadId } })).state).toBe('discarded');
 });
 
 test('sign-in is limited per address, answers the same for known and unknown, and mails only this workspace', async () => {
@@ -91,6 +95,7 @@ test('sign-in is limited per address, answers the same for known and unknown, an
   await vi.waitFor(() => expect(mailer.send).toHaveBeenCalledTimes(1));
   expect(mailer.send.mock.calls[0]![0].to).toBe('in@example.com');
 
+  expect((await post('in@example.com')).status).toBe(200); // second ask for this address, within its limit of 2
   expect((await post('in@example.com')).status).toBe(429);
 });
 
@@ -106,4 +111,32 @@ test('a sign-in link sets the session cookie and redirects', async () => {
   expect(out.headers.location).toBe('/c/abc');
   expect(out.headers['set-cookie']).toMatch(/^orbit_session=/);
   expect((await route(req({ path: `/s/${token}` }))).status).toBe(400); // spent
+});
+
+test('an empty edit is refused with the form and a plain message, never a success page', async () => {
+  const ws = await newWorkspace(prisma);
+  const owner = await createOwner(prisma, { workspaceId: ws.id, email: 'owner@example.com' });
+  const approval = await newApproval(prisma, ws.id);
+  const { route } = setup(ws.id);
+  const out = await route(req({
+    method: 'POST', path: `/c/${linkFor(approval)}`, headers: { cookie: await sessionFor(owner.id) },
+    body: 'action=send_edited&finalText=',
+  }));
+  expect(out.status).toBe(422);
+  expect(out.body).toContain('That edit was empty');
+  expect(out.body).toContain('<textarea');
+  expect(out.body).not.toContain('Done');
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('issued');
+});
+
+test('sign-in is limited per address as well as per caller', async () => {
+  const ws = await newWorkspace(prisma);
+  const { route } = setup(ws.id, 2, 3);
+  const post = (email: string, ip: string) => route(req({ method: 'POST', path: '/signin', ip, body: `email=${email}` }));
+  expect([(await post('a%40x.com', '9.9.9.9')).status, (await post('A%40X.com', '9.9.9.9')).status]).toEqual([200, 200]);
+  // Same caller, same address (case-normalised), third ask: refused by the address bucket, though the caller bucket has room.
+  expect((await post('a%40x.com', '9.9.9.9')).status).toBe(429);
+  // The same caller may still ask about other addresses until its own, looser bucket runs out.
+  expect((await post('b%40x.com', '9.9.9.9')).status).toBe(429); // caller bucket (3) exhausted by the three asks above
+  expect((await post('a%40x.com', '8.8.8.8')).status).toBe(200); // another caller, same address: its own bucket
 });
