@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { shouldDrop } from './filter.ts';
+import { assertOwnerAddress, shouldDrop } from './filter.ts';
 
 const OWNER = 'owner@example.com';
 const base = { fromEmail: 'maya@okafor.example', headers: {}, subject: 'Audit quote' };
@@ -90,4 +90,11 @@ test('calendar: a multipart invite is caught by its inner part', () => {
 
 test('precedence: bulk mail from a noreply sender reports bulk', () => {
   expect(shouldDrop({ ...base, fromEmail: 'noreply@x.com', listUnsubscribe: '<mailto:a@b.c>' }, OWNER)).toBe('bulk');
+});
+
+test('T4: an empty or malformed owner address is refused at startup, because it would drop every message as self-sent', () => {
+  for (const bad of ['', '   ', 'owner', '@example.com', 'owner@']) expect(() => assertOwnerAddress(bad), bad).toThrow();
+  expect(() => assertOwnerAddress('owner@example.com')).not.toThrow();
+  // The failure it guards against: with an empty owner address a real customer is dropped as the owner.
+  expect(shouldDrop({ ...base, fromEmail: '' }, '')).toBe('self_sent');
 });

@@ -16,7 +16,9 @@ export class MailerError extends Error {
   }
 }
 
-export function createResendMailer(deps: { apiKey: string; from: string; fetch?: typeof fetch }): MailerPort {
+const SEND_TIMEOUT_MS = 15_000; // a hung socket would otherwise hold a job's lease and burn its attempts without reaching Resend
+
+export function createResendMailer(deps: { apiKey: string; from: string; fetch?: typeof fetch; timeoutMs?: number }): MailerPort {
   const doFetch = deps.fetch ?? fetch;
   return {
     async send({ to, subject, text, headers }) {
@@ -24,6 +26,7 @@ export function createResendMailer(deps: { apiKey: string; from: string; fetch?:
         method: 'POST',
         headers: { authorization: `Bearer ${deps.apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({ from: deps.from, to: [to], subject, text, ...(headers ? { headers } : {}) }),
+        signal: AbortSignal.timeout(deps.timeoutMs ?? SEND_TIMEOUT_MS),
       });
       if (!res.ok) throw new MailerError(res.status);
     },

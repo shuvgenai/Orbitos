@@ -110,6 +110,7 @@ const transient: [string, () => unknown][] = [
   ['403 rateLimitExceeded', () => new GmailApiError(403, 'rate', 'rateLimitExceeded')],
   ['403 userRateLimitExceeded', () => new GmailApiError(403, 'rate', 'userRateLimitExceeded')],
   ['403 quotaExceeded', () => new GmailApiError(403, 'quota', 'quotaExceeded')],
+  ['403 dailyLimitExceeded', () => new GmailApiError(403, 'daily quota', 'dailyLimitExceeded')],
   ['a network TypeError', () => new TypeError('fetch failed')],
   ['a GmailApiError with no status', () => new GmailApiError(undefined as unknown as number, 'no status')],
 ];

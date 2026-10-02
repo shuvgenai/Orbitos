@@ -27,6 +27,15 @@ function bareAddress(raw: string): string {
   return (plus < 0 ? local : local.slice(0, plus)) + addr.slice(at);
 }
 
+/**
+ * An empty owner address makes every message look self-sent (bareAddress('') equals bareAddress('')), so the
+ * poller would silently drop the whole inbox. Refuse to start rather than run like that.
+ */
+export function assertOwnerAddress(address: string): void {
+  const at = address.trim().lastIndexOf('@');
+  if (at < 1 || at === address.trim().length - 1) throw new Error('the Gmail connection has no usable owner email address');
+}
+
 export function shouldDrop(input: FilterInput, ownerAddress: string): false | DropReason {
   const headers = Object.fromEntries(
     Object.entries(input.headers).map(([k, v]) => [k.trim().toLowerCase(), v]),
