@@ -50,7 +50,7 @@ test('the issue id is stored and a draft_poll job is queued once', async () => {
   const jobs = await prisma.job.findMany({ where: { leadId: lead.id, kind: 'draft_poll' } });
   expect(jobs).toHaveLength(1);
   expect(jobs[0]!.dedupeKey).toBe(`draft_poll:${lead.id}`);
-  expect(jobs[0]!.maxAttempts).toBe(40);
+  expect(jobs[0]!.maxAttempts).toBe(60);
   expect(jobs[0]!.runAt.getTime()).toBeGreaterThan(Date.now());
   expect(jobs[0]!.workspaceId).toBe(ws.id);
   expect(jobs[0]!.leadId).toBe(lead.id);

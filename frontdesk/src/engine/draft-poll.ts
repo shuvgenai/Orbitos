@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@orbit/db/client';
 import { type Draft, parseAgentComment } from '@orbit/shared/agent-output';
 import { pino } from 'pino';
+import { failLead as failLeadAndAlert } from '../fail-lead.ts';
 import type { EnginePort } from './port.ts';
 
 const log = pino({ name: 'frontdesk-draft-poll' });
@@ -16,7 +17,8 @@ export type DraftPollOutcome = 'approved' | 'retry' | 'corrected' | 'failed';
 
 const DRAFT_TIMEOUT_MS = 10 * 60_000;
 const APPROVAL_WINDOW_MS = 72 * 3_600_000;
-const FENCE = /```/;
+const NOTICE_MAX_ATTEMPTS = 40;
+const FENCE = /```|~~~/; // either fence style marks a draft attempt
 
 // A fixed string: it never echoes Scout's output, which is derived from a customer's email.
 const CORRECTION =
@@ -49,12 +51,9 @@ async function jobRow(prisma: PrismaClient, lead: { id: string; workspaceId: str
   return prisma.job.findUniqueOrThrow({ where: { dedupeKey }, select: { id: true, payload: true } });
 }
 
+// The shared failLead also queues the owner alert, in the same transaction as the state change.
 async function failLead(deps: DraftPollDeps, leadId: string, reason: string): Promise<'failed'> {
-  const { count } = await deps.prisma.lead.updateMany({
-    where: { id: leadId, state: 'drafting' },
-    data: { state: 'draft_failed' },
-  });
-  (deps.log ?? log).warn({ leadId, reason, moved: count === 1 }, 'draft-poll: lead marked draft_failed');
+  await failLeadAndAlert(deps.prisma, { leadId, from: ['drafting'], reason }, deps.log ?? log);
   return 'failed';
 }
 
@@ -82,7 +81,15 @@ export async function handleDraftPoll(
   const startedAt = (pollJob?.createdAt ?? lead.updatedAt).getTime();
   const timedOut = () => deps.now().getTime() - startedAt > DRAFT_TIMEOUT_MS;
 
-  const all = await deps.engine.comments(lead.paperclipIssueId); // oldest-first (see EnginePort)
+  // An engine that keeps erroring must not outlive the draft window: the timeout is what ends a stalled
+  // draft, not the job's attempt counter, so check it here too rather than only after a good read.
+  let all: string[];
+  try {
+    all = await deps.engine.comments(lead.paperclipIssueId); // oldest-first (see EnginePort)
+  } catch (err) {
+    if (timedOut()) return failLead(deps, lead.id, 'timeout_engine_unreachable');
+    throw err;
+  }
   // Any comment with a code fence is a draft attempt, whatever its case or language tag; a comment with no
   // fence is prose and is skipped. Newest first, so the latest good draft wins. Only parseAgentComment
   // decides validity. The correction text has no fence, so Scout's echo of our own comment never counts.
@@ -144,6 +151,8 @@ export async function handleDraftPoll(
       data: {
         workspaceId: lead.workspaceId,
         kind: 'notice',
+        // A notice is how the owner learns a reply is waiting: keep trying through a long mail outage (I2).
+        maxAttempts: NOTICE_MAX_ATTEMPTS,
         dedupeKey: `notice:${approval.id}`,
         leadId: lead.id,
         approvalId: approval.id,
