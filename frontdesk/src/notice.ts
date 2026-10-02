@@ -7,6 +7,12 @@ const log = pino({ name: 'frontdesk-notice' });
 
 export type NoticeDeps = { prisma: PrismaClient; mailer: MailerPort; baseUrl: string; secret: string };
 
+/** The oldest user in the workspace: the one owner of a slice-1 instance. Never a lead's address. */
+export async function findOwnerEmail(prisma: PrismaClient, workspaceId: string): Promise<string | null> {
+  const owner = await prisma.user.findFirst({ where: { workspaceId }, orderBy: { createdAt: 'asc' }, select: { email: true } });
+  return owner?.email ?? null;
+}
+
 /**
  * NTC-1: the notice reveals nothing about the lead. The subject is fixed text and the body is the
  * link and the deadline only. The lead and the draft are deliberately never read here, so no later
@@ -28,12 +34,8 @@ export async function sendNotice(deps: NoticeDeps, approvalId: string): Promise<
     log.info({ approvalId, state: approval.state }, 'notice: approval no longer waiting, nothing sent');
     return;
   }
-  const owner = await deps.prisma.user.findFirst({
-    where: { workspaceId: approval.workspaceId },
-    orderBy: { createdAt: 'asc' },
-    select: { email: true },
-  });
-  if (!owner) {
+  const ownerEmail = await findOwnerEmail(deps.prisma, approval.workspaceId);
+  if (ownerEmail === null) {
     log.warn({ approvalId, workspaceId: approval.workspaceId }, 'notice: workspace has no owner, nothing sent');
     return;
   }
@@ -43,7 +45,7 @@ export async function sendNotice(deps: NoticeDeps, approvalId: string): Promise<
   const deadline = approval.expiresAt.toUTCString();
 
   await deps.mailer.send({
-    to: owner.email,
+    to: ownerEmail,
     // FD-1: the poller drops mail carrying this header, so our own notice is never classified as a lead.
     headers: { 'X-Orbitcrew': '1' },
     subject: 'A reply is waiting',

@@ -14,6 +14,7 @@ export type EnqueueInput = {
 };
 
 export type ClaimedJob = {
+  workspaceId: string;
   id: string;
   kind: JobKind;
   attempts: number;
@@ -57,7 +58,7 @@ export async function claimDueJobs(
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
     )
-    RETURNING id, kind::text AS kind, attempts, max_attempts AS "maxAttempts", payload,
+    RETURNING id, workspace_id AS "workspaceId", kind::text AS kind, attempts, max_attempts AS "maxAttempts", payload,
               lead_id AS "leadId", approval_id AS "approvalId"`;
 }
 

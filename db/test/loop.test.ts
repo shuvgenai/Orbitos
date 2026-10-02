@@ -38,3 +38,38 @@ test('an ordinary failure is retried later with a backoff, not killed', async ()
   expect(row).toMatchObject({ state: 'pending', attempts: 1, lastError: 'Error' });
   expect(row.runAt.getTime()).toBeGreaterThan(Date.now() + 20_000); // 30 s * attempts
 });
+
+// C3: the revocation alert is the only thing that tells the owner the inbox has stopped being read.
+test('a gmail_revoked alert mails the owner a fixed content-free line with the Orbitcrew header, and completes', async () => {
+  const ws = await newWorkspace(prisma);
+  await withOwner(prisma, ws.id, 'owner@example.com');
+  const job = await enqueueJob(prisma, { workspaceId: ws.id, kind: 'notice', dedupeKey: 'loop:revoked', payload: { type: 'gmail_revoked' } });
+  const d = deps();
+  await runJobLoop(d, { workerId: 'w', limit: 10 });
+  expect(d.mailer.send).toHaveBeenCalledTimes(1);
+  const sent = d.mailer.send.mock.calls[0]![0];
+  expect(sent.to).toBe('owner@example.com');
+  expect(sent.headers).toEqual({ 'X-Orbitcrew': '1' });
+  expect(sent.text).toContain('has stopped reading mail. Reconnect it to resume.');
+  expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).state).toBe('done');
+});
+
+test('a gmail_revoked alert whose mail fails is retried, not dead-lettered', async () => {
+  const ws = await newWorkspace(prisma);
+  await withOwner(prisma, ws.id, 'owner@example.com');
+  const job = await enqueueJob(prisma, { workspaceId: ws.id, kind: 'notice', dedupeKey: 'loop:revoked-down', payload: { type: 'gmail_revoked' } });
+  const d = deps();
+  d.mailer.send.mockRejectedValue(new Error('resend down'));
+  await runJobLoop(d, { workerId: 'w', limit: 10 });
+  expect(await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({ state: 'pending', attempts: 1 });
+});
+
+test('an approval-less notice with an unknown payload dies instead of looping forever', async () => {
+  const ws = await newWorkspace(prisma);
+  await withOwner(prisma, ws.id, 'owner@example.com');
+  const job = await enqueueJob(prisma, { workspaceId: ws.id, kind: 'notice', dedupeKey: 'loop:mystery', payload: { type: 'nope' } });
+  const d = deps();
+  await runJobLoop(d, { workerId: 'w', limit: 10 });
+  expect(d.mailer.send).not.toHaveBeenCalled();
+  expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).state).toBe('dead');
+});

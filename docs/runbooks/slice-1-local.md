@@ -127,8 +127,8 @@ press Send. The reply arrives in the sender's inbox in the same thread.
   127.0.0.1); run the api by hand without it and every request shares the socket address, one stricter bucket.
 - **An External OAuth app in Testing expires its refresh token after 7 days.** The poller then sees a 401,
   marks the connection revoked, and stops. Re-do step 2 and 3, or use an Internal app.
-- **A revoked connection raises an alert job that this slice does not mail.** It is marked dead in the `jobs`
-  table with a clear error. Watch `frontdesk` logs.
+- **A revoked connection mails the owner a fixed line.** "Orbit has lost access to your inbox and has stopped
+  reading mail. Reconnect it to resume." It is retried like any notice until Resend accepts it.
 - **A lead that is not draftable (already finished) is never retried.** Retrying would create another
   Paperclip issue, so another Scout run and another charge. Such a job is marked dead on the first attempt.
 
