@@ -54,7 +54,7 @@ const TEXT_FOR_VIEW = {
   expired: 'This link has expired.',
   already_decided: 'This reply has already been handled.',
   sent: 'Sent. The reply is on its way to the customer.',
-  send_failed: 'The send did not complete. Open the link again to retry; Orbit checks your Sent folder first so nothing goes out twice.',
+  send_failed: 'The send did not complete. Press Try again; Orbit checks your Sent folder first so nothing goes out twice.',
   needs_sign_in: '',
   rejected_header: 'That reply cannot be sent as written.',
 } as const;
@@ -84,6 +84,13 @@ function renderConfirm(result: ConfirmResult, path: string, draft: string | null
       `${note}<form method="post"><p>Review the reply, then choose.</p><textarea name="finalText" rows="12" cols="60">${escape(draft)}</textarea>` +
       `<p><button name="action" value="send">Send as drafted</button> <button name="action" value="send_edited">Send my edit</button> ` +
       `<button name="action" value="discard">Discard</button></p></form>`);
+  }
+  if (result.view === 'send_failed') {
+    // The retry is a POST, so it needs a control. No textarea: a retry sends the reply already decided on, and a
+    // second edit here would be silently dropped.
+    return html(result.status,
+      `<form method="post"><p>${escape(TEXT_FOR_VIEW.send_failed)}</p>` +
+      `<p><button name="action" value="send">Try again</button> <button name="action" value="discard">Discard</button></p></form>`);
   }
   return html(result.status, `<p>${escape(TEXT_FOR_VIEW[result.view] || 'Something went wrong. Nothing was sent.')}</p>`);
 }

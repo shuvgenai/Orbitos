@@ -140,3 +140,59 @@ test('sign-in is limited per address as well as per caller', async () => {
   expect((await post('b%40x.com', '9.9.9.9')).status).toBe(429); // caller bucket (3) exhausted by the three asks above
   expect((await post('a%40x.com', '8.8.8.8')).status).toBe(200); // another caller, same address: its own bucket
 });
+
+test('C1: a send_failed page has a Try again form, and pressing it reconciles from Sent without resending', async () => {
+  const ws = await newWorkspace(prisma);
+  const owner = await createOwner(prisma, { workspaceId: ws.id, email: 'owner@example.com' });
+  const approval = await newApproval(prisma, ws.id);
+  await prisma.lead.update({ where: { id: approval.leadId }, data: { state: 'awaiting_owner' } });
+  const gmail = new FakeGmail({ historyId: '1' });
+  const route = createRoutes({
+    prisma, gmail, mailer: { send: vi.fn() }, baseUrl: 'https://orbit.example', secret: SECRET, workspaceId: ws.id,
+    signInLimiter: createRateLimiter({ max: 5, windowMs: 60_000 }), signInCallerLimiter: createRateLimiter({ max: 20, windowMs: 60_000 }),
+  });
+  const path = `/c/${linkFor(approval)}`;
+  const headers = { cookie: await sessionFor(owner.id) };
+
+  gmail.failNextSendAfterAccepting(); // Gmail took it, the response was lost
+  const first = await route(req({ method: 'POST', path, headers, body: 'action=send' }));
+  expect(first.body).toContain('<form method="post">');
+  expect(first.body).toContain('value="send"');
+  expect(first.body).toContain('Try again');
+  expect(first.body).not.toMatch(/open the link again/i);
+  expect(first.body).not.toContain('<textarea');
+
+  // The link, opened again, offers the same control.
+  await prisma.approval.update({ where: { id: approval.id }, data: { state: 'failed' } });
+  const page = await route(req({ path, headers }));
+  expect(page.status).toBe(200);
+  expect(page.body).toContain('name="action" value="send"');
+
+  // Pressing it: the Sent-folder hit reconciles to sent, and nothing is sent a second time.
+  const retry = await route(req({ method: 'POST', path, headers, body: 'action=send' }));
+  expect(retry.body).toContain('Sent.');
+  expect(gmail.sent).toHaveLength(1);
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('sent');
+});
+
+test('C1: a failed send with no Sent copy is retried from the rendered page and goes out once', async () => {
+  const ws = await newWorkspace(prisma);
+  const owner = await createOwner(prisma, { workspaceId: ws.id, email: 'owner@example.com' });
+  const approval = await newApproval(prisma, ws.id);
+  await prisma.lead.update({ where: { id: approval.leadId }, data: { state: 'awaiting_owner' } });
+  const gmail = new FakeGmail({ historyId: '1' });
+  const route = createRoutes({
+    prisma, gmail, mailer: { send: vi.fn() }, baseUrl: 'https://orbit.example', secret: SECRET, workspaceId: ws.id,
+    signInLimiter: createRateLimiter({ max: 5, windowMs: 60_000 }), signInCallerLimiter: createRateLimiter({ max: 20, windowMs: 60_000 }),
+  });
+  const path = `/c/${linkFor(approval)}`;
+  const headers = { cookie: await sessionFor(owner.id) };
+  gmail.failNextSendWith({ status: 503 });
+  await route(req({ method: 'POST', path, headers, body: 'action=send' }));
+  await prisma.approval.update({ where: { id: approval.id }, data: { sendingAt: new Date(Date.now() - 11 * 60_000) } });
+  await route(req({ method: 'POST', path, headers, body: 'action=send' })); // self-repair: sending -> failed
+  expect((await prisma.approval.findUniqueOrThrow({ where: { id: approval.id } })).state).toBe('failed');
+  const retry = await route(req({ method: 'POST', path, headers, body: 'action=send' }));
+  expect(retry.body).toContain('Sent.');
+  expect(gmail.sent).toHaveLength(1);
+});
