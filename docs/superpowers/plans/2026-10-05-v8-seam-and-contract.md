@@ -276,7 +276,7 @@ EOF
 - Create: `docs/security/threat-model-engine.md`
 - Create: `docs/security/threat-model-gateway.md`
 - Create: `docs/security/keys.md`
-- Test: `guards/rules.test.ts`
+- Test: `guards/rules.test.ts`, `guards/standing-rules.test.ts`
 
 **Interfaces:**
 - Consumes: `dashboards/CLAUDE.md` and the `reference/` path from Task 1.
@@ -359,7 +359,8 @@ Only rules true everywhere. Required sections, in this order:
 3. **Scoped rules live elsewhere.** A table pointing at `dashboards/CLAUDE.md` (the web app) and `docs/rules/engine.md` (engine and gateway), with one line saying the frontend-only rule must never be written in this file because it would gate the engine stream.
 4. **The freeze.** The seven frozen directories; no new features and no deletions in them; every existing test keeps running and passing. `guards/freeze.test.ts` enforces it.
 5. **Naming.** Customers never see Paperclip, Hermes, OpenClaw or MCP. Say agents, teammates, tools, office. Runtime ids and adapter names appear only in the Super Admin Office view.
-6. **Secrets.** This project's own `.env`, never committed, `.env.example` checked in. No shared or cross-project env file. Keys scoped to this project and rotatable. Never log or store a secret. The inventory is `docs/security/keys.md`.
+6. **Secrets.** This project's own `.env`, never committed, `.env.example` checked in. **Never read from or write to any shared or cross-project env file.** Keys scoped to this project and rotatable. Never log or store a secret. The inventory is `docs/security/keys.md`. Enforced by `guards/standing-rules.test.ts`.
+6a. **No real data until the gate opens.** No live inbox, real mailbox or real customer data in **any** environment until the Action Gateway, the audit log and budget pausing all exist and pass their tests. Until then, a dedicated test mailbox and test accounts only. **The founder decides when that condition is met, not the code.** Enforced by `guards/standing-rules.test.ts`.
 7. **Done.** The checklist from section 8 of the spec, as a list of commands. Every code diff also gets a security review in a fresh session that reads only the diff; docs-only commits are exempt.
 8. **Branches and review.** Code goes on a branch, opens as a pull request, and is merged by the founder after the Done checks pass. Docs-only commits may go to `main`.
 9. **Decisions.** Every decision is appended to `docs/decisions.md` with its reason and its cost if wrong.
@@ -400,7 +401,7 @@ Format, one block each: `## <ISO date> — <decision>`, then `**Decision:**`, `*
 2. `2026-10-05 — The lead-reply slice is frozen.` No new features, no deletions; it becomes one example job behind the Action Gateway when the engine exists. The old "one real lead end to end" exit criterion is retired: the new proof is the first real job, with OrbitumAI as customer zero.
 3. `2026-10-05 — Standing Authority is held at UI-only.` Feature-flagged off, contract surface read-only. Enforcement blocked until the founder answers the one-page decision.
 4. `2026-10-05 — Stream A takes a new dashboards/ package, not web/.` Evidence: `web/src/main.ts` imports from frozen `shared/`, and `template/test/compose.test.ts:22` asserts the exact compose service set.
-5. `2026-10-05 — The real-data gate.` The first real job runs against a dedicated test mailbox and test accounts. Three conditions must all be in place **and tested** before real data: the Action Gateway, the audit log, budget pausing. When all three are met the founder is told and the founder decides.
+5. `2026-10-05 — The real-data gate.` Status: **open-pending**. No live inbox, real mailbox or real customer data in any environment; a dedicated test mailbox and test accounts only. Three conditions must all be in place **and tested** before real data: the Action Gateway, the audit log, budget pausing. When all three are met the founder is told, and **the founder decides**, not the code. `guards/standing-rules.test.ts` asserts this entry still says `open-pending`, so the gate cannot be closed by a code change alone.
 6. `2026-10-05 — The mock bundle scan moves to sub-project 1.` Sub-project 0 ships the import-boundary guard; the bundle scan needs a production build, which does not exist until Stream A has one.
 
 - [ ] **Step 7: Write the two threat-model skeletons and the key inventory**
@@ -409,20 +410,119 @@ Each threat model: one line stating what it covers, then one section per threat,
 
 `docs/security/keys.md`: a table of every key in `.env.example` with what it actually is, which program holds it, and who rotates it. Include the correction that `TYPESAFE_API_KEY` in `.env.local` is an OpenRouter key, not a TypeSafe console key. Record the two credential deviations already in the repo: `api` holds the Gmail send credentials because the confirm route sends, and `frontdesk` holds the Resend key because it runs the notice job. Both close when the worker takes the queue and the send path.
 
-- [ ] **Step 8: Run the guard and the suite**
+- [ ] **Step 7a: Write the two standing-rule guards**
+
+These are the founder's own rules, recorded nowhere in this repo before now. Each gets a check so it cannot quietly lapse.
+
+Create `guards/standing-rules.test.ts`:
+
+```ts
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from 'vitest';
+
+const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+
+function tracked(): string[] {
+  return execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
+}
+
+function sources(dir: string, out: string[] = []): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(join(ROOT, dir));
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (['node_modules', 'dist', 'generated', 'reference', 'landing', 'archive'].includes(entry)) continue;
+    const child = `${dir}/${entry}`;
+    if (statSync(join(ROOT, child)).isDirectory()) sources(child, out);
+    else if (/\.(ts|tsx|mjs|js|yml|yaml)$/.test(child)) out.push(child);
+  }
+  return out;
+}
+
+// Rule: this project's own env, and no other.
+
+test('no .env file is tracked by git', () => {
+  expect(tracked().filter((f) => /(^|\/)\.env($|\.)/.test(f) && !f.endsWith('.env.example'))).toEqual([]);
+});
+
+test('.env.example is present and tracked, so a fresh clone knows what it needs', () => {
+  expect(existsSync(join(ROOT, '.env.example'))).toBe(true);
+  expect(tracked()).toContain('.env.example');
+});
+
+test('no code path reads an env file outside this repo', () => {
+  const climbing = /['"`][^'"`]*\.\.\/[^'"`]*\.env[^'"`]*['"`]|['"`](?:[A-Za-z]:)?[\\/][^'"`]*\.env[^'"`]*['"`]/;
+  const offenders = ['scripts', 'ops', 'guards', 'contract', 'dashboards', 'api', 'frontdesk', 'worker', 'web', 'shared', 'db', 'template']
+    .flatMap((d) => sources(d))
+    .filter((f) => climbing.test(readFileSync(join(ROOT, f), 'utf8')));
+  expect(offenders).toEqual([]);
+});
+
+// Rule: no real data until the gate opens.
+
+test('the real-data gate is recorded, and recorded as not yet met', () => {
+  const decisions = readFileSync(join(ROOT, 'docs/decisions.md'), 'utf8');
+  expect(decisions).toMatch(/real-data gate/i);
+  expect(decisions).toMatch(/dedicated test mailbox/i);
+  expect(decisions).toMatch(/the founder decides/i);
+  expect(decisions).toMatch(/open-pending/i);
+});
+
+test('no tracked configuration names a mailbox that is not a test mailbox', () => {
+  const offenders: string[] = [];
+  for (const file of ['.env.example', 'compose.dev.yml', 'template/compose.yml']) {
+    if (!existsSync(join(ROOT, file))) continue;
+    for (const match of readFileSync(join(ROOT, file), 'utf8').matchAll(/[\w.+-]+@[\w.-]+\.\w+/g)) {
+      const address = match[0];
+      if (!/test|example|invalid|localhost/i.test(address)) offenders.push(`${file}: ${address}`);
+    }
+  }
+  expect(offenders).toEqual([]);
+});
+```
+
+- [ ] **Step 7b: Run the standing-rule guards and prove each fails when its rule is broken**
+
+Run: `npx vitest run --project unit guards/standing-rules.test.ts`
+Expected: 5 passed.
+
+Then break each rule on purpose and confirm the guard catches it:
+
+```bash
+printf "SECRET=x\n" > .env && git add -f .env
+npx vitest run --project unit guards/standing-rules.test.ts
+git rm --cached .env && rm .env
+```
+
+Expected: FAIL on the tracked `.env` test, then PASS once removed.
+
+```bash
+node -e "const f='docs/decisions.md';const fs=require('fs');fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace(/open-pending/g,'met'))"
+npx vitest run --project unit guards/standing-rules.test.ts
+git checkout docs/decisions.md
+```
+
+Expected: FAIL on the gate test, then PASS once restored.
+
+- [ ] **Step 8: Run the guards and the suite**
 
 Run:
 ```bash
-npx vitest run --project unit guards/rules.test.ts
+npx vitest run --project unit guards/rules.test.ts guards/standing-rules.test.ts
 pnpm test:unit
 pnpm typecheck
 ```
-Expected: every rules-guard test PASSES, the existing suite still passes, typecheck clean.
+Expected: every guard test PASSES, the existing suite still passes, typecheck clean.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add CLAUDE.md dashboards/CLAUDE.md docs/rules/engine.md docs/decisions.md docs/security/ guards/rules.test.ts
+git add CLAUDE.md dashboards/CLAUDE.md docs/rules/engine.md docs/decisions.md docs/security/ guards/rules.test.ts guards/standing-rules.test.ts
 git commit -F - <<'EOF'
 docs(rules): split the rules by scope and start the decision log
 
@@ -566,12 +666,28 @@ pnpm lint --format json > /tmp/lint.json 2>/dev/null || true
 node -e "const r=require('/tmp/lint.json');const by={};for(const f of r){if(!f.errorCount&&!f.warningCount)continue;const d=f.filePath.split(/[\\\\/]/).find(p=>['frontdesk','api','db','shared','template','ops','design','contract','guards','dashboards','scripts','web','worker'].includes(p))??'root';by[d]=(by[d]??0)+f.errorCount+f.warningCount;}console.log(by)"
 ```
 
-Report the per-directory counts to the founder and stop for their instruction before touching any file under `frontdesk/`, `api/`, `db/`, `shared/`, `template/`, `ops/` or `design/`. A lint fix there is still a change to frozen code, and whether that is permitted is the founder's call. Findings in `guards/`, `contract/`, `dashboards/`, `scripts/` and root files are not frozen: fix those.
+**Report only. Change nothing in the frozen directories.** The founder has ruled: record the per-directory counts in `docs/decisions.md` and continue. A lint fix in frozen code needs their explicit approval, case by case, and never as part of another task. So this step does not stop and does not wait.
+
+Append to `docs/decisions.md`:
+
+```markdown
+## 2026-10-05 — Lint findings in the frozen packages are recorded, not fixed
+
+**Decision:** `pnpm lint` reports the counts below inside the frozen packages. None are fixed. A lint fix in frozen code needs the founder's explicit approval, case by case, and never as part of another task.
+
+**Counts at the time the linter was added:** <the per-directory output of the command above>
+
+**Reason:** a lint fix is still a change to frozen code. The freeze exists because 44 merged commits and 442 tests depend on that code behaving exactly as it does, and a reformat that looks harmless is still a diff nobody asked for.
+
+**Cost if wrong:** the frozen packages carry style findings for the life of the project, visible in every lint run and ignored by everyone.
+```
+
+Findings in `guards/`, `contract/`, `dashboards/`, `scripts/` and root files are not frozen: fix those in this task.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add eslint.config.js package.json pnpm-lock.yaml guards/lint-config.test.ts
+git add eslint.config.js package.json pnpm-lock.yaml guards/lint-config.test.ts docs/decisions.md
 git commit -F - <<'EOF'
 build(lint): add pnpm lint, with a guard on its own ignore list
 
@@ -1773,7 +1889,42 @@ is cheaper than discovering later that a rule lived only in a screen.
 EOF
 ```
 
-**Stop here.** Per the founder's item 7, sub-project 1 does not start until the founder has approved the contract itself, not merely the spec. Report the two layers, the operation list, and the four promises enforced by schema shape, and wait.
+- [ ] **Step 8: Produce the operation-coverage check the founder asked for**
+
+Write `docs/contracts/coverage.md`: a table with one row per `ApiClient` operation named anywhere in `ORBIT-OS_Claude_Code_Build_Prompts.md`, and whether `contract/v1` or `contract/experimental` provides it. The point is for the founder to see that nothing the dashboards need is missing from `contract/v1`.
+
+Generate the list rather than typing it, so a missed operation cannot hide:
+
+```bash
+grep -oE '\b(get|list|save|apply|add|rename|remove|update|toggle|create|assign|auto|connect|disconnect|start|retry|submit|cancel|decide|provision|load|reset|set|draft|ask|answer|practice|activate|pause|act|export|job)[A-Za-z]*\b' ORBIT-OS_Claude_Code_Build_Prompts.md | sort -u > /tmp/prompt-ops.txt
+grep -ohE '^\s{2}[a-z][A-Za-z]*(?=[(:])' contract/src/client.ts | tr -d ' ' | sort -u > /tmp/contract-ops.txt
+comm -23 /tmp/prompt-ops.txt /tmp/contract-ops.txt
+```
+
+The third command lists every operation the prompts mention that the contract does not provide. Read each one: some will be ordinary English verbs rather than operations, and the table says which. Anything that is a real operation and is missing gets added to the contract before the founder is asked, and the addition is noted in `docs/decisions.md`.
+
+- [ ] **Step 9: Commit the coverage check, then stop**
+
+```bash
+git add docs/contracts/coverage.md docs/decisions.md
+git commit -F - <<'EOF'
+docs(contracts): check the contract covers every operation the screens need
+
+The founder asked to see, before approving the contract, that nothing the
+dashboards need is missing from contract/v1. A reviewer cannot establish
+that by reading two documents side by side, so the list is generated from
+the build prompts and compared against the interface rather than compiled
+by hand.
+
+The comparison is deliberately noisy in one direction: it matches ordinary
+English verbs as well as operation names, so the table says which of each
+is which. A check that over-reports costs a minute of reading. A check that
+under-reports means a screen with no operation behind it, discovered in the
+middle of building it.
+EOF
+```
+
+**Stop here.** Per the founder's item 7, sub-project 1 does not start until the founder has approved the contract itself, not merely the spec. Bring them: the two layers, the full operation list, `docs/contracts/coverage.md`, and the four promises enforced by schema shape. Then wait.
 
 ---
 
