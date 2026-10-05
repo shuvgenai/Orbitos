@@ -106,8 +106,12 @@ test('N5: comments that mention the send are ignored, code that calls it is not'
   expect(surface('/* c */ gmail.sendInThread(a);')).toBe(true);
 });
 
-test('N5: the scan reaches the directories the old hand-written list missed', () => {
+// The old list was every package's `src` directory, so two kinds of file were invisible to it: one in a top-level
+// directory that is not a package, and one at a package's root. Both are probed here, and both are tracked in git.
+// landing/src is deliberately not probed: .gitignore excludes landing/, so the directory is absent in a clean
+// checkout. Asserting on it failed CI while passing in a working tree that happened to hold the untracked files.
+test('N5: the scan reaches the files the old hand-written list missed', () => {
   const files = SCAN_ROOTS.flatMap(sourceFiles).map((f) => f.replaceAll('\\', '/'));
-  expect(files.some((f) => f.startsWith('landing/src/'))).toBe(true);
   expect(files.some((f) => f.startsWith('scripts/'))).toBe(true);
+  expect(files.some((f) => f.startsWith('db/') && !f.startsWith('db/src/'))).toBe(true);
 });
