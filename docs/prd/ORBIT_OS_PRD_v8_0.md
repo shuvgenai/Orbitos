@@ -740,24 +740,49 @@ The riskiest part is the core engine: understanding plain English safely. That i
 
 ## Open decisions
 
-Twelve decisions need your answer; numbers 1, 2 and 6 change the most. Connector decisions are listed in section 13.
+Twelve decisions were raised. **Four are now settled and are recorded below the table on 2026-10-05.** Numbers 1, 6 and 7 are answered; number 2 is open-pending and blocks build. Connector decisions are listed in section 13.
 
-| # | Decision | Why it matters | My suggestion |
-| --- | --- | --- | --- |
-| 1 | Customer-facing name. Orbitcrew was tied to lead replies. | The name sets what customers expect. | Pick a name that says "AI office for your organization". Keep ORBIT-OS as the internal name. |
-| 2 | Standing Authority: may an AI teammate decide inside limits a Leader sets? v6.2 said AI can never approve. | Your example job "approve expenses under $500" needs it. | Yes, with code-enforced limits, an end date, instant switch-off on any breach, and the never-covers list in section 12. |
-| 3 | Can customers describe their own AI teammate roles, or only hire ready-made ones? | Custom roles widen what the system must make safe. | Ready-made roles only at launch; the Super Admin adds roles after review. |
-| 4 | Face ID or Touch ID. v6.2 declined passkeys. | Same technology family. | Allow it only as a confirm step on a signed-in phone, not as a way to sign in. |
-| 5 | Home Screen widget. A plain web app cannot make one. | Needs a native shell. | Ship push and lock-screen actions in the web app; add a native shell only if customers ask. |
-| 6 | Release date. One release with everything is much larger than the 8-week plan. | The November 2026 launch no longer fits. | Set the date after the engine spike passes and the streams are sized. |
-| 7 | Do you still want OrbitumAI itself as the test office before the full release? | Without it you meet real tasks only after everything is built. | Yes, as an internal checkpoint, with real jobs in at least three departments. |
-| 8 | WhatsApp and voice: ship together, or when Meta and the voice vendor are ready? | Outside approvals can delay the whole release. | Ship each behind a switch as soon as approved. |
-| 9 | Price and setup fee. | The unit-economics sheet needs it before the first quote. | Decide after measuring server size and AI cost on the test office. |
-| 10 | Which email system and chat tools does intake support first? | Each is a separate adapter. | Gmail and Slack first, then Outlook and Teams. |
-| 11 | How much text may go to an AI in one call? | Cost and privacy. | Start at 8,000 characters and tune from the test office. |
-| 12 | Customers not on Google Workspace. | Cannot use the internal sign-in shortcut. | Add an email-protocol path, or plan a verified Google app. |
+| # | Decision | Why it matters | My suggestion | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Customer-facing name. Orbitcrew was tied to lead replies. | The name sets what customers expect. | Pick a name that says "AI office for your organization". Keep ORBIT-OS as the internal name. | **CLOSED 2026-10-05: Orbitcrew.** ORBIT-OS stays the internal name. |
+| 2 | Standing Authority: may an AI teammate decide inside limits a Leader sets? v6.2 said AI can never approve. | Your example job "approve expenses under $500" needs it. | Yes, with code-enforced limits, an end date, instant switch-off on any breach, and the never-covers list in section 12. | **OPEN-PENDING.** Not answered. **Section 12's rules are not approved for build.** |
+| 3 | Can customers describe their own AI teammate roles, or only hire ready-made ones? | Custom roles widen what the system must make safe. | Ready-made roles only at launch; the Super Admin adds roles after review. | Open |
+| 4 | Face ID or Touch ID. v6.2 declined passkeys. | Same technology family. | Allow it only as a confirm step on a signed-in phone, not as a way to sign in. | Open |
+| 5 | Home Screen widget. A plain web app cannot make one. | Needs a native shell. | Ship push and lock-screen actions in the web app; add a native shell only if customers ask. | Open |
+| 6 | Release date. One release with everything is much larger than the 8-week plan. | An earlier plan named November 2026, which no longer fits and is withdrawn. | Set the date after the engine spike passes and the streams are sized. | **CLOSED 2026-10-05: no November 2026 date.** The date is set after the engine spike passes. |
+| 7 | Do you still want OrbitumAI itself as the test office before the full release? | Without it you meet real tasks only after everything is built. | Yes, as an internal checkpoint, with real jobs in at least three departments. | **CLOSED 2026-10-05: approved in principle, with the dependency below.** |
+| 8 | WhatsApp and voice: ship together, or when Meta and the voice vendor are ready? | Outside approvals can delay the whole release. | Ship each behind a switch as soon as approved. | Open |
+| 9 | Price and setup fee. | The unit-economics sheet needs it before the first quote. | Decide after measuring server size and AI cost on the test office. | Open |
+| 10 | Which email system and chat tools does intake support first? | Each is a separate adapter. | Gmail and Slack first, then Outlook and Teams. | Open |
+| 11 | How much text may go to an AI in one call? | Cost and privacy. | Start at 8,000 characters and tune from the test office. | Open |
+| 12 | Customers not on Google Workspace. | Cannot use the internal sign-in shortcut. | Add an email-protocol path, or plan a verified Google app. | Open |
 
 Still open from earlier versions: the 30-day idle window before an unused office is shut down, whether a declined request also gets a short receipt (suggest yes), and the final wording of the customer data promise.
+
+### Decisions settled on 2026-10-05
+
+Recorded here so no later reader has to reconcile this section against another document. The running log is `docs/decisions.md`.
+
+**1. Customer-facing name: Orbitcrew.** Closed and answered. ORBIT-OS remains the internal name. Customers never see Paperclip, Hermes, OpenClaw or MCP; runtime ids and adapter names appear only in the Super Admin Office view.
+
+**2. Standing Authority: open-pending, and it blocks build.** The founder has not answered. Until they do:
+
+- **Section 12's rules are not approved for build.** No enforcement is designed or written.
+- The contract exposes a read-only surface only: `listGrants`, with no create, no revoke and no check.
+- The screens exist behind a feature flag that defaults to off, and are read-only.
+- A one-page decision goes to the founder before any engine work on it begins.
+
+This reverses nothing yet. v6.2's rule that an AI may never approve still stands until the founder says otherwise.
+
+**6. Release date: there is no November 2026 launch.** That date is withdrawn. The date is set after the engine spike passes and the five streams are sized, and checkpoints are gates rather than dates. Two documents still carry the old date and are not corrected here: `docs/prd/ORBIT_OS_PRD_v7_0.md` line 531, which is a superseded revision and stays as the historical record, and `ORBIT-OS_Vision_Document_v2_1.md` lines 232 to 233, whose roadmap chart shows 2026-10 to 2026-12. The Vision document is already queued for rewrite in `TODOS.md` and must not be shared until that rewrite lands.
+
+**7. OrbitumAI as the test office: approved in principle, with a hard dependency.** It runs on a **dedicated test mailbox and test accounts** until all three of these exist and pass their tests:
+
+1. the Action Gateway,
+2. the audit log,
+3. budget pausing.
+
+No live inbox, real mailbox or real customer data in any environment before then. When all three are met the founder is told, and **the founder decides** when real data is used, not the code. Tracked as the real-data gate in `docs/decisions.md` and enforced by `guards/standing-rules.test.ts`.
 
 ## Appendix: feature register and sources
 
@@ -776,6 +801,18 @@ The release holds 106 role features (34 User, 42 Org Admin, 30 Super Admin), plu
 - **Org Admin dashboard:** add Jobs, Departments and org chart, AI teammates, Standing Authority and Connections.
 - **Super Admin dashboard:** keep the fleet table, and add the job quality scoreboard, the Standing Authority watch and the connector catalog.
 - **Claude Code prompt:** rebuild around the task engine and Action Gateway instead of the Front Desk and lead classifier.
+
+**Where each of those four is scheduled** (added 2026-10-05, so a later reader does not have to ask whether they were forgotten). All four are owned by `docs/superpowers/plans/2026-10-05-v8-seam-and-contract.md` and its successors:
+
+| Deliverable | Scheduled as |
+| --- | --- |
+| Claude Code prompt rebuilt around the task engine and Action Gateway | **Task 11** of the sub-project 0 plan: prompt 0 is rewritten to demand screen-by-screen evidence, prompt 7's contract work moves to `docs/contracts/`, and prompts 5b and 5c are added |
+| User dashboard: Waiting for you, task board, "Ask or describe a job", job summary check | **Prompt 5b**, built in sub-project 2 |
+| Org Admin dashboard: Jobs, departments and org chart, AI teammates, Connections | Org chart, teammates and Connections in **prompts 2 and 3** (sub-project 1); Jobs in **prompt 5b** (sub-project 2) |
+| Org Admin and Super Admin: Standing Authority grants and watch | **Prompt 5c**, feature-flagged off, read-only, UI only. Blocked from enforcement by open decision 2 |
+| Super Admin: job quality scoreboard, connector catalog | **Prompt 5b**, built in sub-project 2 |
+
+One correction to this appendix's own wording, recorded rather than silently fixed: it says the three dashboards "describe the lead-reply product". That is only partly true. The prototype at `reference/orbit-os-frontend/` already carries departments, people, access and authority, a strict-tree org chart, nine agent templates, a ten-tool catalog, request-and-approve and a fleet console, all of which v8.0 keeps. What it lacks is the v8.0 core: the plain-English job box, the seven-line summary check, the task board, the Jobs screen, the job quality scoreboard and the connector catalog. Prompt 0 produces the gap list screen by screen with file evidence rather than relying on any summary judgment, including this one.
 
 **Sources.** Market figures and competitor facts were gathered on October 2, 2026 and are analyst or vendor claims, not audited numbers.
 
