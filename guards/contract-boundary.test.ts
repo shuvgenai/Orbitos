@@ -84,6 +84,7 @@ put('dashboards/src/screens/Jsx.jsx', "import { x } from '@orbit/contract/experi
 put('dashboards/dist/built.js', "import { x } from '@orbit/contract/experimental';");
 put('dashboards/vite.config.ts', 'export default {};');
 put('dashboards/lib/helper.ts', 'export {};');
+put('dashboards/stray.ts', 'export {};');
 
 test('the boundary rule catches a package import, a relative path, and every script extension', () => {
   expect(boundaryBreaches(PROBE).sort()).toEqual([
@@ -102,5 +103,5 @@ test('the boundary rule allows the engine folder, the stable layer, and ignores 
 });
 
 test('the tripwire flags source outside src and lets a root config through', () => {
-  expect(strayDashboardSources(PROBE)).toEqual(['dashboards/lib/helper.ts']);
+  expect(strayDashboardSources(PROBE)).toEqual(['dashboards/lib/helper.ts', 'dashboards/stray.ts']);
 });

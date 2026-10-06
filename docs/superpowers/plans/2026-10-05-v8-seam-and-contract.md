@@ -2546,23 +2546,24 @@ them are the same defect copied: the skip list matching a directory name at any
 depth, `startsWith` on the allow-list also exempting a `.bak` sibling, a silent
 catch that hides every error rather than only a missing directory, a root path that
 stays percent-encoded, and a working-tree walk where `git ls-files` is correct. Fix
-them once, in the helper. **Six of the seven minors close here:**
+them once, in the helper. **Five of the seven minors close here, one stays deferred and one is closed by the paths guard, not the helper (see Addendum 5, fix round 1):**
 
 | Minor | Fix in the helper |
 |---|---|
 | 1 Case sensitivity | `existsExact()` compares against a directory listing, which is case-sensitive on Windows too, so a wrong-case path fails here exactly as it would in CI |
 | 2 Skip list matches at any depth | `skipAtRoot` matches only at the top of the walk, so a nested `docs/reference/` is scanned |
 | 3 `startsWith` exempts `.bak` siblings | callers exact-match file entries and prefix-match directory entries |
-| 4 Silent catch hides every error | only `ENOENT` is tolerated; `EACCES` and a broken link throw |
+| 4 Silent catch hides every error | only `ENOENT` is tolerated; `EACCES` and `ENOTDIR` throw. A broken symlink does not: it is skipped, as is a symlinked file |
 | 5 `URL.pathname` stays percent-encoded | `fileURLToPath` |
-| 7 Working-tree walk | `trackedFiles()` over `git ls-files -z` |
+| 7 Working-tree walk | `trackedFiles()` over `git ls-files -z`. Open until fix round 1: nothing used it. `paths.test.ts` test 2 now does |
 
 Minor 6, the extension list, stays deferred. The helper takes `extensions` from its
 caller, so widening it later is a one-line change at each call site.
 
-The helper memoizes each distinct walk once per test run, which also answers the
-performance finding: seven guards each walking the whole tree grows with 52 screens
-and their components.
+The helper memoizes repeated identical walks within one test file. It does not
+answer the cross-guard performance finding: vitest isolates modules per test file,
+so each guard file has its own cache and the walks are not shared. That finding
+is still open (see Addendum 5, fix round 1).
 
 **Second, write the Appendix A guards.** PRD Appendix A says the fixed lists "may
 not be restated anywhere else" and that changing one is a PRD change with a version
@@ -3321,3 +3322,46 @@ drill passed when it should have failed. It is now anchored to a line start and
 required to end on whitespace, with two assertions pinning it: `prdSection('A')`
 and `prdSection('A.')` must both throw, because before the fix `'### A'` matched
 `'### A.1'`.
+
+### Addendum 5, fix round 1 (2026-10-06): corrections to the record
+
+A review of Task 13 found two Critical, nine Important and four Minor findings,
+and six tests that passed with the thing they guard damaged. The founder signed
+off every decision. The changes are in `guards/lib/walk.ts`, `guards/lib/walk.test.ts`,
+`guards/paths.test.ts`, `guards/appendix-a.test.ts` and
+`guards/contract-boundary.test.ts`. Where the Task 13 code blocks above differ from
+those files, the files are authoritative.
+
+**Two claims in the record were false and are corrected here.** Commit `445e5a3`
+cannot be amended, so the correction lives in this plan.
+
+1. **Claimed: Task 1 minor 7 is closed.** The commit message and the table above
+   said so. **True:** `trackedFiles()` existed and no guard called it, so the
+   working-tree walk problem was still present in every guard. It is now closed
+   for real, in one place. `paths.test.ts` test 2 (nothing an executor follows
+   names the old path) reads `trackedFiles()`, because a stale path only matters
+   in a committed file. Test 1 (the husk holds no files) still walks the working
+   tree on purpose, because an untracked second copy of the prototype is exactly
+   what it must catch. A comment in the file says why, so nobody makes it match test 2.
+2. **Claimed: the memoization answers the cross-guard performance finding.** The
+   commit message and the paragraph above said so. **True:** vitest isolates
+   modules per test file, so each guard file gets its own cache. The cache dedupes
+   repeated calls inside one test file and nothing more. The claim is withdrawn
+   and the performance finding is **not** answered. It stays open: it costs
+   nothing today and should be revisited when the screen count grows.
+
+**What else changed.** The cache key is built with `JSON.stringify`, so
+`undefined` (every file) and `[]` (none) no longer share an entry. Walk results are
+frozen and typed `readonly`. A walk from another root returns a `RootedPath` that
+does not typecheck as input to `readRepoFile`. `dir` is normalised and an absolute
+`dir` works. `skipAnywhere` adds to the defaults instead of replacing them.
+`existsExact` rethrows anything that is not `ENOENT`. The comments no longer say a
+broken link throws (it is skipped, and so is a symlinked file, which is a known
+and untested limitation) or that case handling is identical on every platform (it
+checks the case on disk, not the case git has indexed). The boundary guard matches
+a relative path into `contract/src/experimental` as well as the package name,
+scans every script extension, and has a tripwire for dashboards source outside
+`src`. The test that the stable layer is reachable from the dashboards was deleted,
+because a comment mention satisfied it. The appendix guard states at the top that
+it detects PRD edits and not restatement drift, and names the constant to update
+when the PRD version moves. The deferred list exists once.
