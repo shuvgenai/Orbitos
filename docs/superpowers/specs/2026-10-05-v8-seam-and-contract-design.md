@@ -562,29 +562,48 @@ teammate, category, numeric limit, end date, the fixed never-covers list — but
 the contract exposes `listGrants` only and the screens are flagged off and
 read-only. v6.2's rule that an AI may never approve still stands.
 
-### 16.1 Screen inventory: the difference I am reporting rather than resolving
 
-PRD §15.5 to §15.7 list **52 screens**: User 14, Org Admin 21, Super Admin 17.
-Per Appendix C item 9, these differences go to the founder before building.
+### 16.1 Screens: resolved, and what it does to Stream A
 
-**In the PRD, not in my plan.** Most of the 52. My prompts covered the
-prototype's fourteen screens plus seven v8.0 gap screens plus two Standing
-Authority screens. The PRD's inventory is roughly twice that, and the growth is
-not evenly spread: the Super Admin console goes from the prototype's three
-screens to seventeen, and the Org Admin from six to twenty-one. Sub-project 1 was
-sized against the prototype, so **its size estimate is now wrong** and needs
-re-sizing before it starts.
+The screen question is settled by PRD §15.8, added 2026-10-06. **No screen is
+cut.** All 52 ship as shells in Stream A — route, nav entry, correct title, the
+six §15.4 states, design tokens from the frozen `design/` package, S-43 green, and
+an empty state that says what will fill it and when. Twenty-six then get working
+logic; the other twenty-six are Fill later with a recorded unblocker each.
 
-**In my plan and the prototype, not in the PRD.** Two screens:
+The two prototype screens with no feature ID are resolved: the Agent map folds
+into the `/teammates` list with no new screen and no new ID, and the Performance
+table becomes **A-45**, a per-teammate tab on `/results`, Fill later. The register
+moves to Org Admin 45 and 111 in total; the screen count stays 52.
 
-- The prototype's **Agent map** (`#/map`), the person-picker view with curved
-  SVG connectors. The nearest PRD screen is `/org/chart` (A-03), which is a
-  reporting-lines editor, not a per-person activity map.
-- The prototype's **Performance** table (`#/performance`), the sortable table
-  with sparklines and a needs-attention rule. The nearest PRD screens are
-  `/results` (A-52) and the Super Admin `/quality` (S-33), neither of which is a
-  per-teammate performance table on the Org Admin side.
+#### Re-sizing Stream A
 
-Both were in the v7.0-era prototype and neither maps to a v9.0 feature ID. They
-are either dropped, folded into `/org/chart` and `/results`, or added to the
-inventory as new features. **Founder's call.** I have not resolved it.
+The old sizing was wrong because it counted the prototype's fourteen screens. The
+honest split is shells for 52 and logic for 26, and it changes the shape of the
+stream more than its length.
+
+| Sub-project | Contents | Size |
+|---|---|---|
+| **1a Foundation and shells** | Tokens from `design/`, Tailwind theme, AppShell and nav for three apps, the six §15.4 states as one component, all **52 shells**, S-43 green on every route | M, about 1.5 weeks |
+| **1b Fill-now logic, prototype-derived** | The 15 Fill-now screens that have a prototype behaviour spec: Sign in, Home, Ask or describe, Task board, Receipts, Guided setup, Departments, People, AI teammates, Teammate profile, Requests, Connections, Fleet table, Office view, Provision | L, about 2 weeks |
+| **1c Fill-now logic, PRD-only** | The 12 with no prototype counterpart, designed from their feature IDs: Job summary check, Practice run, Task page, Waiting for you, Approval page, Jobs library, Job detail, Spending, Intake channels, Office controls, Security, and Request a teammate once it moves | L, about 2.5 weeks |
+
+**About 6 weeks for Stream A**, against 3 to 4 in the original sizing of
+sub-project 1 alone.
+
+**But the stream does not get longer.** The original decomposition had
+sub-project 1 at 3 to 4 weeks plus sub-project 2 at 2 weeks, so 5 to 6 weeks for
+the same ground. Sub-projects **2 and 5 are absorbed**: the v8.0 gap screens and
+the Standing Authority screens are both inside the 52, with `/authority` shipping
+as a shell that is flagged off and read-only. So the decomposition loses two
+sub-projects and gains one, and Stream A's total moves from 5-6 weeks to about 6.
+
+What actually changed is honesty, not scope. The earlier estimate covered
+fourteen screens and called itself the dashboards. This one covers all 52 and
+delivers a navigable product in the first two weeks rather than at the end.
+
+**One shell count to watch.** 52 shells is only cheap if the shell is one
+component. If each screen hand-rolls its own empty, loading, error, paused, not
+yours and expired states, the shell work alone is larger than the logic work.
+Sub-project 1a builds the six states once, and S-43 plus the a11y check run on
+every route from the first week, which is what keeps that true.

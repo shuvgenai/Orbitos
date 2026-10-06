@@ -224,3 +224,86 @@ docs/backlog.md with the nearest PRD screens named.
 screens and the inventory rather than resolving it.
 
 **Cost if wrong:** nothing yet. Neither screen is built.
+
+## 2026-10-06 - The title rule governs dashboards, not the prototype
+
+**Decision:** PRD v9.0 section 15.3 is amended. The customer title rule governs
+the three entry files Stream A creates under dashboards/: the User and Org Admin
+titles say Orbitcrew, and the fleet title keeps ORBIT-OS under the section 15.3
+exemption. It does not apply to reference/orbit-os-frontend/, which stays
+read-only. S-43 enforces the dashboards titles and excludes reference/.
+
+**Reason:** the earlier wording asked for the three prototype entry files to be
+corrected. The prototype is the behaviour and copy spec and it is read-only.
+Editing it would make the spec disagree with the artifact it documents, and
+nobody ships its titles.
+
+**Cost if wrong:** the prototype keeps a title that never reaches a customer.
+
+## 2026-10-06 - No screen is cut: 52 shells, 26 filled
+
+**Decision:** PRD section 15.8 is added. All 52 screens in sections 15.5 to 15.7
+ship as shells in Stream A, each with its route, nav entry, correct title, all six
+section 15.4 states, design tokens from the frozen design package, and S-43 green.
+A shell says plainly what will fill it and when. Twenty-six then get working logic
+in Stream A; the other twenty-six are Fill later, each with its unblocker recorded
+in section 15.8: open decision 2, CD-1 to CD-5, open decisions 3, 5 and 9, the
+test office producing real numbers, the second customer, or the task engine.
+
+**Reason:** the screen inventories name 52 screens where sub-project 1 was sized
+against the prototype's fourteen. Cutting screens would hide the gap; shipping
+shells makes the shape of the product visible and navigable while the logic
+lands behind it, and makes the design and naming check meaningful on every route
+from the first week.
+
+**Cost if wrong:** twenty-six shells that sit empty longer than expected. Each is
+cheap, and each states its own condition, so an empty one is informative rather
+than broken.
+
+## 2026-10-06 - Six Fill later screens have data that ships at launch
+
+**Decision:** where a Fill later screen's data is load-bearing, the data ships and
+only the screen waits. Six cases, listed in section 15.8: the audit log (gate
+condition 2); the per-teammate data boundary, which ships defaulting closed; the
+office-change routing that A-14 depends on; the nightly numbers rollup that the
+fleet table reads; the job-understanding test set, which is Checkpoint B; and
+backup status and incident counts, already columns on the fleet table.
+
+**Reason:** the founder named the audit log. Five more have the same shape: a
+Fill-now screen or a gate depends on data whose own screen is deferred. A deferred
+screen is a choice; deferred data behind a gate is a defect.
+
+**Cost if wrong:** data recorded that nothing reads yet, which is the cheap
+direction to be wrong in.
+
+## 2026-10-06 - The two orphan screens are resolved
+
+**Decision:** the prototype's Agent map is folded into the /teammates list as
+columns, with no new screen and no new feature ID, because it was a second view of
+data that list already holds. The prototype's Performance table becomes A-45, a
+per-teammate tab on /results, marked Fill later. The feature register moves to Org
+Admin 45 and 111 in total. The screen count stays at 52, because A-45 is a tab.
+
+**Reason:** both were v7.0-era prototype screens with no counterpart in v9.0. One
+was duplication, one was a real missing feature.
+
+**Cost if wrong:** a teammates list that carries more columns than it needs.
+
+## 2026-10-06 - Sub-project 1 is re-sized, and sub-projects 2 and 5 are absorbed
+
+**Decision:** sub-project 1 splits into 1a foundation and all 52 shells, about 1.5
+weeks; 1b the 15 Fill-now screens that have a prototype behaviour spec, about 2
+weeks; and 1c the 12 Fill-now screens with no prototype counterpart, about 2.5
+weeks. Sub-projects 2 and 5 are absorbed: the v8.0 gap screens and the Standing
+Authority screens are both inside the 52, with /authority shipping as a shell that
+is flagged off and read-only. Prompts 5b and 5c are retired.
+
+**Reason:** the old sizing counted the prototype's fourteen screens and called
+that the dashboards. Section 15.8 names 52. Against the original sub-project 1
+plus sub-project 2, which was 5 to 6 weeks for the same ground, Stream A is now
+about 6 weeks, so the work did not grow. The estimate got honest.
+
+**Cost if wrong:** 52 shells is only cheap if the shell is one component. If each
+screen hand-rolls its own six states, the shell work alone exceeds the logic work.
+Sub-project 1a builds the six states once, and S-43 and the accessibility check
+run on every route from the first week, which is what keeps that from happening.

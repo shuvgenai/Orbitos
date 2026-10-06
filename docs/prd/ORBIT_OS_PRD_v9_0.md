@@ -374,6 +374,7 @@ The Org Admin builds the organization inside the product, hires and assigns AI t
 | A-42 | Change limits | Raise or lower limits; raising needs the Budget holder. | Kept |
 | A-43 | Plan and invoices | See your plan, upgrade it, download invoices. | Kept |
 | A-44 | Cost per job and task | What each job and each task cost. | Kept |
+| **A-45** | **Teammate performance** | A per-teammate tab on Results: runs over 7 days with a trend, success rate, average time, how often people edited the work, cost over 7 days and cost per run, sortable, with a needs-attention mark below 90% success or at or above 40% edited. Row opens the teammate profile. | **New v9, added 2026-10-06** |
 
 **Connections and data**
 
@@ -387,7 +388,7 @@ The Org Admin builds the organization inside the product, hires and assigns AI t
 | A-55 | Optional training data | Share redacted examples to improve the product. Off unless you agree. | Kept |
 | A-56 | Connections belong to the business | If the person who connected a tool leaves, the connection stays and is reassigned. | Kept |
 
-**Org Admin total: 44 features.**
+**Org Admin total: 45 features.**
 
 ---
 
@@ -719,7 +720,17 @@ Expired data is removed automatically each night from settings, not from code. C
 | Super Admin fleet console | **Exempt.** It is an internal operator surface, not a customer screen. ORBIT-OS, Paperclip, Hermes, runtime ids and adapter names are correct there. |
 | Emails and push alerts to customers | Customer rule applies, and they carry no private details. |
 
-**Immediate correction required.** The three prototype entry files violate the customer rule in their title: `ORBIT-OS · User` and `ORBIT-OS · Org Admin` must change. `ORBIT-OS Fleet · Super Admin` may stay under the exemption above.
+**Where the title rule applies.** Amended 2026-10-06. It governs the entry files Stream A creates under `dashboards/`:
+
+| Entry | Title |
+| --- | --- |
+| `dashboards/user/index.html` | says **Orbitcrew**, never ORBIT-OS |
+| `dashboards/org-admin/index.html` | says **Orbitcrew**, never ORBIT-OS |
+| `dashboards/fleet/index.html` | keeps **ORBIT-OS**, under the exemption above |
+
+It does **not** apply to `reference/orbit-os-frontend/`. The earlier wording asked for the three prototype entry files to be corrected, which was wrong on reflection: the prototype is the behaviour and copy spec, it is read-only, and editing it would make the spec disagree with the artifact it documents. Its titles stay as they are, and nobody ships them.
+
+Enforced by S-43, which scans the customer surfaces and the three `dashboards/` entry titles, and excludes `reference/`.
 
 ### 15.4 Shared screen states
 
@@ -763,7 +774,7 @@ The Org Admin reaches every User screen plus these.
 | 2 | Departments and teams | `/org/departments` | Departments, teams, default Approver and escalation path each | A-02 |
 | 3 | Org chart | `/org/chart` | People and AI teammates, reporting lines, drag to change. Indented list below 768 px | A-03 |
 | 4 | People | `/org/people` | Invite, access role, authorities, backups, delegation, empty-Leader fallback | A-04 to A-08 |
-| 5 | AI teammates | `/teammates` | The hired team, status, budget, assignment, hire from the fixed role list | A-10, A-12 |
+| 5 | AI teammates | `/teammates` | The hired team as a plain list: status, what each is doing right now, who it reports to, owner, budget, assignment, cost today. Hire from the fixed role list. Filter by person. **This list carries what the prototype drew as a separate Agent map; there is no map screen and no new feature ID** | A-10, A-12, A-15 |
 | 6 | Teammate profile | `/teammates/:id` | Role, prompt, guardrails, tools action by action, limits, assignment, jobs, cost, full record | A-11, A-13, A-15 |
 | 7 | Requests | `/requests` | One queue: teammate requests, job approvals, delegation and role requests, custom connector status | **A-14**, A-21, A-07, C-07 |
 | 8 | Jobs library | `/jobs` | Every job in plain English with status, owner, department, last run, cost. Pause one job | A-20, A-31 |
@@ -776,7 +787,7 @@ The Org Admin reaches every User screen plus these.
 | 15 | Plan and invoices | `/spending/plan` | Plan, upgrade, invoices | A-43 |
 | 16 | Connections | `/connections` | Every connector, catalog, add, permission review, pause or remove, reconnect, activity, per-connector limits | A-50, A-39, C-01 to C-11 |
 | 17 | Intake channels | `/connections/intake` | Which inboxes, chats, forms and schedules may create tasks | A-51 |
-| 18 | Results | `/results` | Tasks done, hours given back, override rate, cost per job | A-52 |
+| 18 | Results | `/results` | Two tabs. Office: tasks done, hours given back, override rate, cost per job. Teammates: the per-teammate performance table | A-52, **A-45** |
 | 19 | Privacy | `/privacy` | What the AI saw and where it went | A-53 |
 | 20 | Data | `/data` | Export, delete the office, optional training data | A-54, A-55 |
 | 21 | Office controls | `/settings/office` | Pause the whole office, connections belong to the business | A-30, A-56 |
@@ -806,6 +817,72 @@ Internal operator surface. Counts and status only, never customer content. Namin
 | 17 | Build checks | `/checks` | Design and naming check results per screen | **S-43** |
 
 ---
+
+### 15.8 Build order
+
+**Added 2026-10-06.** The inventories above name 52 screens where the earlier plan was sized against the prototype's fourteen. **No screen is cut.**
+
+**Every one of the 52 ships as a shell in Stream A.** A shell has its route, its nav entry, the correct title per §15.3, all six §15.4 states, design tokens from the frozen `design/` package, and S-43 green. A shell says plainly what will fill it and when, in the §15.4 empty-state pattern: what appears here, and the one action or condition that fills it. A shell is not a placeholder; it is a finished screen with no data yet.
+
+Each screen is then marked **Fill now** (working logic in Stream A) or **Fill later**.
+
+**Fill now: 26.**
+
+| Role | Screens |
+| --- | --- |
+| User, 10 | Sign in, Home, Ask or describe, Job summary check, Practice run, Task board, Task page, Waiting for you, Approval page, Receipts |
+| Org Admin, 12 | Guided setup, Departments and teams, People, AI teammates, Teammate profile, Requests, Jobs library, Job detail, Spending, Connections, Intake channels, Office controls |
+| Super Admin, 4 | Fleet table, Office view, Provision, Security |
+
+**Fill later: 26**, each with what unblocks it.
+
+| Screen | Route | Unblocked by |
+| --- | --- | --- |
+| Weekly reviews | `/reviews` | the test office producing real numbers. A Friday review needs a week of real tasks |
+| Chat with Orbi | `/chat` | the task engine, Stream B. Orbi answering from data needs the engine |
+| Request a teammate | `/teammates/request` | **nothing. See the flag below: this one is mis-assigned** |
+| Profile and alerts | `/me` | no external dependency. Push and lock-screen actions need open decision 5 |
+| Org chart | `/org/chart` | **no external dependency. See the flag below: borderline** |
+| Standing Authority | `/authority` | **open decision 2** |
+| Rules and safety | `/rules` | the test office producing real numbers. A-33 proposes a rule after repeated overrides, so it needs overrides to exist |
+| Data boundaries | `/rules/data` | no external dependency. **Data ships at launch, defaulting closed** |
+| Activity log | `/activity` | no external dependency. **Data ships at launch: it is gate condition 2** |
+| Plan and invoices | `/spending/plan` | **open decision 9**, and the second customer |
+| Results | `/results` | the test office producing real numbers |
+| Privacy | `/privacy` | **CD-1 and CD-4.** The page lists every connector that can see data, so the connector set must settle first |
+| Data | `/data` | the second customer. Export and delete matter when an outside firm asks |
+| Upgrades | `/upgrades` | the second customer. One office upgrades by hand |
+| Backups | `/backups` | the second customer. **Backup status data ships at launch** |
+| Shutdown | `/fleet/:id/shutdown` | the second customer |
+| Alerts and incidents | `/incidents` | the second customer. **Incident data ships at launch** |
+| View as customer | `/fleet/:id/view` | the second customer |
+| Money | `/money` | the test office producing real numbers, and open decision 9 |
+| Quality | `/quality` | the test office producing real numbers. **The S-40 test set ships at launch: it is Checkpoint B** |
+| Role library | `/library` | **open decision 3.** Appendix A.1 is fixed until a version bump, so there is nothing to manage yet |
+| Skills review | `/skills` | the task engine proposing a skill at all, Stream B |
+| Connector catalog | `/connectors` | **CD-1 to CD-5** |
+| Custom connector queue | `/connectors/review` | **CD-1**, which is disabled by default |
+| Nightly numbers | `/numbers` | the second customer. **The rollup data ships at launch** |
+| Build checks | `/checks` | no external dependency. The S-43 check itself ships now in CI; only its console view waits |
+
+#### Fill later screens whose data must ship at launch
+
+The founder named the audit log. There are six in total. In each case the data is load-bearing for something that is Fill now, or for a gate, so the data ships and only the screen waits.
+
+| # | Data | Why it cannot wait |
+| --- | --- | --- |
+| 1 | **Audit log** (A-35) | Gate condition 2 of the real-data gate. The gate cannot open without it, and the gate blocks every real-data decision |
+| 2 | **Data boundary per teammate** (A-38) | §14.2 makes it an isolation control: a teammate sees only the departments allowed. Teammates are created and assigned in Stream A, so the field must exist and **default closed**. A boundary with no screen is safe; a boundary with no data is not |
+| 3 | **Office-change routing** (A-34) | A-14, the teammate request queue, is Fill now and §9 says a costly hire follows the office-change rule. The routing has to resolve even with the Rules screen absent |
+| 4 | **Nightly numbers rollup** (S-38) | The fleet table is Fill now and every column it shows comes from the rollup. Without it the first screen an operator opens is empty |
+| 5 | **Job-understanding test set** (S-40) | It is Checkpoint B, which gates the org, connector and fleet work in Stream B. A gate with no test set is not a gate |
+| 6 | **Backup status and incident counts** (S-07, S-21) | Both are already columns on the Fill-now fleet table, so the records exist whether or not their own screens do |
+
+#### Two screens flagged as mis-assigned
+
+**Request a teammate (`/teammates/request`, U-19) should be Fill now.** Its only consumer, the Org Admin Requests queue (A-14), is already Fill now, and U-19 is the only thing that puts a teammate request into that queue. As marked, A-14 ships a queue that can only ever be empty, and the pair U-19 plus A-14 is one of the three scope changes v9.0 added. Moving it makes Fill now 27 and Fill later 25. **Recommended.**
+
+**Org chart (`/org/chart`, A-03) is borderline.** The strict-tree rules — exactly one Coordinator, one manager each, no loops — ship in `contract/v1` and are enforced during Guided setup, which is Fill now. But §7.3 puts people and AI teammates on one chart, and with no chart screen there is no way to see or repair a tree that a validator has refused. It is survivable, because Departments, People and Teammate profile are all Fill now and between them cover every edit. Founder's call; I am not moving it.
 
 ## 16. Non-functional requirements
 
@@ -1008,9 +1085,11 @@ Expired · Already decided · Request changed · Sending or failed · Office pau
 | Role | Features | Change from v8.0 |
 | --- | --- | --- |
 | User | 35 | +1 (U-19) |
-| Org Admin | 44 | +2 (A-14, A-15) |
+| Org Admin | 45 | +3 (A-14, A-15, A-45) |
 | Super Admin | 31 | +1 (S-43) |
-| **All roles** | **110** | **+4** |
+| **All roles** | **111** | **+5** |
+
+A-45 was added on 2026-10-06, resolving one of the two prototype screens that had no feature ID. The other, the prototype's Agent map, is folded into the `/teammates` list in §15.6 and gets no ID, because it was a second view of data that list already holds. Screen count stays at **52**: A-45 is a tab on `/results`, not a new screen.
 
 Plus 23 engine requirements (§11) and 22 connector features and rules (§13).
 

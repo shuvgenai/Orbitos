@@ -2701,3 +2701,47 @@ to `package.json`, and add `- run: pnpm check:screens` to the CI `test` job afte
 git add guards/design-naming.test.ts package.json .github/workflows/ci.yml
 git commit -m "test(guard): add S-43, the design and naming check"
 ```
+
+### Addendum 2: build order and the Stream A re-size (2026-10-06)
+
+PRD §15.8 settles the screen question. **No screen is cut.** All 52 ship as shells
+in Stream A; 26 get working logic. Task 11 of this plan writes the build prompts
+against that split, not against prompts 5b and 5c, which are retired: their
+content is inside the 52 shells and the 26 Fill-now screens.
+
+**What Task 11 must now produce.** Prompt 0's audit still demands screen-by-screen
+evidence, but it now compares the prototype against the **§15.5 to §15.7
+inventory** rather than against a gap list I invented. For each of the 52 screens
+it records: the feature IDs it carries, whether the prototype has a counterpart
+and at which file and line, Fill now or Fill later, and for Fill later the
+unblocker from §15.8.
+
+**The shell contract**, which prompt 1 builds once and every screen then uses:
+
+| Part | Rule |
+|---|---|
+| Route and nav | present for all 52 from the first week |
+| Title | §15.3: Orbitcrew on User and Org Admin, ORBIT-OS on fleet |
+| The six states | empty, loading, error, office paused, not yours, expired or already decided — **one component, built once** (§15.4) |
+| Tokens | the frozen `design/` package only. No literal colour anywhere |
+| Empty state | says what will appear here and the one action or condition that fills it. Never an illustration |
+| Checks | S-43 and the axe check green on every route, from the first week |
+
+**Sub-project 1 splits into three.** Recorded in the spec at §16.1: 1a foundation
+and 52 shells (M, about 1.5 weeks); 1b the 15 Fill-now screens with a prototype
+behaviour spec (L, about 2 weeks); 1c the 12 with no prototype counterpart (L,
+about 2.5 weeks). Sub-projects 2 and 5 are **absorbed** — the v8.0 gap screens and
+the Standing Authority screens are both inside the 52, with `/authority` shipping
+as a shell that is flagged off and read-only.
+
+Stream A moves from 3 to 4 weeks for sub-project 1 alone, to about 6 weeks for all
+three. Against the original sub-project 1 plus sub-project 2, which was 5 to 6
+weeks for the same ground, the stream is essentially unchanged. The estimate got
+honest rather than the work getting bigger.
+
+**Six Fill later screens have data that ships at launch** (§15.8): the audit log,
+the per-teammate data boundary defaulting closed, the office-change routing A-14
+depends on, the nightly numbers rollup the fleet table reads, the
+job-understanding test set that is Checkpoint B, and backup status and incident
+counts. Each is a field or a record in the contract, not a screen, so each lands
+in Task 7 or Task 8 of this sub-project or in Stream B, never in Stream A.

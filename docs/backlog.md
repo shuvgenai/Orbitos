@@ -41,19 +41,30 @@ v8.0 prose but absent from A.2: Ramp, Xero, ADP and LinkedIn.
 Anything outside A.2 goes through the custom-connector route (C-07) once CD-1 is
 answered. CD-4 may change the catalog itself.
 
-## The prototype's Agent map and Performance screens
+## The prototype's Agent map and Performance screens - RESOLVED 2026-10-06
 
-**Open, not parked. Awaiting the founder.** Two prototype screens have no feature
-ID in PRD v9.0 section 15.6:
+Both are settled. Neither is parked.
 
-- **Agent map** (#/map): a person picker with one node per teammate and curved SVG
-  connectors coloured by status. Nearest PRD screen is /org/chart (A-03), which is
-  a reporting-lines editor rather than a per-person activity map.
-- **Performance** (#/performance): a sortable table with 7-day sparklines, a
-  success and edited-by-people percentage, and a needs-attention rule. Nearest PRD
-  screens are /results (A-52) and the Super Admin /quality (S-33), neither of
-  which is a per-teammate performance table on the Org Admin side.
+- **Agent map** (#/map) is **folded into /teammates** as columns: status, what each
+  teammate is doing right now, who it reports to, owner, cost today, and a filter
+  by person. No new screen and no new feature ID, because it was a second view of
+  data that list already holds. The curved SVG connectors are not carried over:
+  section 15.2 requires plain lists.
+- **Performance** (#/performance) becomes **A-45**, a per-teammate tab on
+  /results, marked Fill later in section 15.8. It keeps the substance: runs over 7
+  days with a trend, success rate, average time, how often people edited the work,
+  cost over 7 days and cost per run, sortable, with a needs-attention mark below
+  90% success or at or above 40% edited.
 
-They are either dropped, folded into /org/chart and /results, or added to the
-inventory as new features. Reported rather than resolved, per PRD Appendix C
-item 9.
+The feature register moves to Org Admin 45 and 111 in total. The screen count
+stays at 52, because A-45 is a tab rather than a screen.
+
+## The prototype's curved-connector org visual
+
+**Parked 2026-10-06.** The prototype drew reporting lines as curved SVG connectors
+coloured by status, with a dashed variant for idle, paused and draft. PRD section
+15.2 requires plain lists and bans card grids, so /org/chart renders reporting
+lines as an indented list, which section 15.6 already specifies below 768 px and
+which now applies at every width.
+
+**What would bring it back:** a section 15.2 change, which is a PRD version bump.
