@@ -2999,37 +2999,45 @@ const ENTRIES = [
   ['dashboards/fleet/index.html', /<title>[^<]*ORBIT-OS/],
 ] as const;
 
-test('the User and Org Admin titles say Orbitcrew, and the fleet title keeps ORBIT-OS', () => {
+// How the skip is made loud. `console.warn` does NOT work: vitest 5 swallows
+// console output from a passing test, verified by probe on 2026-10-06, so a
+// warn-based skip is exactly the silent forever-green test it was meant to
+// prevent.
+//
+// `skipIf` works, because vitest prints a skipped count in the run summary, so
+// every run says so and keeps saying so. The tripwire below is the other half:
+// skipIf gives visibility, the tripwire gives the guarantee.
+const entriesPresent = () => ENTRIES.filter(([f]) => existsExact(f));
+
+test.skipIf(entriesPresent().length === 0)(
+  'the User and Org Admin titles say Orbitcrew, and the fleet title keeps ORBIT-OS',
+  () => {
+    for (const [file, want] of entriesPresent()) {
+      expect(readRepoFile(file), file).toMatch(want);
+    }
+    // Partial is still checked: whichever entries exist are enforced now.
+    expect(entriesPresent().length).toBeGreaterThan(0);
+  },
+);
+
+test('a dashboard entry file cannot go missing once Stream A has screens', () => {
+  // The tripwire. It always runs, so the skip above can never become permanent.
+  // Before Stream A writes a screen there is nothing to require; after, every
+  // entry file must exist.
+  if (walkFilesIn(REPO_ROOT, 'dashboards/src', { extensions: ['.tsx'] }).length === 0) return;
+
   const missing = ENTRIES.filter(([f]) => !existsExact(f)).map(([f]) => f);
-
-  for (const [file, want] of ENTRIES.filter(([f]) => existsExact(f))) {
-    expect(readRepoFile(file), file).toMatch(want);
-  }
-
-  if (missing.length > 0) {
-    // Loud on purpose, on every run. A test that skips forever and passes
-    // forever is worse than no test, so the skip is visible rather than silent.
-    console.warn(
-      `[S-43] title check skipped for ${missing.length} of 3 dashboard entries that do not exist yet: ${missing.join(', ')}`,
-    );
-  }
-
-  // This is what stops the skip above from becoming permanent. Once Stream A has
-  // written any screen, the entry files must exist.
-  if (walkFiles('dashboards/src', { extensions: ['.tsx'] }).length > 0) {
-    expect(missing, 'Stream A has screens but a dashboard entry file is missing').toEqual([]);
-  }
+  expect(missing, 'Stream A has screens but these dashboard entry files are missing').toEqual([]);
 });
 
-test('the fleet console is exempt, and the exemption is on its title', () => {
-  // Scoped to the title rather than "some fleet file mentions ORBIT-OS", which a
-  // stray comment would satisfy.
-  if (!existsExact('dashboards/fleet/index.html')) {
-    console.warn('[S-43] fleet exemption check skipped: dashboards/fleet/index.html does not exist yet');
-    return;
-  }
-  expect(readRepoFile('dashboards/fleet/index.html')).toMatch(/<title>[^<]*ORBIT-OS/);
-});
+test.skipIf(!existsExact('dashboards/fleet/index.html'))(
+  'the fleet console is exempt, and the exemption is on its title',
+  () => {
+    // Scoped to the title rather than "some fleet file mentions ORBIT-OS", which
+    // a stray comment would satisfy.
+    expect(readRepoFile('dashboards/fleet/index.html')).toMatch(/<title>[^<]*ORBIT-OS/);
+  },
+);
 ```
 
 - [ ] **Step 2: Run it, add the script, prove it is not vacuous**
