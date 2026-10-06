@@ -1,11 +1,31 @@
 import { expect, test } from 'vitest';
 import { existsExact, readRepoFile } from './lib/walk.ts';
 
-// PRD v9.0 Appendix A is the single home for the product's fixed lists. Code has
-// to restate them to work, so this guard catches a restatement drifting from the
-// PRD, and catches the appendix itself being deleted.
+// PRD v9.0 Appendix A is the single home for the product's fixed lists.
+//
+// WHAT THIS GUARD DOES TODAY, plainly. It compares the PRD against string
+// literals typed in this file. So it detects an EDIT to the PRD: a state
+// renamed, a role dropped, a whole appendix section deleted. It does NOT detect
+// restatement drift, which is what the file name suggests, because no code
+// restates these lists yet. The comparison against code is deferred to Task 8
+// and is listed in DUE_WHEN_CONTRACT_EXISTS below. Until it lands, do not read
+// a green run here as "the code matches the appendix".
 
+// Appendix A changes need a PRD version bump. When the next version is
+// created, update this constant. Every test below then reads the new file.
 const PRD_PATH = 'docs/prd/ORBIT_OS_PRD_v9_0.md';
+
+/** The PRD text, or an error that names the constant to update when the file has moved. */
+function loadPrd(path: string): string {
+  try {
+    return readRepoFile(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    throw new Error(
+      `PRD file "${path}" does not exist. If the PRD has a new version, update PRD_PATH at the top of guards/appendix-a.test.ts.`,
+    );
+  }
+}
 
 /**
  * The text of ONE section, not the whole document.
@@ -16,7 +36,7 @@ const PRD_PATH = 'docs/prd/ORBIT_OS_PRD_v9_0.md';
  * a deleted appendix fail loudly.
  */
 function prdSection(heading: string): string {
-  const prd = readRepoFile(PRD_PATH);
+  const prd = loadPrd(PRD_PATH);
   // Anchored to a line start and required to end on whitespace. indexOf was
   // wrong: '### A.3' also matches '### A.3x', so renaming a heading sliced the
   // next section silently instead of throwing. The drill caught it.
@@ -33,13 +53,17 @@ test('the slicer returns one section, not the document, and throws on a missing 
   expect(a3).toContain('Seven states');
   // Proof the slice is narrow: a phrase from a different section must not be in it.
   expect(a3).not.toContain('Finance Clerk');
-  expect(a3.length).toBeLessThan(readRepoFile(PRD_PATH).length / 10);
+  expect(a3.length).toBeLessThan(loadPrd(PRD_PATH).length / 10);
   expect(() => prdSection('A.99')).toThrow(/PRD section "A.99" is missing/);
   // A heading name must match whole, not as a prefix. Before this was anchored,
   // 'A' matched '### A.1' and a renamed 'A.3x' still matched 'A.3', so a renamed
   // or deleted appendix sliced the wrong text instead of failing.
   expect(() => prdSection('A')).toThrow(/PRD section "A" is missing/);
   expect(() => prdSection('A.')).toThrow(/is missing/);
+});
+
+test('a PRD file that has moved fails with the name of the constant to update', () => {
+  expect(() => loadPrd('docs/prd/ORBIT_OS_PRD_v99_0.md')).toThrow(/update PRD_PATH/);
 });
 
 test('A.1 names the five hireable roles and Orbi as the only Coordinator', () => {
@@ -55,20 +79,39 @@ test('A.1 names the five hireable roles and Orbi as the only Coordinator', () =>
 
 test('A.2 is the connector catalog and excludes the prototype extras', () => {
   const a2 = prdSection('A.2');
+  // The catalog is the table and the exclusions are the sentence after it.
+  // Asserting against the whole slice let QuickBooks move INTO the table and
+  // still pass, because the word was somewhere in the slice.
+  const marker = a2.indexOf('**Not in the catalog:**');
+  expect(marker, 'the "Not in the catalog" sentence is missing').toBeGreaterThan(-1);
+  const catalog = a2.slice(0, marker);
+  const exclusions = a2.slice(marker).split('\n')[0]!;
+
   for (const tool of ['Email', 'Calendar', 'Drive', 'Slack', 'HubSpot', 'Stripe', 'Notion', 'WhatsApp']) {
-    expect(a2, tool).toContain(tool);
+    expect(catalog, tool).toMatch(new RegExp(`^\\| ${tool} \\|`, 'm'));
   }
   for (const parked of ['QuickBooks', 'Intercom', 'Salesforce']) {
-    expect(a2, `${parked} must be named as NOT in the catalog`).toContain(parked);
+    expect(exclusions, `${parked} must be named as NOT in the catalog`).toContain(parked);
+    expect(catalog, `${parked} must not be a catalog row`).not.toContain(parked);
   }
-  expect(a2).toMatch(/Not in the catalog/i);
 });
 
 test('A.3 names seven task states and says declining is not one of them', () => {
   const a3 = prdSection('A.3');
-  for (const state of ['New', 'Assigned', 'In progress', 'Waiting for approval', 'Done', 'Failed', 'Cancelled']) {
-    expect(a3, state).toContain(state);
-  }
+  // Assert against the line holding the list. 'Cancelled' also appears in the
+  // sentence about a declined request, so checking the whole slice stayed green
+  // with it deleted from the list.
+  const list = a3.split('\n').find((l) => l.includes(' · '));
+  expect(list, 'the state list line is missing').toBeDefined();
+  expect(list!.split(' · ').map((s) => s.trim())).toEqual([
+    'New',
+    'Assigned',
+    'In progress',
+    'Waiting for approval',
+    'Done',
+    'Failed',
+    'Cancelled',
+  ]);
   expect(a3).toMatch(/Seven states/i);
   expect(a3).toMatch(/not a state/i);
 });
@@ -116,28 +159,13 @@ test('7.2 restores Backup approver as a named authority', () => {
   expect(s72).toMatch(/moment of each decision/i);
 });
 
-// The half that compares these appendix sections against the CODE restating
-// them lives in Task 8's acceptance, not here.
-//
-// It cannot be armed ahead of the code the way the text-scanning guards are. A
-// guard that greps files can run before those files exist; one that imports real
-// modules cannot. `await import('../contract/...')` is still resolved statically
-// by tsc, so it fails `pnpm typecheck` until the package exists, and the only
-// way around that is a variable specifier, which buys an any-typed code path
-// nobody can verify today. A test that cannot be run is not worth the machinery.
-//
-// So Task 8 adds, as acceptance: TaskStatusSchema has the seven A.3 options and
-// not 'declined'; RiskCategorySchema has the four from A.4; AuthoritySchema
-// equals leader, approver, backup, budget per 7.2; NEVER_COVERS matches A.7
-// verbatim; each restating file cites its section; the nine parked prototype
-// roles appear in no seed; and receipts uses a discriminatedUnion with no
-// nullable approver.
-/**
- * The seven assertions that compare the CODE restating each fixed list against
- * the appendix slices above. They are written out here, not referenced by task
- * number, so whoever creates the contract does not have to reconstruct them from
- * a plan document that may have moved on by then.
- */
+// The half that compares these appendix sections against the CODE restating them
+// is not written yet. It cannot be armed ahead of the code the way the
+// text-scanning guards are: a guard that greps files can run before they exist,
+// one that imports real modules cannot, and a dynamic import with a variable
+// specifier would be an any-typed path nobody can verify. The tripwire below
+// fires the moment it becomes possible. Written out here, not referenced by task
+// number, so whoever creates the contract does not have to reconstruct them.
 const DUE_WHEN_CONTRACT_EXISTS = [
   "TaskStatusSchema.options has the seven values from the A.3 slice and does not contain 'declined'",
   'RiskCategorySchema.options has the four values from the A.4 slice',
