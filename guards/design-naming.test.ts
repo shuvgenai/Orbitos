@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { afterAll, expect, test } from 'vitest';
 import { REPO_ROOT, existsExact, readFileIn, readRepoFile, walkFilesIn } from './lib/walk.ts';
 
@@ -12,6 +12,11 @@ import { REPO_ROOT, existsExact, readFileIn, readRepoFile, walkFilesIn } from '.
 // screen. A scan that cannot fail proves nothing, so each rule is a function
 // that is also run against a throwaway tree outside the repo, with a probe file
 // for every list entry that only that entry can catch.
+//
+// The opposite failure matters just as much. A guard that fires on correct code
+// gets switched off by whoever it blocks, and takes the other rules with it. So
+// the probes also include code that looks like real Stream A code, and the tests
+// assert it produces no findings at all.
 //
 // A test must never loop over the list it is pinning, because deleting an entry
 // then shrinks the test with it. Expected values here are written out by hand.
@@ -29,7 +34,8 @@ const CODE = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.cs
 
 // Test fixtures may name an internal system on purpose, so they are not screens.
 // Skipped: any __tests__ or __fixtures__ directory, and files named *.test.*,
-// *.spec.*, *.stories.* or *.story.*. Nothing else is skipped.
+// *.spec.*, *.stories.* or *.story.*. The same rule decides what arms the
+// entry-file tripwire. Nothing else is skipped.
 const NOT_SCREEN_DIRS = ['__tests__', '__fixtures__'];
 const NOT_SCREEN_FILE = /\.(?:test|spec|stories|story)\.[^./]+$/i;
 
@@ -47,55 +53,248 @@ const CARD_GRID = [
   /(?:^|[\s,>+~}])\.kpi\b/m,
 ];
 
+// The CSS named colours (Color Level 4), minus transparent and currentColor,
+// which stay allowed. A property followed by anything not in this list, such as
+// a token name or a type, is not a colour literal.
+export const NAMED_COLOURS = (
+  'aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood ' +
+  'cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod ' +
+  'darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon ' +
+  'darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray ' +
+  'dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green ' +
+  'greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon ' +
+  'lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon ' +
+  'lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen ' +
+  'magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue ' +
+  'mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy ' +
+  'oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip ' +
+  'peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown ' +
+  'seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal ' +
+  'thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen'
+).split(' ');
+
+const NAME = `(?:${NAMED_COLOURS.join('|')})`;
+
 // Colour literals. The tokens are the whole palette, so any literal is a leak.
 // Three rules, each global so every match is reported.
 //  HEX: 3 to 8 digits. Not after href=" or url(, which are anchors and gradient
-//       ids such as #add, not colours. Not excluded after a bare =", because
-//       fill="#fff" on an SVG is exactly the leak this rule is for.
+//       ids such as #add. Not after & (an entity such as &#169;). Not inside a
+//       querySelector-style call, whose argument is a selector. Not excluded
+//       after a bare =", because fill="#fff" on an SVG is the leak this is for.
+//       Comments are removed before this runs, so "issue #123" is quiet.
 //  FUNC: colour functions.
-//  NAMED: a colour property set to a bare word such as red. transparent,
-//       currentColor and the CSS-wide keywords stay allowed. var(...) is not a
-//       bare word, so it never matches.
+//  NAMED: a colour property set to a CSS named colour, bare or quoted.
 const COLOUR = [
-  /(?<!href=["']|url\()#[0-9a-fA-F]{3,8}\b/g,
+  /(?<!href=["']|url\(|&|(?:querySelector(?:All)?|closest|matches)\(\s*["'])#[0-9a-fA-F]{3,8}\b/g,
   /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/g,
-  /\b(?:color|background(?:-color)?|border(?:-(?:top|right|bottom|left))?-color|outline-color)\s*:\s*["']?(?!(?:transparent|currentcolor|inherit|initial|unset|revert|none)\b)[a-z]+(?=["';}\s]|$)|\b(?:fill|stroke)\s*[:=]\s*["']?(?!(?:transparent|currentcolor|inherit|initial|unset|revert|none)\b)[a-z]+(?=["';}\s]|$)/gi,
+  new RegExp(
+    `\\b(?:color|background(?:-color)?|border(?:-(?:top|right|bottom|left))?-color|outline-color)\\s*:\\s*["']?${NAME}\\b(?![-\\w(])` +
+      `|\\b(?:fill|stroke)\\s*[:=]\\s*["']?${NAME}\\b(?![-\\w(])`,
+    'gi',
+  ),
 ];
+
+// ---- Where a customer can read text. ----
+//
+// PRD section 15.3 bans those words in what a customer reads, not in the code
+// behind it. So the banned-word rule looks only at copy: string literals and JSX
+// text in scripts, text nodes and readable attributes in markup, content strings
+// in CSS and string values in JSON. Identifiers, types, imports, object keys and
+// comments are code and are not scanned. This is a scanner, not a parser. Its
+// known gaps are listed in the task report.
+
+/** Attributes whose value a customer reads. Other attributes (className, id, data-*) are code. */
+const READABLE_ATTRS = ['placeholder', 'aria-label', 'alt', 'title', 'label'];
+
+// A string right after from, import, import( or require( is a module specifier.
+const MODULE_SPECIFIER = /(?:\bfrom|\bimport\s*\(?|\brequire\s*\()\s*$/;
+
+type Scan = { copy: string[]; plain: string };
+
+const cutRanges = (src: string, ranges: [number, number][]) => {
+  let out = '';
+  let at = 0;
+  for (const [s, e] of ranges) {
+    out += src.slice(at, s) + ' ';
+    at = e;
+  }
+  return out + src.slice(at);
+};
+
+const hasLetter = (s: string) => /[A-Za-z]/.test(s);
+
+function scanScript(src: string, jsx: boolean): Scan {
+  const n = src.length;
+  const copy: string[] = [];
+  const comments: [number, number][] = [];
+  const stack: number[] = []; // brace depth at which a template literal resumes
+  let depth = 0;
+  let code = ''; // the source with comments dropped and string bodies blanked
+  let i = 0;
+
+  const emit = (text: string, before: string) => {
+    if (!hasLetter(text) || text.includes('/') || MODULE_SPECIFIER.test(before)) return;
+    // A JSX attribute (no spaces around =) is copy only when a customer reads it.
+    const attr = /(?:^|\s)([\w:-]+)=$/.exec(before);
+    if (attr && !READABLE_ATTRS.includes((attr[1] as string).toLowerCase())) return;
+    copy.push(text);
+  };
+
+  // Reads template text from `start`. Returns the index to resume code at.
+  const readTemplate = (start: number): number => {
+    let text = '';
+    for (let j = start; j < n; j++) {
+      const c = src[j];
+      if (c === '\\') {
+        text += src.slice(j, j + 2);
+        j++;
+      } else if (c === '`') {
+        emit(text, code);
+        code += '""';
+        return j + 1;
+      } else if (c === '$' && src[j + 1] === '{') {
+        emit(text, code);
+        code += '""';
+        stack.push(depth);
+        depth++;
+        return j + 2;
+      } else {
+        text += c;
+      }
+    }
+    emit(text, code);
+    return n;
+  };
+
+  while (i < n) {
+    const c = src[i] as string;
+    const d = src[i + 1];
+    if (c === '/' && d === '/') {
+      const e = src.indexOf('\n', i);
+      const end = e < 0 ? n : e;
+      comments.push([i, end]);
+      i = end;
+      code += ' ';
+    } else if (c === '/' && d === '*') {
+      const e = src.indexOf('*/', i + 2);
+      const end = e < 0 ? n : e + 2;
+      comments.push([i, end]);
+      i = end;
+      code += ' ';
+    } else if (c === '"' || c === "'") {
+      let j = i + 1;
+      let text = '';
+      while (j < n && src[j] !== c && src[j] !== '\n') {
+        if (src[j] === '\\') {
+          text += src.slice(j, j + 2);
+          j += 2;
+        } else text += src[j++];
+      }
+      emit(text, code);
+      code += '""';
+      i = src[j] === c ? j + 1 : j;
+    } else if (c === '`') {
+      i = readTemplate(i + 1);
+    } else {
+      if (c === '{') depth++;
+      if (c === '}') {
+        depth--;
+        if (stack.length > 0 && stack[stack.length - 1] === depth) {
+          stack.pop();
+          i = readTemplate(i + 1);
+          continue;
+        }
+      }
+      code += c;
+      i++;
+    }
+  }
+
+  if (jsx) {
+    // Text between a closing > (not =>) or } and the next <, or before a {.
+    // Text that looks like an operator expression or contains parentheses is
+    // code (a comparison, a generic, a call) and is skipped.
+    for (const re of [/(?:(?<!=)>|\})([^<>{}]+)</g, /(?<!=)>([^<>{}]+)\{/g]) {
+      for (const m of code.matchAll(re)) {
+        const text = m[1] as string;
+        if (!hasLetter(text) || /[;=()]|&&|\|\||\s[?:]\s/.test(text)) continue;
+        copy.push(text);
+      }
+    }
+  }
+  return { copy, plain: cutRanges(src, comments) };
+}
+
+function scanMarkup(src: string): Scan {
+  const plain = src.replace(/<!--[\s\S]*?-->/g, ' ');
+  const body = plain.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ');
+  const copy: string[] = [];
+  for (const m of body.matchAll(/>([^<]+)</g)) if (hasLetter(m[1] as string)) copy.push(m[1] as string);
+  const attrs = new RegExp(`\\b(?:${READABLE_ATTRS.join('|')})\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'gi');
+  for (const m of body.matchAll(attrs)) copy.push((m[1] ?? m[2]) as string);
+  return { copy, plain };
+}
+
+function scanCss(src: string): Scan {
+  const plain = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const copy: string[] = [];
+  for (const m of plain.matchAll(/\bcontent\s*:\s*(["'])((?:(?!\1).)*)\1/g)) copy.push(m[2] as string);
+  return { copy, plain };
+}
+
+function scanJson(src: string): Scan {
+  // String values only. A key is code.
+  const copy: string[] = [];
+  for (const m of src.matchAll(/"((?:[^"\\]|\\.)*)"(\s*:)?/g)) {
+    if (m[2]) continue;
+    const text = m[1] as string;
+    if (hasLetter(text) && !text.includes('/')) copy.push(text);
+  }
+  return { copy, plain: src };
+}
+
+function scanFile(file: string, src: string): Scan {
+  const ext = extname(file).toLowerCase();
+  if (ext === '.css') return scanCss(src);
+  if (ext === '.html' || ext === '.svg') return scanMarkup(src);
+  if (ext === '.json') return scanJson(src);
+  return scanScript(src, ext === '.tsx' || ext === '.jsx');
+}
+
+const isScreenFile = (file: string) => !NOT_SCREEN_FILE.test(basename(file));
 
 const customerFiles = (root: string) =>
   CUSTOMER_DIRS.flatMap((d) =>
-    [...walkFilesIn(root, d, { extensions: CODE, skipAnywhere: NOT_SCREEN_DIRS })].filter(
-      (f) => !NOT_SCREEN_FILE.test(basename(f)),
-    ),
+    [...walkFilesIn(root, d, { extensions: CODE, skipAnywhere: NOT_SCREEN_DIRS })].filter(isScreenFile),
   );
 
 /** Each finding is "file: rule", so a failure names both. */
-function scan(root: string, rules: readonly RegExp[]): string[] {
+function scan(root: string, rules: readonly RegExp[], pick: (s: Scan) => string[]): string[] {
   const out: string[] = [];
   for (const file of customerFiles(root)) {
-    const text = readFileIn(root, file);
-    for (const rule of rules) if (rule.test(text)) out.push(`${file}: ${String(rule)}`);
+    const texts = pick(scanFile(file, readFileIn(root, file)));
+    for (const rule of rules) if (texts.some((t) => rule.test(t))) out.push(`${file}: ${String(rule)}`);
   }
   return out;
 }
 
-/** Internal system names on a customer screen. */
-export const bannedWords = (root: string) => scan(root, BANNED);
+/** Internal system names in text a customer can read. */
+export const bannedWords = (root: string) => scan(root, BANNED, (s) => s.copy);
 
-/** Card-grid patterns where section 15.2 requires a plain list. */
-export const cardGrids = (root: string) => scan(root, CARD_GRID);
+/** Card-grid patterns where section 15.2 requires a plain list. Comments are ignored. */
+export const cardGrids = (root: string) => scan(root, CARD_GRID, (s) => [s.plain]);
 
-/** Every literal colour, reported as "file: matched text". */
+/** Every literal colour, reported as "file: matched text". Comments are ignored. */
 export function colourLiterals(root: string): string[] {
   const out: string[] = [];
   for (const file of customerFiles(root)) {
-    const text = readFileIn(root, file);
-    for (const rule of COLOUR) for (const m of text.matchAll(rule)) out.push(`${file}: ${m[0]}`);
+    const { plain } = scanFile(file, readFileIn(root, file));
+    for (const rule of COLOUR) for (const m of plain.matchAll(rule)) out.push(`${file}: ${m[0]}`);
   }
   return out;
 }
 
-/** The old prototype palette, matched case-insensitively. */
+/** The old prototype palette, matched case-insensitively anywhere in the file. */
 export function deadPalette(root: string): string[] {
   const out: string[] = [];
   for (const file of customerFiles(root)) {
@@ -104,6 +303,14 @@ export function deadPalette(root: string): string[] {
   }
   return out;
 }
+
+/** Every finding from every rule, for the quiet-on-correct-code checks. */
+const everyFinding = (root: string) => [
+  ...bannedWords(root),
+  ...cardGrids(root),
+  ...colourLiterals(root),
+  ...deadPalette(root),
+];
 
 test('no customer screen names an internal system', () => {
   expect(bannedWords(REPO_ROOT)).toEqual([]);
@@ -157,12 +364,14 @@ export function entryProblems(screensExist: boolean, read: (file: string) => str
 
 /**
  * The only thing that arms the entry-file tripwire. A screen exists when a .tsx
- * file sits under dashboards/src/apps. Shared components, stories and tests do
- * not count, so the first foundation component does not demand entry files that
- * may legitimately arrive later in the phase. Founder may change this.
+ * file sits under dashboards/src/apps. Shared components do not count. Test and
+ * story files never count, wherever they sit, so a test-first
+ * apps/user/Home.test.tsx does not demand entry files before they exist
+ * (founder decision of 2026-10-06).
  */
 export const screensExist = (root: string) =>
-  walkFilesIn(root, 'dashboards/src/apps', { extensions: ['.tsx'] }).length > 0;
+  walkFilesIn(root, 'dashboards/src/apps', { extensions: ['.tsx'], skipAnywhere: NOT_SCREEN_DIRS }).filter(isScreenFile)
+    .length > 0;
 
 /** The tripwire: entry files are required once a screen exists under root. */
 export const tripwireProblems = (root: string, read: (file: string) => string | undefined) =>
@@ -221,12 +430,13 @@ const files: Record<string, string> = {};
 const put = (rel: string, body: string) => {
   files[rel] = body;
 };
+const sorted = (xs: string[]) => [...xs].sort();
 
 // One probe per BANNED entry, written out by hand and keyed by the rule's text.
-// Each body trips its own rule and no other. Do not generate these from BANNED:
-// a probe derived from the list would follow the list when an entry is dropped.
-// The token rule has two probes, one singular and one plural, so narrowing it to
-// either form fails.
+// Each body is JSX text, which is copy, and trips its own rule and no other. Do
+// not generate these from BANNED: a probe derived from the list would follow the
+// list when an entry is dropped. The token rule has two probes, one singular and
+// one plural, so narrowing it to either form fails.
 const WORD_PROBES: Record<string, string[]> = {
   '/ORBIT-OS/': ['Welcome to ORBIT-OS'],
   '/Paperclip/i': ['powered by PAPERCLIP'],
@@ -237,7 +447,44 @@ const WORD_PROBES: Record<string, string[]> = {
   '/adapter/i': ['pick an Adapter'],
 };
 const wordFile = (i: number, j: number) => `${USER}/words/w${i}_${j}.tsx`;
-Object.values(WORD_PROBES).forEach((bodies, i) => bodies.forEach((b, j) => put(wordFile(i, j), b)));
+Object.values(WORD_PROBES).forEach((bodies, i) =>
+  bodies.forEach((b, j) => put(wordFile(i, j), `export const A = () => <p>${b}</p>;`)),
+);
+
+// Every position where a customer can read text, each with one word. Each of
+// these must be reported, and only for that word.
+const COPY_PROBES: [string, string][] = [
+  ['jsx-text.tsx', 'export const A = () => <p>Your Hermes expired</p>;'],
+  ['jsx-after-expr.tsx', 'export const A = ({ n }: { n: number }) => <p>{n} Hermes left</p>;'],
+  ['jsx-before-expr.tsx', 'export const A = ({ n }: { n: number }) => <p>Hermes {n}</p>;'],
+  ['string-single.ts', "export const msg = 'Your Hermes expired';"],
+  ['string-double.ts', 'export const msg = "Your Hermes expired";'],
+  ['template.ts', 'export const msg = (n: number) => `${n} Hermes left`;'],
+  ['template-before.ts', 'export const msg = (n: number) => `Hermes ${n}`;'],
+  ['object-value.ts', "export const copy = { title: 'Hermes' };"],
+  ['html-text.html', '<p>Hermes</p>'],
+  ['html-title.html', '<title>Hermes</title>'],
+  ['svg-text.svg', '<svg><text>Hermes</text></svg>'],
+  ['css-double.css', 'a::after { content: "Hermes"; }'],
+  ['css-single.css', "a::after { content: 'Hermes'; }"],
+  ['json-value.json', '{"msg": "Hermes"}'],
+];
+COPY_PROBES.forEach(([f, b]) => put(`${USER}/copy/${f}`, b));
+
+// One probe per readable attribute, in script and in markup.
+const ATTR_PROBES: Record<string, [string, string]> = {
+  placeholder: ['<input placeholder="Hermes" />', '<input placeholder="Hermes">'],
+  'aria-label': ['<button aria-label="Hermes" />', '<button aria-label="Hermes">x</button>'],
+  alt: ['<img alt="Hermes" />', '<img alt="Hermes">'],
+  title: ['<a title="Hermes">x</a>', '<a title="Hermes">x</a>'],
+  label: ['<Field label="Hermes" />', '<option label="Hermes">x</option>'],
+};
+Object.entries(ATTR_PROBES).forEach(([name, [tsx, html]]) => {
+  put(`${USER}/attrs/${name}.tsx`, `export const A = () => ${tsx};`);
+  put(`${USER}/attrs/${name}.html`, html);
+});
+// A real leak: two internal words in one sentence a customer reads.
+put(`${USER}/leak/Expired.tsx`, 'export const A = () => <p>Your MCP token expired</p>;');
 
 // One probe per DEAD_PALETTE entry. The first is upper case to prove the match
 // ignores case.
@@ -293,20 +540,41 @@ const COLOUR_PROBES: [string, string, string][] = [
   ['oklab.css', 'a { color: oklab(50% 0 0) }', 'oklab('],
   ['oklch.css', 'a { color: oklch(50% 0 0) }', 'oklch('],
   ['named-color.css', 'a { color: red }', 'color: red'],
+  ['named-uppercase.css', 'a { COLOR: Red }', 'COLOR: Red'],
   ['named-background.css', 'a { background: navy }', 'background: navy'],
   ['named-background-color.css', 'a { background-color: navy }', 'background-color: navy'],
   ['named-border-color.css', 'a { border-color: teal }', 'border-color: teal'],
   ['named-border-top-color.css', 'a { border-top-color: teal }', 'border-top-color: teal'],
   ['named-outline-color.css', 'a { outline-color: teal }', 'outline-color: teal'],
-  ['named-uppercase.css', 'a { COLOR: Red }', 'COLOR: Red'],
   ['named-fill.svg', '<rect fill="red" />', 'fill="red'],
   ['named-stroke.svg', '<rect stroke="blue" />', 'stroke="blue'],
+  ['named-quoted.tsx', "export const s = { color: 'red' };", "color: 'red"],
 ];
 COLOUR_PROBES.forEach(([f, b]) => put(`${USER}/colours/${f}`, b));
 
-// Allowed forms. Together they pin the allow-list: removing any keyword, or
-// excluding too little around an anchor, flags this file. Anchors and gradient
-// ids look like hex (#add, #bed) and are not colours.
+// The named-colour list, written out a second time. The list in the guard must
+// match this copy in both directions, and the probe below is built from this
+// copy, not from the guard, so dropping a colour fails twice.
+const EXPECTED_NAMED = (
+  'aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood ' +
+  'cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod ' +
+  'darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon ' +
+  'darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray ' +
+  'dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green ' +
+  'greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon ' +
+  'lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon ' +
+  'lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen ' +
+  'magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue ' +
+  'mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy ' +
+  'oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip ' +
+  'peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown ' +
+  'seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal ' +
+  'thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen'
+).split(' ');
+put(`${USER}/named/all.css`, EXPECTED_NAMED.map((c) => `a { color: ${c} }`).join('\n'));
+
+// Allowed forms. Together they pin what must stay quiet: removing an exclusion
+// flags this file.
 put(
   `${USER}/clean/Allowed.css`,
   [
@@ -320,38 +588,155 @@ put(
   'export const Ok = () => <><a href="#add">add</a><a href=\'#bed\'>bed</a><rect fill="url(#bed)" stroke="none" /><rect fill="none" /><p>Your Orbitcrew office. McpX.</p></>;',
 );
 
-// One probe per CODE extension, written out. Each body trips the banned-word
-// rule, so a dropped extension leaves that file unreported. Note that '.mts'
-// also ends with '.ts', so each extension is probed by its own file name.
-const EXT_PROBES = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.css', '.html', '.svg', '.json'];
-EXT_PROBES.forEach((ext) => put(`dashboards/src/apps/org-admin/ext/probe${ext}`, 'Hermes'));
+// Real Stream A shapes that must produce NO findings from any rule. Each has a
+// NAIVE pattern, the cruder rule it would have tripped, so the first test below
+// proves the probe is a real near miss and not quiet by accident.
+const QUIET_PROBES: [string, string, RegExp][] = [
+  [
+    'tokens-module.ts',
+    [
+      "import { tokens, type Token } from './tokens';",
+      "import { colorInk } from '../../../../design/tokens.ts';",
+      "import adapterDefault from 'adapter';",
+      "import tokensDefault from 'tokens';",
+      'export const adapter = tokens; // the token adapter, kept for tokens',
+      'export type TokenName = keyof typeof tokens;',
+      'export const load = () => import("tokens");',
+    ].join('\n'),
+    /\btokens?\b|adapter/i,
+  ],
+  [
+    'Chip.tsx',
+    [
+      "type Tone = 'ink' | 'muted';",
+      'type ChipProps = { color: Tone; label: string };',
+      "export const Chip = ({ color }: { color: 'ink' | 'muted' }) => <span style={{ color: 'ink' }}>{color}</span>;",
+      'export const Typed = ({ color }: { color: Tone }) => <i>{color}</i>;',
+    ].join('\n'),
+    /\bcolor\s*:\s*["']?[a-z]+/i,
+  ],
+  [
+    'Props.ts',
+    ['export type Props = { color: string; stroke: string };', 'const accent = 1;', 'const stroke = accent;'].join('\n'),
+    /\b(?:color|stroke)\s*[:=]\s*["']?[a-z]+/i,
+  ],
+  [
+    'Icon.tsx',
+    'export const Icon = () => <svg><path fill="currentColor" /><path fill="var(--color-ink)" stroke="currentColor" /></svg>;',
+    /\b(?:fill|stroke)\s*=\s*["']?[a-z]+/i,
+  ],
+  [
+    'Selectors.ts',
+    [
+      '// fixes issue #123 and #add',
+      "const el = document.querySelector('#add');",
+      "const all = document.querySelectorAll('#bed');",
+      "const near = el?.closest('#cafe');",
+      "export const copyright = '&#169;';",
+    ].join('\n'),
+    /#[0-9a-fA-F]{3,8}\b/,
+  ],
+  [
+    'page.html',
+    '<!-- Hermes adapter token #123 --><p>&#169; Orbitcrew</p><a href="#add" class="token">Jump</a><script>const tokens = 1;</script><style>.adapter { color: var(--color-ink); }</style>',
+    /\btokens?\b|adapter|Hermes/i,
+  ],
+  [
+    'comments.ts',
+    ['// ask the Hermes adapter about the MCP token', '/* ORBIT-OS Paperclip OpenClaw */', "/*\n * don't mention the Hermes adapter\n */", 'export const ok = 1;'].join('\n'),
+    /Hermes|ORBIT-OS|MCP|Paperclip|OpenClaw|\btoken\b|adapter/,
+  ],
+  [
+    'Keys.ts',
+    "export const adapterConfig = { tokenName: 'ink', adapter: 'x', tokens: [1] };",
+    /adapter|\btokens?\b/i,
+  ],
+  [
+    'Attrs.tsx',
+    'export const A = () => <div className="token-chip adapter-row" id="tokens" data-source="adapter" />;',
+    /adapter|\btokens?\b/i,
+  ],
+  [
+    'Paths.ts',
+    ["export const a = './adapter-chip';", "export const b = '@/shared/token-chip';", 'export const c = (x: string) => `/api/${x}/tokens`;'].join('\n'),
+    /adapter|\btokens?\b/i,
+  ],
+  [
+    'Compare.tsx',
+    [
+      'export const f = (a: number, tokens: number) => (a > tokens ? <b>x</b> : null);',
+      'export function g<T>(tokens: T) { return tokens; }',
+      'export const h = (a: number, adapter: number) => a > adapter && <b>y</b>;',
+    ].join('\n'),
+    /\btokens?\b|adapter/i,
+  ],
+  [
+    'Operators.tsx',
+    [
+      'export const e = a > tokens === b < 2;',
+      'export const o = a > tokens || b < 2;',
+      'function s() { a > tokens; b < c; }',
+      'export const arrow = (n: number) => tokens < n;',
+      'export const pick = (a: string) => tokens[a] ?? {};',
+    ].join('\n'),
+    /\btokens?\b/i,
+  ],
+  [
+    'Scale.ts',
+    "export const scale = { color: 'red-500', background: 'tannery', fill: 'blue-500', stroke: 'whitesmoke2' };",
+    /\b(?:color|background|fill|stroke)\s*:\s*["']?(?:red|tan|blue|whitesmoke)/i,
+  ],
+  ['theme.css', '/* token adapter */ .chip { color: var(--color-ink); --tokens: 1; --adapter: 2; }', /\btokens?\b|adapter/i],
+  ['theme.json', '{"token": "ink", "adapter": {"tokens": 1}}', /\btokens?\b|adapter/i],
+  ['Kpi.ts', '// KpiTile and grid-cols-3 were removed\nexport const ok = 1;', /KpiTile|grid-cols-3/],
+];
+QUIET_PROBES.forEach(([f, b]) => put(`${USER}/quiet/${f}`, b));
+
+// One probe per CODE extension, written out. Each body is copy in that
+// language and names an internal system, so a dropped extension leaves that file
+// unreported. '.mts' also ends with '.ts', so each extension has its own name.
+const EXT_PROBES: Record<string, string> = {
+  '.ts': "export const m = 'Hermes';",
+  '.tsx': 'export const m = <p>Hermes</p>;',
+  '.js': "export const m = 'Hermes';",
+  '.jsx': 'export const m = <p>Hermes</p>;',
+  '.mjs': "export const m = 'Hermes';",
+  '.cjs': "module.exports = 'Hermes';",
+  '.mts': "export const m = 'Hermes';",
+  '.cts': "export const m = 'Hermes';",
+  '.css': 'a::after { content: "Hermes"; }',
+  '.html': '<p>Hermes</p>',
+  '.svg': '<svg><text>Hermes</text></svg>',
+  '.json': '{"m": "Hermes"}',
+};
+Object.entries(EXT_PROBES).forEach(([ext, body]) => put(`dashboards/src/apps/org-admin/ext/probe${ext}`, body));
 
 // One probe per customer directory.
-put(`${USER}/Contest.tsx`, 'Hermes');
-put('dashboards/src/apps/org-admin/Leak.tsx', 'Hermes');
-put('dashboards/src/shared/Leak.tsx', 'Hermes');
+put(`${USER}/Contest.tsx`, 'export const m = <p>Hermes</p>;');
+put('dashboards/src/apps/org-admin/Leak.tsx', 'export const m = <p>Hermes</p>;');
+put('dashboards/src/shared/Leak.tsx', 'export const m = <p>Hermes</p>;');
 
 // Left alone: other file types, the fleet app, and test fixtures. Contest.tsx
 // above ends in "test" but is not a *.test.* file, so it is still scanned.
+const LEAK = "export const m = <p>Hermes</p>; export const c = '#6316f9';";
 put('dashboards/src/apps/org-admin/notes.md', 'Hermes #6316f9 grid-cols-3');
-put('dashboards/src/apps/fleet/Console.tsx', 'ORBIT-OS Paperclip Hermes OpenClaw MCP token adapter #6316f9 grid-cols-3 KpiTile');
-put('dashboards/src/apps/fleet/console.css', '.x { grid-template-columns: 1fr 1fr; color: rgb(0,0,0); }');
-put(`${USER}/__tests__/Leak.tsx`, 'Hermes');
+put('dashboards/src/apps/fleet/Console.tsx', LEAK + ' export const g = <KpiTile />;');
+put('dashboards/src/apps/fleet/console.css', '.x { grid-template-columns: 1fr 1fr; color: rgb(0,0,0); content: "Hermes"; }');
+put(`${USER}/__tests__/Leak.tsx`, LEAK);
 put(`${USER}/__fixtures__/leak.json`, '{"a":"Hermes"}');
-put(`${USER}/Screen.test.tsx`, 'Hermes');
-put(`${USER}/Screen.spec.ts`, 'Hermes');
-put('dashboards/src/shared/Button.stories.tsx', 'Hermes #6316f9');
-put('dashboards/src/shared/Button.story.tsx', 'Hermes');
+put(`${USER}/Screen.test.tsx`, LEAK);
+put(`${USER}/Screen.spec.ts`, LEAK);
+put('dashboards/src/shared/Button.stories.tsx', LEAK);
+put('dashboards/src/shared/Button.story.tsx', LEAK);
 
 const PROBE = makeRoot(files);
-const sorted = (xs: string[]) => [...xs].sort();
+const wordsIn = (dir: string, findings: string[]) => findings.filter((f) => f.startsWith(`${dir}/`));
 
 test('the banned-word rule catches each word with its own probe, and only that word', () => {
   const expected = Object.keys(WORD_PROBES).flatMap((rule, i) =>
     (WORD_PROBES[rule] as string[]).map((_, j) => `${wordFile(i, j)}: ${rule}`),
   );
-  const found = bannedWords(PROBE).filter((f) => f.startsWith(`${USER}/words/`));
-  expect(sorted(found)).toEqual(sorted(expected));
+  expect(sorted(wordsIn(`${USER}/words`, bannedWords(PROBE)))).toEqual(sorted(expected));
 });
 
 test('every BANNED word has a probe, so dropping or adding one cannot pass unnoticed', () => {
@@ -359,10 +744,30 @@ test('every BANNED word has a probe, so dropping or adding one cannot pass unnot
   expect(sorted(BANNED.map(String))).toEqual(sorted(Object.keys(WORD_PROBES)));
 });
 
+test('the banned-word rule reads copy in every position a customer can see text', () => {
+  const expected = [
+    ...COPY_PROBES.map(([f]) => `${USER}/copy/${f}: /Hermes/i`),
+    ...Object.keys(ATTR_PROBES).flatMap((a) => [`${USER}/attrs/${a}.tsx: /Hermes/i`, `${USER}/attrs/${a}.html: /Hermes/i`]),
+  ];
+  const found = [...wordsIn(`${USER}/copy`, bannedWords(PROBE)), ...wordsIn(`${USER}/attrs`, bannedWords(PROBE))];
+  expect(sorted(found)).toEqual(sorted(expected));
+});
+
+test('the readable attributes are exactly placeholder, aria-label, alt, title and label', () => {
+  expect(sorted(READABLE_ATTRS)).toEqual(['alt', 'aria-label', 'label', 'placeholder', 'title']);
+  expect(sorted(Object.keys(ATTR_PROBES))).toEqual(['alt', 'aria-label', 'label', 'placeholder', 'title']);
+});
+
+test('a sentence naming the MCP and a token is reported for both words', () => {
+  expect(sorted(wordsIn(`${USER}/leak`, bannedWords(PROBE)))).toEqual([
+    `${USER}/leak/Expired.tsx: /\\bMCP\\b/`,
+    `${USER}/leak/Expired.tsx: /\\btokens?\\b/i`,
+  ]);
+});
+
 test('the dead-palette rule catches each hex with its own probe, and only that hex', () => {
   const expected = Object.keys(PALETTE_PROBES).map((hex, i) => `${USER}/palette/p${i}.css: ${hex}`);
-  const found = deadPalette(PROBE).filter((f) => f.startsWith(`${USER}/palette/`));
-  expect(sorted(found)).toEqual(sorted(expected));
+  expect(sorted(wordsIn(`${USER}/palette`, deadPalette(PROBE)))).toEqual(sorted(expected));
 });
 
 test('every DEAD_PALETTE hex has a probe', () => {
@@ -373,7 +778,7 @@ test('the card-grid rule catches each pattern with its own probe, and only that 
   const expected = Object.keys(GRID_PROBES).flatMap((rule, i) =>
     (GRID_PROBES[rule] as string[]).map((_, j) => `${gridFile(i, j)}: ${rule}`),
   );
-  expect(sorted(cardGrids(PROBE).filter((f) => f.startsWith(`${USER}/grids/`)))).toEqual(sorted(expected));
+  expect(sorted(wordsIn(`${USER}/grids`, cardGrids(PROBE)))).toEqual(sorted(expected));
 });
 
 test('every CARD_GRID pattern has a probe', () => {
@@ -381,7 +786,7 @@ test('every CARD_GRID pattern has a probe', () => {
 });
 
 test('the colour rule catches each hex length, colour function, named colour and SVG fill', () => {
-  const found = colourLiterals(PROBE).filter((f) => f.startsWith(`${USER}/colours/`));
+  const found = wordsIn(`${USER}/colours`, colourLiterals(PROBE));
   expect(sorted(found)).toEqual(sorted(COLOUR_PROBES.map(([f, , hit]) => `${USER}/colours/${f}: ${hit}`)));
 });
 
@@ -389,9 +794,42 @@ test('the colour rule allows var(), transparent, currentColor, keywords, anchors
   expect(colourLiterals(PROBE).filter((f) => f.includes('/clean/'))).toEqual([]);
 });
 
+test('the named-colour list is exactly the CSS named colours, and each one is caught', () => {
+  expect(sorted(NAMED_COLOURS)).toEqual(sorted(EXPECTED_NAMED));
+  const found = wordsIn(`${USER}/named`, colourLiterals(PROBE));
+  expect(sorted(found)).toEqual(sorted(EXPECTED_NAMED.map((c) => `${USER}/named/all.css: color: ${c}`)));
+});
+
+test('real Stream A shapes are near misses: each trips a cruder rule, so quiet is not an accident', () => {
+  for (const [file, body, naive] of QUIET_PROBES) {
+    expect(naive.test(body), `${file} would not have tripped the cruder rule, so it proves nothing`).toBe(true);
+  }
+});
+
+test('real Stream A shapes produce no findings from any rule', () => {
+  const all = everyFinding(PROBE);
+  for (const [file] of QUIET_PROBES) {
+    expect(
+      all.filter((f) => f.startsWith(`${USER}/quiet/${file}:`)),
+      `${file} is correct code and must stay quiet`,
+    ).toEqual([]);
+  }
+});
+
+test('every quiet probe is in the quiet directory and was scanned', () => {
+  // A probe in a skipped place would be quiet for the wrong reason.
+  const scanned = customerFiles(PROBE).filter((f) => f.startsWith(`${USER}/quiet/`));
+  expect(sorted(scanned)).toEqual(
+    sorted([
+      'tokens-module.ts', 'Chip.tsx', 'Props.ts', 'Icon.tsx', 'Selectors.ts', 'page.html', 'comments.ts', 'Keys.ts',
+      'Attrs.tsx', 'Paths.ts', 'Compare.tsx', 'Operators.tsx', 'Scale.ts', 'theme.css', 'theme.json', 'Kpi.ts',
+    ].map((f) => `${USER}/quiet/${f}`)),
+  );
+});
+
 test('every code extension is scanned', () => {
   const hits = bannedWords(PROBE);
-  for (const ext of EXT_PROBES) {
+  for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.css', '.html', '.svg', '.json']) {
     expect(
       hits.some((h) => h.startsWith(`dashboards/src/apps/org-admin/ext/probe${ext}:`)),
       `${ext} files are not scanned`,
@@ -400,7 +838,7 @@ test('every code extension is scanned', () => {
 });
 
 test('every CODE extension has a probe, so adding one cannot pass unnoticed', () => {
-  expect(sorted(CODE)).toEqual(sorted(EXT_PROBES));
+  expect(sorted(CODE)).toEqual(sorted(Object.keys(EXT_PROBES)));
 });
 
 test('every customer directory is scanned', () => {
@@ -412,7 +850,7 @@ test('every customer directory is scanned', () => {
 });
 
 test('the fleet app, other file types, test fixtures and clean files are left alone', () => {
-  const everything = [...bannedWords(PROBE), ...cardGrids(PROBE), ...colourLiterals(PROBE), ...deadPalette(PROBE)];
+  const everything = everyFinding(PROBE);
   expect(everything.filter((f) => f.includes('/apps/fleet/'))).toEqual([]);
   expect(everything.filter((f) => f.includes('notes.md'))).toEqual([]);
   expect(everything.filter((f) => f.includes('/__tests__/') || f.includes('/__fixtures__/'))).toEqual([]);
@@ -466,6 +904,7 @@ test('the tripwire gate is armed by a screen under apps, and by nothing else', (
   // emptied extension list would disarm it silently, so it is probed both ways.
   expect(screensExist(makeRoot({}))).toBe(false);
   expect(screensExist(makeRoot({ 'dashboards/src/apps/user/Home.tsx': 'x' }))).toBe(true);
+  expect(screensExist(makeRoot({ 'dashboards/src/apps/user/Contest.tsx': 'x' }))).toBe(true);
   expect(screensExist(makeRoot({ 'dashboards/src/apps/org-admin/deep/er/Page.tsx': 'x' }))).toBe(true);
   expect(screensExist(makeRoot({ 'dashboards/src/apps/fleet/Table.tsx': 'x' }))).toBe(true);
   // Foundation code is not a screen.
@@ -474,11 +913,29 @@ test('the tripwire gate is armed by a screen under apps, and by nothing else', (
   expect(screensExist(makeRoot({ 'dashboards/src/other/Home.tsx': 'x' }))).toBe(false);
 });
 
+test('test and story files never arm the tripwire, even inside apps', () => {
+  // Written out, one root each, so each exclusion is pinned on its own.
+  const notScreens = [
+    'dashboards/src/apps/user/Home.test.tsx',
+    'dashboards/src/apps/user/Home.spec.tsx',
+    'dashboards/src/apps/user/Home.stories.tsx',
+    'dashboards/src/apps/user/Home.story.tsx',
+    'dashboards/src/apps/user/__tests__/Home.tsx',
+    'dashboards/src/apps/user/__fixtures__/Home.tsx',
+  ];
+  for (const f of notScreens) expect(screensExist(makeRoot({ [f]: 'x' })), f).toBe(false);
+  // And a real screen beside a test file still arms it.
+  expect(
+    screensExist(makeRoot({ 'dashboards/src/apps/user/Home.test.tsx': 'x', 'dashboards/src/apps/user/Home.tsx': 'x' })),
+  ).toBe(true);
+});
+
 test('the tripwire wires the gate to the rule, so the real-tree test can fail once screens exist', () => {
   // The real tree has no screens yet, so only a probe can show the gate and the
   // rule are connected.
   const withScreen = makeRoot({ 'dashboards/src/apps/user/Home.tsx': 'x' });
   const withoutScreen = makeRoot({ 'dashboards/src/shared/Button.tsx': 'x' });
+  const onlyTest = makeRoot({ 'dashboards/src/apps/user/Home.test.tsx': 'x' });
   const none = () => undefined;
   expect(tripwireProblems(withScreen, none)).toEqual([
     'dashboards/user/index.html: missing',
@@ -486,5 +943,6 @@ test('the tripwire wires the gate to the rule, so the real-tree test can fail on
     'dashboards/fleet/index.html: missing',
   ]);
   expect(tripwireProblems(withoutScreen, none)).toEqual([]);
+  expect(tripwireProblems(onlyTest, none)).toEqual([]);
   expect(tripwireProblems(withScreen, goodTitle)).toEqual([]);
 });
