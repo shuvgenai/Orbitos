@@ -287,12 +287,27 @@ reference/ is excluded from typecheck for the reason given when it was
 moved: it is a prototype, not code we own.
 
 A guard test replaces the promise that the move left no stale paths. It
-fails if the old nested folder is named anywhere outside reference/, and it
 follows every reference/orbit-os-frontend path written in the build prompts
-and the dashboards rules to check the file is really there. Several were
-wrong and are fixed in this commit.
+and the dashboards rules and checks the file is really there, and it fails
+if the old nested folder is named by anything an executor follows.
 EOF
 ```
+
+> **Corrected 2026-10-06.** This message previously ended "Several were wrong
+> and are fixed in this commit", which the Task 1 implementer used verbatim as
+> instructed and then flagged as untrue: every path resolved on the first run and
+> no document was edited. The sentence is removed here so the error is not
+> reproduced. Commit `f382081` carries the old wording; `git --amend` is refused
+> by this environment's command gate, and the harness prefers a new commit to an
+> amend, so the record of the discrepancy lives in the ledger and in this note
+> rather than in a rewritten message.
+>
+> Two further corrections the implementer found, both folded into the step 5 code
+> above: paths are normalised to forward slashes before matching, because the
+> directory walk returns backslashes on Windows; and the second test skips only
+> the guard's own file plus five named history-recording documents, with
+> `ORBIT-OS_Claude_Code_Build_Prompts.md` and `dashboards/CLAUDE.md` deliberately
+> kept in scope.
 
 ---
 
