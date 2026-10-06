@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { expect, test } from 'vitest';
-import { existsExact, readRepoFile, trackedFiles, walkFiles } from './lib/walk.ts';
+import { REPO_ROOT, existsExact, readRepoFile, trackedFiles, walkFiles } from './lib/walk.ts';
 
 // Project directories this guard ignores wholesale. node_modules and .git are
 // skipped at every depth by default, which pnpm needs.
@@ -33,6 +34,21 @@ const HISTORY_FILES = ['docs/decisions.md', 'docs/backlog.md'];
 
 // Exact-match the files and prefix-match the directories. A single startsWith
 // over both would also exempt docs/decisions.md.bak, which nothing intends.
+/**
+ * A tracked file's text. Reads the disk, and falls back to the index when git
+ * lists the file but it is gone from disk, which is an unstaged delete. The
+ * fallback is not a silent skip: the committed content is still checked, which
+ * is what this test is about. Any error other than a missing file propagates.
+ */
+function readTracked(rel: string): string {
+  try {
+    return readRepoFile(rel);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return execFileSync('git', ['show', `:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8' });
+  }
+}
+
 const isHistory = (rel: string) => HISTORY_FILES.includes(rel) || HISTORY_DIRS.some((d) => rel.startsWith(d));
 
 test('nothing an executor follows still points at the old nested location', () => {
@@ -45,30 +61,9 @@ test('nothing an executor follows still points at the old nested location', () =
     .filter((rel) => rel !== 'guards/paths.test.ts')
     .filter((rel) => !isHistory(rel));
 
-  const offenders: string[] = [];
-  const goneFromDisk: string[] = [];
-  for (const rel of candidates) {
-    let text: string;
-    try {
-      text = readRepoFile(rel);
-    } catch (err) {
-      // Listed by git but deleted from disk, with the deletion not yet staged.
-      // Anything other than a missing file is a real error and propagates.
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-      goneFromDisk.push(rel);
-      continue;
-    }
-    if (text.includes('Prompts_Frontend_docs')) offenders.push(rel);
-  }
-
-  // Say so out loud rather than skipping quietly. It is a warning, not a
-  // failure, because failing here would turn a half-finished local delete into
-  // the local-only failure this test was changed to avoid.
-  if (goneFromDisk.length > 0) {
-    console.warn(`[paths] tracked but missing on disk, so not checked: ${goneFromDisk.join(', ')}`);
-  }
+  const offenders = candidates.filter((rel) => readTracked(rel).includes('Prompts_Frontend_docs'));
   // Guards against the filters above emptying the list and passing on nothing.
-  expect(candidates.length).toBeGreaterThan(goneFromDisk.length);
+  expect(candidates.length).toBeGreaterThan(0);
   expect(offenders).toEqual([]);
 });
 
