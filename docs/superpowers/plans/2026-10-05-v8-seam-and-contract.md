@@ -74,6 +74,19 @@ Five failure modes the spec implies that no task's happy-path tests would catch.
 
 ## Task 1: Move the prototype into `reference/`, one copy only
 
+> **Status, 2026-10-06. Steps 1 to 3 are DONE**, in commits `d53ff29` and
+> `018b8ca`. The move ran as Option B: the seven children moved into
+> `reference/orbit-os-frontend/` (36 files) because a process holds an open handle
+> on the old directory and Windows refuses to rename a held directory. `CLAUDE.md`
+> is at `dashboards/CLAUDE.md`, the build prompts and the zip are at the repo
+> root, and `Prompts_Frontend_docs/orbit-os-frontend/orbit-os-frontend` remains as
+> two empty directories holding zero files.
+>
+> **Remaining: step 4 onward** — `.gitignore`, the `tsconfig.json` exclude, the
+> new `guards/` directory, `guards/paths.test.ts`, the `vitest.config.ts` include,
+> and the step 9 commit. Skip the `rmdir` in step 4: it fails on the held
+> directory, and nothing is to be deleted or force-killed.
+
 **Files:**
 - Move: `Prompts_Frontend_docs/orbit-os-frontend/orbit-os-frontend/` → `reference/orbit-os-frontend/`
 - Move: `Prompts_Frontend_docs/CLAUDE.md` → `dashboards/CLAUDE.md`
@@ -197,9 +210,22 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-test('the prototype exists at exactly one path', () => {
+function filesUnder(dir: string): string[] {
+  try {
+    return walk(join(ROOT, dir));
+  } catch {
+    return []; // absent is fine: a fresh clone has no husk
+  }
+}
+
+test('the prototype exists at exactly one path, and the husk holds no files', () => {
   expect(existsSync(join(ROOT, 'reference/orbit-os-frontend/README.md'))).toBe(true);
-  expect(existsSync(join(ROOT, 'Prompts_Frontend_docs'))).toBe(false);
+  // NOT `existsSync(...) === false`. A process on the founder's machine held an
+  // open handle on the old directory, so its seven children moved and two empty
+  // directories were left behind. Git does not track empty directories, so the
+  // absent-directory form passes in CI and fails on that machine, which is
+  // backwards for a guard. What matters is that no FILE lives there.
+  expect(filesUnder('Prompts_Frontend_docs')).toEqual([]);
 });
 
 test('nothing outside reference/ still points at the old nested location', () => {

@@ -364,3 +364,32 @@ SP-6 gates is the first real numbers, which belong to the test office. The risk 
 the opposite of a blocked stream: a fleet table that looks finished while every
 number in it is invented. The Task 6 mock-boundary guard is what keeps that from
 shipping.
+
+## 2026-10-06 - Why SP-6 appeared after the plan was written
+
+**Decision:** recorded for a later reader who finds a sub-project that is not in
+the original decomposition. SP-6 Fleet and operations backend is accepted.
+
+**Reason, stated plainly:** the decomposition absorbed PRD stream S5, the fleet
+console, into Stream A as twelve shells and four Fill-now screens, and did not
+carry its server side across. That left a sub-project for the fleet console's
+screens and none for the thing that produces what those screens display, so the
+nightly numbers rollup, the backup status records and the incident records had no
+owner. The PRD did not change and nothing was missing from it. The error was in
+reading a stream as a set of screens.
+
+**Cost if wrong:** one Stream B sub-project that gates nothing in Stream A.
+
+## 2026-10-06 - Every Fill-now Super Admin screen is mock-backed until SP-6
+
+**Decision:** stated in PRD section 15.8 as well as here. The fleet table, Office
+view, Provision and Security render from MockApiClient in Stream A. Their numbers
+are invented until S-38, S-07 and S-21 exist in SP-6. The same holds for the
+office-change routing in the Requests queue until SP-0 Task 15 lands.
+
+**Reason:** the risk here is not a blocked stream, it is a fleet console that
+looks finished while every number in it is made up. Saying so in the PRD and the
+plan is cheaper than discovering it during a demo.
+
+**Cost if wrong:** none. The statement costs nothing and removes a
+misunderstanding that would cost a lot.

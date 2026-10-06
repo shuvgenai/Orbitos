@@ -867,6 +867,8 @@ Each screen is then marked **Fill now** (working logic in Stream A) or **Fill la
 
 There are six. In each case the data is load-bearing for something that is Fill now, or for a gate, so the data ships and only the screen waits.
 
+**Every Fill-now Super Admin screen is mock-backed until SP-6 lands.** The fleet table, Office view, Provision and Security all render from `MockApiClient` in Stream A. Their numbers — health, backups, incidents, requests over 24 hours, spend, operator minutes — are invented until the nightly numbers rollup (S-38) and the backup and incident records (S-07, S-21) exist. A finished-looking fleet console is **not** working software, and nobody should read it as one. The same holds for the office-change routing shown in the Requests queue until SP-0 Task 15 lands. The mock import-boundary guard is what keeps the mock out of a production bundle; it does not make the numbers real.
+
 **None of the six is Stream A work.** This section states *that* each ships; it is not where they are owned. Each has an owner, a stream, a task number and the checkpoint it gates in `docs/superpowers/plans/2026-10-05-v8-seam-and-contract.md`, Addendum 3. Two of the six had no sub-project to belong to when that was written, and the addendum says which and what was added to hold them.
 
 | # | Data | Why it cannot wait |
