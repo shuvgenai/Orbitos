@@ -2522,92 +2522,400 @@ excludes `reference/`. Cost if wrong: the prototype keeps a title nobody ships.
 
 ### Task 13: One guard per fixed list in Appendix A
 
-**Files:** Create `guards/appendix-a.test.ts`. Runs after Task 8.
+**Files:**
+- Create: `guards/lib/walk.ts` — the shared helper
+- Create: `guards/lib/walk.test.ts` — its own tests
+- Create: `guards/appendix-a.test.ts`
+- Create: `guards/contract-boundary.test.ts`
+- Modify: `guards/paths.test.ts` — replace its private helpers with the shared ones
 
-**Interfaces:** Consumes every fixed list from `contract/src/v1` and
-`contract/src/experimental`. Produces nothing other tasks depend on.
+**Interfaces:**
+- Consumes: every fixed list from `contract/src/v1` and `contract/src/experimental`.
+- Produces: `REPO_ROOT`, `walkFiles(dir, {skipAtRoot, extensions})`, `trackedFiles()`, `readRepoFile(rel)` and `existsExact(rel)` from `guards/lib/walk.ts`. **Task 14 uses these and must not write its own copies.**
 
-PRD Appendix A says the fixed lists "may not be restated anywhere else" and that
-changing one is a PRD change with a version bump. Code has to restate them to
-work, so the guard's job is to catch a restatement drifting from the PRD without
-a matching section reference.
+**Scope changed 2026-10-06.** This task now does three things, in this order.
 
-- [ ] **Step 1: Write the guard**
+**First, extract the shared walk helper**, because the plan was about to contain
+nine copies of it. It already holds seven `const ROOT = new URL('../', ...)` lines
+and six separately named walk functions (`walk`, `sources` twice, `filesUnder`,
+`testFilesUnder`, `files`). Task 1's review found seven minor defects and five of
+them are the same defect copied: the skip list matching a directory name at any
+depth, `startsWith` on the allow-list also exempting a `.bak` sibling, a silent
+catch that hides every error rather than only a missing directory, a root path that
+stays percent-encoded, and a working-tree walk where `git ls-files` is correct. Fix
+them once, in the helper. **Six of the seven minors close here:**
+
+| Minor | Fix in the helper |
+|---|---|
+| 1 Case sensitivity | `existsExact()` compares against a directory listing, which is case-sensitive on Windows too, so a wrong-case path fails here exactly as it would in CI |
+| 2 Skip list matches at any depth | `skipAtRoot` matches only at the top of the walk, so a nested `docs/reference/` is scanned |
+| 3 `startsWith` exempts `.bak` siblings | callers exact-match file entries and prefix-match directory entries |
+| 4 Silent catch hides every error | only `ENOENT` is tolerated; `EACCES` and a broken link throw |
+| 5 `URL.pathname` stays percent-encoded | `fileURLToPath` |
+| 7 Working-tree walk | `trackedFiles()` over `git ls-files -z` |
+
+Minor 6, the extension list, stays deferred. The helper takes `extensions` from its
+caller, so widening it later is a one-line change at each call site.
+
+The helper memoizes each distinct walk once per test run, which also answers the
+performance finding: seven guards each walking the whole tree grows with 52 screens
+and their components.
+
+**Second, write the Appendix A guards.** PRD Appendix A says the fixed lists "may
+not be restated anywhere else" and that changing one is a PRD change with a version
+bump. Code has to restate them to work, so the guard catches a restatement drifting
+from the PRD. **Every assertion reads a sliced appendix section, never the whole
+document** — the first draft searched all 1,081 lines for the words "New" and
+"Done", which pass against almost any prose, so the test would have gone green with
+Appendix A.3 deleted.
+
+**Third, add the contract layer-boundary test.** The spec says Stream A reaches the
+engine layer only through `dashboards/src/features/engine/`. That rule is the entire
+reason the contract is two layers, and nothing enforced it while every lesser rule
+had a guard.
+
+- [ ] **Step 1: Write the shared helper**
+
+Create `guards/lib/walk.ts`:
 
 ```ts
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { expect, test } from 'vitest';
-import { TaskStatusSchema, RiskCategorySchema } from '../contract/src/experimental/tasks.ts';
-import { AuthoritySchema } from '../contract/src/v1/org.ts';
-import { NEVER_COVERS } from '../contract/src/experimental/authority.ts';
+import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-const PRD = readFileSync(join(ROOT, 'docs/prd/ORBIT_OS_PRD_v9_0.md'), 'utf8');
+/** Repo root. fileURLToPath, not URL.pathname, so a path with spaces or
+ *  non-ASCII characters is not left percent-encoded (Task 1 minor 5). */
+export const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
-/** A list is only allowed to exist in code if the file citing it names its PRD section. */
-function citesSection(file: string, section: string) {
-  expect(readFileSync(join(ROOT, file), 'utf8'), `${file} must cite ${section}`).toContain(section);
+const toPosix = (p: string) => p.split(sep).join('/');
+
+export const readRepoFile = (rel: string) => readFileSync(join(REPO_ROOT, rel), 'utf8');
+
+let tracked: string[] | undefined;
+/** Paths git tracks, POSIX-separated, relative to the repo root. Memoized.
+ *  Using git rather than the working tree means an untracked local file cannot
+ *  fail a guard here while passing in CI (Task 1 minor 7). */
+export function trackedFiles(): string[] {
+  tracked ??= execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean);
+  return tracked;
 }
 
-test('A.3 task states: seven, matching the PRD, and the file cites A.3', () => {
+export type WalkOptions = {
+  /** Directory names skipped ONLY at the top of this walk, never at depth, so a
+   *  nested docs/reference/ is still scanned (Task 1 minor 2). */
+  skipAtRoot?: readonly string[];
+  /** Lowercase extensions including the dot. Omit to take every file. */
+  extensions?: readonly string[];
+};
+
+const walkCache = new Map<string, string[]>();
+
+/** Every file under `dir`, POSIX-separated and relative to the repo root.
+ *  Memoized per (dir, options) so seven guards do not each re-walk the tree. */
+export function walkFiles(dir: string, options: WalkOptions = {}): string[] {
+  const key = [dir, (options.skipAtRoot ?? []).join(','), (options.extensions ?? []).join(',')].join('\u0000');
+  const hit = walkCache.get(key);
+  if (hit) return hit;
+
+  const skip = new Set(options.skipAtRoot ?? []);
+  const out: string[] = [];
+
+  const recurse = (rel: string, depth: number): void => {
+    let entries;
+    try {
+      entries = readdirSync(join(REPO_ROOT, rel), { withFileTypes: true });
+    } catch (err) {
+      // Only a missing directory is tolerated, because a guard armed before its
+      // code exists must pass. EACCES or a broken link throws: a swallowed error
+      // is a guard that quietly stopped checking (Task 1 minor 4).
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw err;
+    }
+    for (const entry of entries) {
+      const child = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (depth === 0 && skip.has(entry.name)) continue;
+        recurse(child, depth + 1);
+      } else if (entry.isFile()) {
+        const name = entry.name.toLowerCase();
+        if (!options.extensions || options.extensions.some((e) => name.endsWith(e))) out.push(child);
+      }
+    }
+  };
+
+  const start = toPosix(dir);
+  recurse(start === '.' ? '' : start, 0);
+  walkCache.set(key, out);
+  return out;
+}
+
+/** Case-SENSITIVE existence check. existsSync ignores case on Windows and does
+ *  not on Linux, so a doc citing .../Assets/... would pass locally and fail in
+ *  CI. Comparing against a directory listing behaves the same on both
+ *  (Task 1 minor 1). */
+export function existsExact(rel: string): boolean {
+  const parts = toPosix(rel).split('/').filter(Boolean);
+  if (parts.length === 0) return false;
+  let cursor = '';
+  for (const part of parts) {
+    let entries: string[];
+    try {
+      entries = readdirSync(join(REPO_ROOT, cursor));
+    } catch {
+      return false;
+    }
+    if (!entries.includes(part)) return false;
+    cursor = cursor ? `${cursor}/${part}` : part;
+  }
+  return true;
+}
+```
+
+- [ ] **Step 2: Test the helper itself, then prove each fix**
+
+Create `guards/lib/walk.test.ts`. The helper is now load-bearing for every guard,
+so it gets its own tests rather than being trusted:
+
+```ts
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterAll, expect, test } from 'vitest';
+import { REPO_ROOT, existsExact, trackedFiles, walkFiles } from './walk.ts';
+
+const PROBE = 'guards/lib/__probe';
+afterAll(() => rmSync(join(REPO_ROOT, PROBE), { recursive: true, force: true }));
+
+test('the repo root resolves to a real directory with no percent-encoding', () => {
+  expect(REPO_ROOT).not.toMatch(/%[0-9A-Fa-f]{2}/);
+  expect(existsExact('package.json')).toBe(true);
+});
+
+test('skipAtRoot skips only at the top of the walk, not at depth', () => {
+  mkdirSync(join(REPO_ROOT, PROBE, 'reference'), { recursive: true });
+  writeFileSync(join(REPO_ROOT, PROBE, 'reference/deep.md'), 'x');
+  // 'reference' is a root skip entry for the repo walk, but here it is nested,
+  // so it must be found. The old name-at-any-depth matching hid it.
+  expect(walkFiles(PROBE, { skipAtRoot: ['reference'], extensions: ['.md'] })).toContain(
+    `${PROBE}/reference/deep.md`,
+  );
+});
+
+test('a missing directory is tolerated', () => {
+  expect(walkFiles('guards/lib/does-not-exist')).toEqual([]);
+});
+
+test('existsExact is case-sensitive, unlike existsSync on Windows', () => {
+  expect(existsExact('package.json')).toBe(true);
+  expect(existsExact('Package.json')).toBe(false);
+  expect(existsExact('docs/PRD')).toBe(false);
+});
+
+test('trackedFiles comes from git, not the working tree', () => {
+  const files = trackedFiles();
+  expect(files).toContain('package.json');
+  expect(files.some((f) => f.startsWith('reference/orbit-os-frontend/'))).toBe(true);
+  // landing/ is git-ignored, so it is never tracked.
+  expect(files.some((f) => f.startsWith('landing/'))).toBe(false);
+});
+
+test('a walk is memoized, so repeated calls return the same array', () => {
+  expect(walkFiles('guards', { extensions: ['.ts'] })).toBe(walkFiles('guards', { extensions: ['.ts'] }));
+});
+```
+
+Run: `npx vitest run --project unit guards/lib/walk.test.ts` — expected: 6 passed.
+
+- [ ] **Step 3: Rewrite `guards/paths.test.ts` on the helper**
+
+Replace its three private helpers (`walk`, `filesUnder`, the inline `ROOT`) with
+imports from `guards/lib/walk.ts`. Keep all three tests and their meaning: the
+husk-holds-no-files form, the allow-list of five history-recording documents with
+`ORBIT-OS_Claude_Code_Build_Prompts.md` and `dashboards/CLAUDE.md` kept in scope,
+and the path-resolution check. Two changes beyond the swap:
+
+- the allow-list **exact-matches** its two file entries (`docs/decisions.md`,
+  `docs/backlog.md`) and **prefix-matches** its three directory entries, so
+  `docs/decisions.md.bak` is no longer exempt (minor 3);
+- the path-resolution test uses `existsExact`, so a wrong-case reference path
+  fails here instead of only in CI (minor 1).
+
+Run: `npx vitest run --project unit guards/paths.test.ts` — expected: 3 passed,
+unchanged in meaning.
+
+- [ ] **Step 4: Write the Appendix A guards**
+
+Create `guards/appendix-a.test.ts`. **Every assertion reads one sliced appendix
+section.** The slicer throws when its heading is absent, which is what makes a
+deleted appendix fail loudly rather than silently passing:
+
+```ts
+import { expect, test } from 'vitest';
+import { readRepoFile } from './lib/walk.ts';
+import { AuthoritySchema } from '../contract/src/v1/org.ts';
+import { RiskCategorySchema, TaskStatusSchema } from '../contract/src/experimental/tasks.ts';
+import { NEVER_COVERS } from '../contract/src/experimental/authority.ts';
+
+const PRD_PATH = 'docs/prd/ORBIT_OS_PRD_v9_0.md';
+
+/** The text of ONE appendix section. Asserting against the whole 1,081-line PRD
+ *  is how the first draft of this guard passed on the words "New" and "Done":
+ *  it would have stayed green with Appendix A.3 deleted. */
+function prdSection(heading: string): string {
+  const prd = readRepoFile(PRD_PATH);
+  const start = prd.indexOf(`### ${heading}`);
+  if (start === -1) throw new Error(`PRD section "${heading}" is missing`);
+  const bounds = [prd.indexOf('\n### ', start + 1), prd.indexOf('\n## ', start + 1)].filter((n) => n !== -1);
+  return prd.slice(start, bounds.length ? Math.min(...bounds) : prd.length);
+}
+
+/** A list may be restated in code only if the file citing it names its section. */
+function citesSection(file: string, section: string): void {
+  expect(readRepoFile(file), `${file} must cite ${section}`).toContain(section);
+}
+
+test('A.3 task states: the seven in the appendix, and declined is not one', () => {
+  const a3 = prdSection('A.3');
   expect(TaskStatusSchema.options).toHaveLength(7);
   expect(TaskStatusSchema.options).not.toContain('declined');
   for (const state of ['New', 'Assigned', 'In progress', 'Waiting for approval', 'Done', 'Failed', 'Cancelled']) {
-    expect(PRD, state).toContain(state);
+    expect(a3, state).toContain(state);
   }
+  expect(a3).toMatch(/Seven states/i);
   citesSection('contract/src/experimental/tasks.ts', 'A.3');
 });
 
-test('A.4 risk categories: four, and the file cites A.4', () => {
+test('A.4 risk categories: four, named in the appendix', () => {
+  const a4 = prdSection('A.4');
   expect(RiskCategorySchema.options).toHaveLength(4);
+  for (const c of ['Routine', 'Decline or refer', 'High-risk', 'Office change']) expect(a4, c).toContain(c);
   citesSection('contract/src/experimental/tasks.ts', 'A.4');
 });
 
-test('A.7 never-covers: five, verbatim from the PRD, and the file cites A.7', () => {
+test('A.7 never-covers: five entries, each verbatim from the appendix', () => {
+  const a7 = prdSection('A.7');
   expect(NEVER_COVERS).toHaveLength(5);
-  for (const item of NEVER_COVERS) expect(PRD, item).toContain(item);
+  for (const item of NEVER_COVERS) expect(a7, item).toContain(item);
   citesSection('contract/src/experimental/authority.ts', 'A.7');
 });
 
-test('7.2 authorities: four, including Backup approver, and the file cites 7.2', () => {
+test('7.2 authorities: four, including Backup approver', () => {
   expect(AuthoritySchema.options).toEqual(['leader', 'approver', 'backup', 'budget']);
+  const s72 = prdSection('7.2 Authorities');
+  for (const a of ['Leader', 'Approver', 'Backup approver', 'Budget holder']) expect(s72, a).toContain(a);
   citesSection('contract/src/v1/org.ts', '7.2');
 });
 
-test('A.1 roles: five hireable plus Orbi, and no parked prototype name is seeded', () => {
+test('A.1 roles: the five hireable ones, and no parked prototype name is seeded', () => {
+  const a1 = prdSection('A.1');
   for (const role of ['Finance Clerk', 'Sales Analyst', 'Support Triager', 'HR Coordinator', 'Operations Reporter']) {
-    expect(PRD, role).toContain(role);
+    expect(a1, role).toContain(role);
   }
-  const seeds = readFileSync(join(ROOT, 'contract/src/v1/teammates.ts'), 'utf8');
+  expect(a1).toContain('Orbi, the Coordinator');
+  const seeds = readRepoFile('contract/src/v1/teammates.ts');
   for (const parked of ['Atlas', 'Scout', 'Echo', 'Ledger', 'Compass', 'Beacon', 'Pulse', 'Quill', 'Relay']) {
     expect(seeds, `${parked} is parked in docs/backlog.md and must not be seeded`).not.toContain(parked);
   }
 });
 
-test('A.5 budget: three numbers, and A.6 approval bases: three with no nullable case', () => {
+test('A.5 budget is three numbers and A.6 has three bases with no nullable case', () => {
+  expect(prdSection('A.5')).toMatch(/Monthly budget/i);
+  expect(prdSection('A.6')).toMatch(/exactly one/i);
   citesSection('contract/src/v1/teammates.ts', 'A.5');
   citesSection('contract/src/experimental/receipts.ts', 'A.6');
-  const receipts = readFileSync(join(ROOT, 'contract/src/experimental/receipts.ts'), 'utf8');
+  const receipts = readRepoFile('contract/src/experimental/receipts.ts');
   expect(receipts).toContain('discriminatedUnion');
   expect(receipts).not.toMatch(/approvedById:\s*Id\.nullable\(\)/);
 });
 ```
 
-- [ ] **Step 2: Run it, then prove it is not vacuous**
+- [ ] **Step 5: Write the contract layer-boundary test**
 
-Run: `npx vitest run --project unit guards/appendix-a.test.ts` — expected: 6 passed.
+Create `guards/contract-boundary.test.ts`:
 
-Then break each list on purpose and confirm the guard fails: add an eighth task
-state; drop `backup` from the authorities; add a sixth never-covers entry; and
-remove the `A.3` citation from a comment. Restore each and confirm `git diff
---exit-code` is clean.
+```ts
+import { expect, test } from 'vitest';
+import { readRepoFile, walkFiles } from './lib/walk.ts';
 
-- [ ] **Step 3: Commit**
+const ENGINE_HOOKS = 'dashboards/src/features/engine/';
+
+test('only the engine hooks folder imports the engine layer', () => {
+  const offenders = walkFiles('dashboards/src', { extensions: ['.ts', '.tsx'] })
+    .filter((f) => !f.startsWith(ENGINE_HOOKS))
+    .filter((f) => /@orbit\/contract\/experimental/.test(readRepoFile(f)));
+  expect(offenders).toEqual([]);
+});
+
+test('the stable layer is reachable from anywhere in the dashboards', () => {
+  // Proves the rule is a boundary on ONE layer, not a blanket ban on the
+  // contract. If this ever has to be relaxed, the split has failed.
+  const files = walkFiles('dashboards/src', { extensions: ['.ts', '.tsx'] });
+  if (files.length === 0) return; // Stream A has not started
+  expect(files.some((f) => /@orbit\/contract\/v1/.test(readRepoFile(f)))).toBe(true);
+});
+```
+
+The first test is armed before `dashboards/src` exists, like the mock-boundary
+guard: it passes vacuously now and fails on the commit that first breaks the rule.
+
+- [ ] **Step 6: Prove every new guard can fail**
+
+For each, break it on purpose, confirm the named failure, restore, and confirm
+`git diff --exit-code` is clean:
+
+| Break | Expect |
+|---|---|
+| Add an eighth entry to `TaskStatusSchema` | the A.3 length assertion fails |
+| Rename `### A.3` to `### A.3x` in the PRD | `prdSection` throws "PRD section A.3 is missing" |
+| Delete the `A.3` comment from `tasks.ts` | `citesSection` fails |
+| Drop `backup` from `AuthoritySchema` | the 7.2 assertion fails |
+| Add a sixth entry to `NEVER_COVERS` | the A.7 length assertion fails |
+| Put `Atlas` in a comment in `teammates.ts` | the A.1 parked-name assertion fails |
+| Create `dashboards/src/apps/user/x.ts` importing `@orbit/contract/experimental` | the boundary test names that file |
+
+- [ ] **Step 7: Run everything and commit**
+
+Run: `pnpm typecheck && pnpm test:unit && pnpm lint`
 
 ```bash
-git add guards/appendix-a.test.ts
-git commit -m "test(guard): pin every fixed list to its PRD appendix section"
+git add guards/lib guards/appendix-a.test.ts guards/contract-boundary.test.ts guards/paths.test.ts
+git commit -F - <<'EOF'
+test(guard): extract the shared walk and pin each fixed list to its appendix
+
+The plan was heading for nine copies of the same directory walk. It already
+held seven inline repo-root lines and six separately named walk functions,
+and five of the seven minor defects Task 1's review found were that same
+duplication reported five times. They are fixed once, in guards/lib/walk.ts.
+
+The skip list now matches only at the top of a walk, so a nested
+docs/reference/ is scanned rather than silently skipped. The allow-list
+exact-matches its file entries, so a .bak sibling is no longer exempt. Only
+a missing directory is tolerated: EACCES or a broken link throws, because a
+swallowed error is a guard that quietly stopped checking. The root comes from
+fileURLToPath, and tracked files come from git rather than the working tree,
+so an untracked local file cannot fail a guard that passes in CI.
+
+existsExact replaces existsSync for path resolution. existsSync ignores case
+on Windows and does not on Linux, so a document citing a wrong-case path
+passed on one machine and failed in CI. Comparing against a directory listing
+behaves the same on both.
+
+The helper has its own tests, because every guard now depends on it.
+
+The Appendix A guards read one sliced section each. The first draft asserted
+against the whole 1,081-line PRD, which meant it passed on the words "New"
+and "Done" and would have stayed green with the appendix deleted. The slicer
+throws when its heading is absent, so deleting an appendix fails loudly.
+
+The contract layer-boundary test closes the one rule that had no guard while
+every lesser rule had one: only the engine hooks folder may import the
+experimental layer. That rule is the whole reason the contract is split in
+two, and without it engine churn would land in thirty screens instead of one
+folder.
+EOF
+```
 ```
 
 ### Task 14: S-43, the design and naming check
@@ -2623,101 +2931,100 @@ a document, which is not a repeatable check. It fails the build if a customer
 screen uses a colour outside the token set, a card grid where §15.2 requires a
 plain list, or a banned word. It runs with S-20 and in CI.
 
-- [ ] **Step 1: Write the guard**
+- [ ] **Step 1: Write the guard on the shared helper**
+
+Create `guards/design-naming.test.ts`. It imports from `guards/lib/walk.ts` and
+writes no walk of its own.
 
 ```ts
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { expect, test } from 'vitest';
+import { existsExact, readRepoFile, walkFiles } from './lib/walk.ts';
 
-const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-
-/** Customer surfaces only. reference/ is read-only history and the fleet app is
- *  exempt under PRD section 15.3, so neither is scanned. */
+/** Customer surfaces only. reference/ is read-only history. The fleet app is
+ *  exempt under PRD section 15.3: it is an operator surface, and ORBIT-OS,
+ *  Paperclip, Hermes, runtime ids and adapter names are correct there.
+ *  Fleet-only components live in dashboards/src/apps/fleet, which is why that
+ *  path is absent from this list (decision of 2026-10-06). */
 const CUSTOMER_DIRS = ['dashboards/src/apps/user', 'dashboards/src/apps/org-admin', 'dashboards/src/shared'];
+const CODE = ['.ts', '.tsx', '.css', '.html'] as const;
 const BANNED = [/ORBIT-OS/, /Paperclip/i, /Hermes/i, /OpenClaw/i, /\bMCP\b/, /\btoken\b/i, /adapter/i];
+const DEAD_PALETTE = ['#6316f9', '#e94bb5', '#f3f2f8', '#1a1a24', '#6b6b7b', '#e2e0eb'];
 
-function files(dir: string, out: string[] = []): string[] {
-  let entries: string[];
-  try {
-    entries = readdirSync(join(ROOT, dir));
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    const child = `${dir}/${entry}`;
-    if (statSync(join(ROOT, child)).isDirectory()) files(child, out);
-    else if (/\.(tsx?|css|html)$/.test(child)) out.push(child);
-  }
-  return out;
-}
+const customerFiles = () => CUSTOMER_DIRS.flatMap((d) => walkFiles(d, { extensions: CODE }));
 
 test('no customer screen names an internal system', () => {
   const offenders: string[] = [];
-  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
-    const text = readFileSync(join(ROOT, file), 'utf8');
+  for (const file of customerFiles()) {
+    const text = readRepoFile(file);
     for (const word of BANNED) if (word.test(text)) offenders.push(`${file}: ${String(word)}`);
   }
   expect(offenders).toEqual([]);
 });
 
-test('the fleet console is exempt, and that exemption is deliberate', () => {
-  // Proves the rule is scoped rather than globally off: the fleet app may say
-  // ORBIT-OS, and a guard that banned it everywhere would fail here by design.
-  const fleet = files('dashboards/src/apps/fleet');
-  if (fleet.length === 0) return; // Stream A has not built it yet
-  expect(fleet.some((f) => /ORBIT-OS/.test(readFileSync(join(ROOT, f), 'utf8')))).toBe(true);
-});
-
 test('no customer screen introduces a colour outside the token set', () => {
   const offenders: string[] = [];
-  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
-    const text = readFileSync(join(ROOT, file), 'utf8');
-    // Any literal hex or rgb() in a screen is a colour that bypassed the tokens.
-    for (const match of text.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g)) {
-      offenders.push(`${file}: ${match[0]}`);
+  for (const file of customerFiles()) {
+    for (const m of readRepoFile(file).matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g)) {
+      offenders.push(`${file}: ${m[0]}`);
     }
   }
   expect(offenders).toEqual([]);
 });
 
 test('the prototype palette never reappears', () => {
+  const offenders = customerFiles().filter((f) => {
+    const text = readRepoFile(f).toLowerCase();
+    return DEAD_PALETTE.some((hex) => text.includes(hex));
+  });
+  expect(offenders).toEqual([]);
+});
+
+test('no customer screen builds a card grid where section 15.2 requires a list', () => {
+  const banned = [/grid-template-columns/, /\bgrid-cols-\d/, /\bKpiTile\b/, /className="[^"]*\bkpi\b/];
   const offenders: string[] = [];
-  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
-    const text = readFileSync(join(ROOT, file), 'utf8').toLowerCase();
-    for (const dead of ['#6316f9', '#e94bb5', '#f3f2f8', '#1a1a24', '#6b6b7b', '#e2e0eb']) {
-      if (text.includes(dead)) offenders.push(`${file}: ${dead}`);
-    }
+  for (const file of customerFiles()) {
+    const text = readRepoFile(file);
+    for (const b of banned) if (b.test(text)) offenders.push(`${file}: ${String(b)}`);
   }
   expect(offenders).toEqual([]);
 });
 
-test('no customer screen builds a card grid where section 15.2 requires a plain list', () => {
-  const offenders: string[] = [];
-  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
-    const text = readFileSync(join(ROOT, file), 'utf8');
-    for (const banned of [/grid-template-columns/, /\bgrid-cols-\d/, /className="[^"]*\bkpi\b/, /\bKpiTile\b/]) {
-      if (banned.test(text)) offenders.push(`${file}: ${String(banned)}`);
-    }
+const ENTRIES = [
+  ['dashboards/user/index.html', /<title>[^<]*Orbitcrew/],
+  ['dashboards/org-admin/index.html', /<title>[^<]*Orbitcrew/],
+  ['dashboards/fleet/index.html', /<title>[^<]*ORBIT-OS/],
+] as const;
+
+test('the User and Org Admin titles say Orbitcrew, and the fleet title keeps ORBIT-OS', () => {
+  const missing = ENTRIES.filter(([f]) => !existsExact(f)).map(([f]) => f);
+
+  for (const [file, want] of ENTRIES.filter(([f]) => existsExact(f))) {
+    expect(readRepoFile(file), file).toMatch(want);
   }
-  expect(offenders).toEqual([]);
+
+  if (missing.length > 0) {
+    // Loud on purpose, on every run. A test that skips forever and passes
+    // forever is worse than no test, so the skip is visible rather than silent.
+    console.warn(
+      `[S-43] title check skipped for ${missing.length} of 3 dashboard entries that do not exist yet: ${missing.join(', ')}`,
+    );
+  }
+
+  // This is what stops the skip above from becoming permanent. Once Stream A has
+  // written any screen, the entry files must exist.
+  if (walkFiles('dashboards/src', { extensions: ['.tsx'] }).length > 0) {
+    expect(missing, 'Stream A has screens but a dashboard entry file is missing').toEqual([]);
+  }
 });
 
-test('the User and Org Admin titles say Orbitcrew, and the fleet title does not', () => {
-  const entries: [string, RegExp][] = [
-    ['dashboards/user/index.html', /<title>[^<]*Orbitcrew/],
-    ['dashboards/org-admin/index.html', /<title>[^<]*Orbitcrew/],
-    ['dashboards/fleet/index.html', /<title>[^<]*ORBIT-OS/],
-  ];
-  for (const [file, want] of entries) {
-    let text: string;
-    try {
-      text = readFileSync(join(ROOT, file), 'utf8');
-    } catch {
-      continue; // Stream A has not created it yet
-    }
-    expect(text, file).toMatch(want);
+test('the fleet console is exempt, and the exemption is on its title', () => {
+  // Scoped to the title rather than "some fleet file mentions ORBIT-OS", which a
+  // stray comment would satisfy.
+  if (!existsExact('dashboards/fleet/index.html')) {
+    console.warn('[S-43] fleet exemption check skipped: dashboards/fleet/index.html does not exist yet');
+    return;
   }
+  expect(readRepoFile('dashboards/fleet/index.html')).toMatch(/<title>[^<]*ORBIT-OS/);
 });
 ```
 
@@ -2926,3 +3233,34 @@ Expected: 6 passed, suite green, typecheck clean.
 git add contract/src/v1/routing.ts contract/src/v1/routing.test.ts
 git commit -m "feat(contract): route office changes by type, as a pure function"
 ```
+
+---
+
+## Addendum 4: every guard uses the shared helper (2026-10-06)
+
+Task 13 extracts `guards/lib/walk.ts`. **Tasks 2, 5, 6 and 14 import from it and
+must not re-inline a walk, a repo-root line or an existence check**, even though
+their code blocks above still show the old private helpers. Those blocks were
+written before the helper existed and are kept for their assertions, not their
+plumbing.
+
+| Task | Replace with |
+|---|---|
+| 2, `guards/rules.test.ts` and `guards/standing-rules.test.ts` | `readRepoFile`, `walkFiles`, `trackedFiles`, `existsExact` |
+| 5, `guards/freeze.test.ts` | `walkFiles(dir, { extensions: ['.test.ts'] })` and `readRepoFile`; keep the file-baseline comparison exactly as specified |
+| 6, `guards/mock-boundary.test.ts` | `walkFiles` and `readRepoFile`; keep the ALLOWED list and both tests |
+| 14, `guards/design-naming.test.ts` | already written against the helper |
+
+Two rules that travel with the helper:
+
+- **`existsExact` replaces `existsSync` for any path that comes from a document.**
+  `existsSync` ignores case on Windows and does not on Linux, so a wrong-case path
+  passes on one machine and fails in CI. That class of bug is the worst kind to
+  carry, which is why it closes here rather than being deferred.
+- **Only a missing directory is tolerated.** `EACCES`, a broken link or a path too
+  long throws. A guard that swallows every error is a guard that quietly stopped
+  checking, and it still reports green.
+
+Minor 6 from Task 1's review, the extension list, stays deferred. The helper takes
+`extensions` from its caller, so widening it later is a one-line change per call
+site rather than a rewrite.
