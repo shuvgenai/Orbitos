@@ -79,20 +79,43 @@ put('dashboards/src/features/engine/useTasks.ts', "import { x } from '@orbit/con
 put('dashboards/src/screens/Ok.tsx', "import { y } from '@orbit/contract/v1';");
 put('dashboards/src/screens/ViaPackage.tsx', "import { x } from '@orbit/contract/experimental';");
 put('dashboards/src/screens/ViaPath.ts', "import { x } from '../../../contract/src/experimental/tasks.ts';");
+// One probe per extension in SOURCE, and that is not padding. Extension
+// matching is endsWith, and no extension implies another: 'Plain.mjs' does not
+// end with '.js', and 'Legacy.cts' does not end with '.ts'. So every entry in
+// SOURCE is load-bearing on its own, and without a probe for each one, dropping
+// .js, .mts, .cts or .cjs from the list left no test failing.
 put('dashboards/src/screens/Plain.mjs', "import { x } from '@orbit/contract/experimental';");
+put('dashboards/src/screens/Plain.js', "import { x } from '@orbit/contract/experimental';");
 put('dashboards/src/screens/Jsx.jsx', "import { x } from '@orbit/contract/experimental';");
+put('dashboards/src/screens/Modern.mts', "import { x } from '@orbit/contract/experimental';");
+put('dashboards/src/screens/Legacy.cts', "import { x } from '@orbit/contract/experimental';");
+put('dashboards/src/screens/Legacy.cjs', "import { x } from '@orbit/contract/experimental';");
 put('dashboards/dist/built.js', "import { x } from '@orbit/contract/experimental';");
 put('dashboards/vite.config.ts', 'export default {};');
 put('dashboards/lib/helper.ts', 'export {};');
 put('dashboards/stray.ts', 'export {};');
 
 test('the boundary rule catches a package import, a relative path, and every script extension', () => {
-  expect(boundaryBreaches(PROBE).sort()).toEqual([
+  // An exact set, not a subset: a missing entry fails, and so does an extra one.
+  expect([...boundaryBreaches(PROBE)].sort()).toEqual([
     'dashboards/src/screens/Jsx.jsx',
+    'dashboards/src/screens/Legacy.cjs',
+    'dashboards/src/screens/Legacy.cts',
+    'dashboards/src/screens/Modern.mts',
+    'dashboards/src/screens/Plain.js',
     'dashboards/src/screens/Plain.mjs',
     'dashboards/src/screens/ViaPackage.tsx',
     'dashboards/src/screens/ViaPath.ts',
   ]);
+});
+
+test('every extension in SOURCE has a probe, so dropping one cannot pass unnoticed', () => {
+  // Guards the guard above. If SOURCE grows and nobody adds a probe, the set
+  // assertion still passes and the new extension is unchecked. This fails
+  // instead, naming what is missing.
+  const breached = [...boundaryBreaches(PROBE)];
+  const unprobed = SOURCE.filter((ext) => !breached.some((f) => f.toLowerCase().endsWith(ext)));
+  expect(unprobed, 'these SOURCE extensions have no probe file importing the experimental layer').toEqual([]);
 });
 
 test('the boundary rule allows the engine folder, the stable layer, and ignores build output', () => {
