@@ -29,6 +29,9 @@
 - Every code diff gets a security review in a fresh session that reads only the diff. Docs-only commits are exempt.
 - Checkpoints carry no dates. They are gates.
 - Plain language in all user-facing and document copy: short sentences, no jargon, no em dashes, no exclamation marks.
+- **No guard may mutate the repo tree.** A test that needs a file tree builds it in the OS temp directory with `mkdtempSync` and walks it by passing `root` to `walkFiles`. This binds Tasks 14 and 15 and anything later that walks files.
+
+  The reason is a failure, not a preference. `guards/lib/walk.test.ts` first built its probe at `guards/lib/__probe`, and `guards/paths.test.ts` then failed with `ENOENT`: vitest runs test files in parallel, so it walked the probe and then read a file the probe's `afterAll` had already deleted. Any guard that walks and then reads is racy against anything mutating the tree, and more guards are coming. The fix is to stop mutating the tree rather than to make each reader tolerant of a vanishing file, because a reader that tolerates a missing file also tolerates the file it was supposed to catch.
 
 ## Review Focus
 

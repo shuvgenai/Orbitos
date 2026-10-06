@@ -132,16 +132,39 @@ test('7.2 restores Backup approver as a named authority', () => {
 // verbatim; each restating file cites its section; the nine parked prototype
 // roles appear in no seed; and receipts uses a discriminatedUnion with no
 // nullable approver.
+/**
+ * The seven assertions that compare the CODE restating each fixed list against
+ * the appendix slices above. They are written out here, not referenced by task
+ * number, so whoever creates the contract does not have to reconstruct them from
+ * a plan document that may have moved on by then.
+ */
+const DUE_WHEN_CONTRACT_EXISTS = [
+  "TaskStatusSchema.options has the seven values from the A.3 slice and does not contain 'declined'",
+  'RiskCategorySchema.options has the four values from the A.4 slice',
+  "AuthoritySchema.options equals ['leader', 'approver', 'backup', 'budget'] per the 7.2 slice",
+  'NEVER_COVERS has five entries and each one appears verbatim in the A.7 slice',
+  'each restating file cites its section: tasks.ts cites A.3 and A.4, authority.ts cites A.7, ' +
+    'org.ts cites 7.2, teammates.ts cites A.5, receipts.ts cites A.6',
+  'none of Atlas, Scout, Echo, Ledger, Compass, Beacon, Pulse, Quill or Relay appears in ' +
+    'contract/src/v1/teammates.ts, because A.1 parks all nine in docs/backlog.md',
+  "receipts.ts contains 'discriminatedUnion' and does not match /approvedById:\\s*Id\\.nullable\\(\\)/",
+] as const;
+
 test('once the contract exists, the code-vs-appendix checks are due here', () => {
-  // A tripwire, not an assertion about today. It stays quiet while the contract
-  // is absent and fires the moment the deferred work becomes possible, which is
-  // the only moment anyone would otherwise forget it. Asserting the contract is
-  // absent would instead be a time bomb: it would fail on the commit that
-  // correctly creates it.
+  // A tripwire on a precondition, not an assertion about today. It stays quiet
+  // while the contract is absent and fires the moment the deferred work becomes
+  // possible, which is the only moment anyone would otherwise forget it.
+  //
+  // Asserting the contract is absent would instead be a time bomb: it would fail
+  // on the very commit that correctly creates it.
   if (!existsExact('contract/src/experimental/tasks.ts')) return;
 
   throw new Error(
-    'contract/ now exists, so the deferred half of this guard is due. Add the ' +
-      'code-vs-appendix assertions from Task 8 acceptance above this test, then delete this test.',
+    [
+      'contract/src/experimental/ now exists, so the deferred half of this guard is due.',
+      'Add these assertions above this test, then delete this test:',
+      ...DUE_WHEN_CONTRACT_EXISTS.map((a, i) => `  ${i + 1}. ${a}`),
+      'Use the prdSection() slices already in this file. Do not assert against the whole PRD.',
+    ].join('\n'),
   );
 });
