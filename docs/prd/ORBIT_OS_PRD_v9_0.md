@@ -772,7 +772,7 @@ The Org Admin reaches every User screen plus these.
 | --- | --- | --- | --- | --- |
 | 1 | Guided setup | `/setup` | The six-step checklist with a progress bar, in the A-01 order | A-01 |
 | 2 | Departments and teams | `/org/departments` | Departments, teams, default Approver and escalation path each | A-02 |
-| 3 | Org chart | `/org/chart` | People and AI teammates, reporting lines, drag to change. Indented list below 768 px | A-03 |
+| 3 | Org chart | `/org/chart` | People and AI teammates on one chart, rendered as an **indented list at every width** with a side panel for the selected node that sets its manager. No drag-and-drop canvas: §15.2 requires plain lists. Enforces one Coordinator, one manager each, no loops, maximum depth three, and says which rule a refused change broke | A-03 |
 | 4 | People | `/org/people` | Invite, access role, authorities, backups, delegation, empty-Leader fallback | A-04 to A-08 |
 | 5 | AI teammates | `/teammates` | The hired team as a plain list: status, what each is doing right now, who it reports to, owner, budget, assignment, cost today. Hire from the fixed role list. Filter by person. **This list carries what the prototype drew as a separate Agent map; there is no map screen and no new feature ID** | A-10, A-12, A-15 |
 | 6 | Teammate profile | `/teammates/:id` | Role, prompt, guardrails, tools action by action, limits, assignment, jobs, cost, full record | A-11, A-13, A-15 |
@@ -826,23 +826,21 @@ Internal operator surface. Counts and status only, never customer content. Namin
 
 Each screen is then marked **Fill now** (working logic in Stream A) or **Fill later**.
 
-**Fill now: 26.**
+**Fill now: 28.** Amended 2026-10-06: U-19 Request a teammate and A-03 Org chart moved in, for the reasons under "Two screens moved" below.
 
 | Role | Screens |
 | --- | --- |
-| User, 10 | Sign in, Home, Ask or describe, Job summary check, Practice run, Task board, Task page, Waiting for you, Approval page, Receipts |
-| Org Admin, 12 | Guided setup, Departments and teams, People, AI teammates, Teammate profile, Requests, Jobs library, Job detail, Spending, Connections, Intake channels, Office controls |
+| User, 11 | Sign in, Home, Ask or describe, Job summary check, Practice run, Task board, Task page, Waiting for you, Approval page, Receipts, **Request a teammate** |
+| Org Admin, 13 | Guided setup, Departments and teams, **Org chart**, People, AI teammates, Teammate profile, Requests, Jobs library, Job detail, Spending, Connections, Intake channels, Office controls |
 | Super Admin, 4 | Fleet table, Office view, Provision, Security |
 
-**Fill later: 26**, each with what unblocks it.
+**Fill later: 24**, each with what unblocks it.
 
 | Screen | Route | Unblocked by |
 | --- | --- | --- |
 | Weekly reviews | `/reviews` | the test office producing real numbers. A Friday review needs a week of real tasks |
 | Chat with Orbi | `/chat` | the task engine, Stream B. Orbi answering from data needs the engine |
-| Request a teammate | `/teammates/request` | **nothing. See the flag below: this one is mis-assigned** |
 | Profile and alerts | `/me` | no external dependency. Push and lock-screen actions need open decision 5 |
-| Org chart | `/org/chart` | **no external dependency. See the flag below: borderline** |
 | Standing Authority | `/authority` | **open decision 2** |
 | Rules and safety | `/rules` | the test office producing real numbers. A-33 proposes a rule after repeated overrides, so it needs overrides to exist |
 | Data boundaries | `/rules/data` | no external dependency. **Data ships at launch, defaulting closed** |
@@ -867,7 +865,9 @@ Each screen is then marked **Fill now** (working logic in Stream A) or **Fill la
 
 #### Fill later screens whose data must ship at launch
 
-The founder named the audit log. There are six in total. In each case the data is load-bearing for something that is Fill now, or for a gate, so the data ships and only the screen waits.
+There are six. In each case the data is load-bearing for something that is Fill now, or for a gate, so the data ships and only the screen waits.
+
+**None of the six is Stream A work.** This section states *that* each ships; it is not where they are owned. Each has an owner, a stream, a task number and the checkpoint it gates in `docs/superpowers/plans/2026-10-05-v8-seam-and-contract.md`, Addendum 3. Two of the six had no sub-project to belong to when that was written, and the addendum says which and what was added to hold them.
 
 | # | Data | Why it cannot wait |
 | --- | --- | --- |
@@ -878,11 +878,13 @@ The founder named the audit log. There are six in total. In each case the data i
 | 5 | **Job-understanding test set** (S-40) | It is Checkpoint B, which gates the org, connector and fleet work in Stream B. A gate with no test set is not a gate |
 | 6 | **Backup status and incident counts** (S-07, S-21) | Both are already columns on the Fill-now fleet table, so the records exist whether or not their own screens do |
 
-#### Two screens flagged as mis-assigned
+#### Two screens moved to Fill now, 2026-10-06
 
-**Request a teammate (`/teammates/request`, U-19) should be Fill now.** Its only consumer, the Org Admin Requests queue (A-14), is already Fill now, and U-19 is the only thing that puts a teammate request into that queue. As marked, A-14 ships a queue that can only ever be empty, and the pair U-19 plus A-14 is one of the three scope changes v9.0 added. Moving it makes Fill now 27 and Fill later 25. **Recommended.**
+**Request a teammate (`/teammates/request`, U-19).** Its only consumer, the Org Admin Requests queue (A-14), is Fill now, and U-19 is its only producer. Left as it was, A-14 shipped a queue that could only ever be empty, and the pair U-19 plus A-14 is one of the three scope changes v9.0 added. **The estimate does not move: the 1c list already included this screen**, so folding it in costs nothing.
 
-**Org chart (`/org/chart`, A-03) is borderline.** The strict-tree rules — exactly one Coordinator, one manager each, no loops — ship in `contract/v1` and are enforced during Guided setup, which is Fill now. But §7.3 puts people and AI teammates on one chart, and with no chart screen there is no way to see or repair a tree that a validator has refused. It is survivable, because Departments, People and Teammate profile are all Fill now and between them cover every edit. Founder's call; I am not moving it.
+**Org chart (`/org/chart`, A-03).** Reporting lines have no other editing home. A-15 assigns a teammate to a department or to named people; A-03 is what sets who manages whom. With `contract/v1` enforcing exactly one Coordinator, one manager each, no loops and a maximum depth of three, a refused tree would have had nowhere to be repaired.
+
+It is built as the **indented list with a side panel**, which §15.6 already specifies below 768 px and which now applies at every width. The prototype's drag-and-drop canvas does not survive §15.2, for the same reason the agent map's curved connectors do not: §15.2 requires plain lists. The canvas is parked in `docs/backlog.md`. What carries over from the prototype is the **strict-tree validation behaviour**, not the interaction. Sized in 1c, not 1b, because the indented-list-plus-side-panel pattern has no prototype counterpart to copy.
 
 ## 16. Non-functional requirements
 

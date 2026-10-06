@@ -307,3 +307,60 @@ about 6 weeks, so the work did not grow. The estimate got honest.
 screen hand-rolls its own six states, the shell work alone exceeds the logic work.
 Sub-project 1a builds the six states once, and S-43 and the accessibility check
 run on every route from the first week, which is what keeps that from happening.
+
+## 2026-10-06 - U-19 and A-03 move to Fill now: 28 and 24
+
+**Decision:** Request a teammate (U-19) and Org chart (A-03) move into the Fill
+now set. Fill now becomes 28, Fill later 24. A-03 is built as an indented list at
+every width with a side panel that sets the selected node's manager, and is sized
+in 1c rather than 1b.
+
+**Reason:** U-19 is the only producer for A-14, which was already Fill now, so the
+request queue could only ever have been empty. A-03 is the only editing home for
+reporting lines: A-15 assigns a teammate to a department or to people, while A-03
+sets who manages whom, and with contract/v1 refusing a tree that breaks one
+Coordinator, one manager each, no loops or maximum depth three, a refused tree had
+nowhere to be repaired.
+
+**Cost if wrong:** U-19 was already counted in 1c so it is free. A-03 widens 1c
+from about 2.5 weeks to 2.5 to 3, because it has no prototype interaction to copy.
+
+## 2026-10-06 - The org chart drag-and-drop canvas is parked
+
+**Decision:** the prototype's drag-and-drop org canvas and its curved SVG status
+connectors are both parked in docs/backlog.md. /org/chart renders an indented list
+at every width with a side panel. What carries over is the validation behaviour,
+not the interaction.
+
+**Reason:** PRD section 15.2 requires plain lists and bans card grids. Section
+15.6 already specified the indented list below 768 px; it now applies at every
+width.
+
+**Cost if wrong:** a section 15.2 change would bring either back, which is a PRD
+version bump.
+
+## 2026-10-06 - SP-6 Fleet and operations backend is added, because it was missing
+
+**Decision:** a new sub-project SP-6, Stream B, size M, after SP-4. It owns the
+nightly numbers rollup (S-38), backup status records (S-07), incident records
+(S-21), setup-tracker state (S-02) and the operator audit trail written inside the
+affected office (S-23). Office-change routing (A-34) becomes SP-0 Task 15, a pure
+function in contract/v1.
+
+**Reason:** this is the answer to the founder's question about which load-bearing
+data items have no stream. Two had none, and the cause was a mistake in the
+decomposition rather than a gap in the PRD. PRD section 17 has five build streams
+and the fifth is the fleet console. When the screen inventories arrived, that
+stream was absorbed into Stream A as twelve shells and four Fill-now screens, and
+its server side disappeared with it: there was a sub-project for the fleet
+console's screens and none for the thing that produces what they display.
+Office-change routing had a different problem, not a missing stream but a missing
+task: it is a pure function both streams need, so it belongs with the other
+validators in contract/v1 and in neither stream.
+
+**Cost if wrong:** SP-6 does not gate Stream A, because Stream A is mock-backed by
+design, so the fleet table fills from MockApiClient and waits for nothing. What
+SP-6 gates is the first real numbers, which belong to the test office. The risk is
+the opposite of a blocked stream: a fleet table that looks finished while every
+number in it is invented. The Task 6 mock-boundary guard is what keeps that from
+shipping.

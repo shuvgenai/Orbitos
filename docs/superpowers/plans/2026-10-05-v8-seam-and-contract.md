@@ -2745,3 +2745,143 @@ depends on, the nightly numbers rollup the fleet table reads, the
 job-understanding test set that is Checkpoint B, and backup status and incident
 counts. Each is a field or a record in the contract, not a screen, so each lands
 in Task 7 or Task 8 of this sub-project or in Stream B, never in Stream A.
+
+### Addendum 3: the six load-bearing data items, with owners (2026-10-06)
+
+PRD §15.8 states that six Fill later screens have data that ships at launch. This
+is where each one is owned. **Three of the six needed something added to this
+plan, and two of those had no sub-project to belong to at all.**
+
+| # | Data | Owner | Stream, sub-project, task | Gates |
+|---|---|---|---|---|
+| 1 | **Audit log** (A-35) | Stream B | SP-4 gateway and org, new Task A | **The real-data gate, condition 2.** Blocks customer zero and every real-data decision |
+| 2 | **Per-teammate data boundary** (A-38) | split | field and default-closed: **SP-0 Task 7**; enforcement: Stream B SP-4 | A-15 shipping in 1b, and §14.2 isolation once enforcement exists |
+| 3 | **Office-change routing** (A-34) | **SP-0, new Task 15** | this sub-project | A-14 shipping in 1b |
+| 4 | **Nightly numbers rollup** (S-38) | **nobody. New SP-6** | Stream B, SP-6 | the first real fleet numbers, not the screen. See below |
+| 5 | **Job-understanding test set** (S-40) | Stream B | SP-3 task engine, its exit criterion | **It is Checkpoint B**, which gates SP-4 |
+| 6 | **Backup status and incident counts** (S-07, S-21) | **nobody. New SP-6** | Stream B, SP-6 | the first real fleet numbers, not the screen |
+
+#### The gap this exposed
+
+Items 4 and 6 had no owner because of a mistake in the decomposition, not an
+oversight in §15.8. PRD §17 has five build streams, and its fifth is the **fleet
+console**. When the screen inventories arrived I absorbed that stream into
+Stream A as twelve shells plus four Fill-now screens — and its **server side
+disappeared with it**. There was a sub-project for the fleet console's screens and
+none for the thing that produces what those screens display.
+
+**Added: SP-6, Fleet and operations backend.** Stream B, size M, after SP-4.
+Contents: the nightly numbers rollup (S-38), backup status records (S-07),
+incident records (S-21), setup-tracker state (S-02) and the operator audit trail
+written inside the affected office (S-23). It is the missing half of PRD stream
+S5.
+
+#### What items 4 and 6 do not gate
+
+Worth stating plainly, because it changes the sequencing. **Stream A is
+mock-backed by design**, so the fleet table, backup column and incident column in
+1b are filled by `MockApiClient` and do not wait for SP-6. What SP-6 gates is the
+first *real* numbers, which belongs to the test office, not to Stream A.
+
+So SP-6 does not have to run early, and the fleet table is correctly Fill now.
+The risk if this is misread is the opposite of a blocked stream: a fleet table
+that looks finished while every number in it is invented. The mock-boundary guard
+from Task 6 is what keeps that from shipping.
+
+#### Item 3 is the one that actually blocks Stream A
+
+Office-change routing is a **pure function**: given a change type and the actor's
+authorities, which authority approves it, per the §12 table. Both streams need
+it — Stream A to render the Requests queue and route a costly hire, Stream B to
+enforce the decision — so it belongs with the other pure validators in
+`contract/v1`, not in either stream. Hence **SP-0 Task 15**, below.
+
+### Task 15: office-change routing, as a pure function
+
+**Files:** Create `contract/src/v1/routing.ts` and `contract/src/v1/routing.test.ts`.
+Runs after Task 7.
+
+**Interfaces:** Consumes `AuthoritySchema` and `AccessSchema` from `./org.ts` and
+`RiskCategorySchema` from `../experimental/tasks.ts`. Produces
+`routeOfficeChange(change, people)`, which returns the authority that must
+approve and the people who hold it. Task 9 adds it to `DashboardApi` as a pure
+helper, not a network call.
+
+- [ ] **Step 1: Write the failing test**
+
+Cases from the PRD §12 "who approves what" table and §7.2:
+
+```ts
+import { expect, test } from 'vitest';
+import { routeOfficeChange } from './routing.ts';
+
+const people = [
+  { id: 'p1', access: 'admin' as const, authorities: ['leader' as const, 'budget' as const] },
+  { id: 'p2', access: 'admin' as const, authorities: [] },
+  { id: 'p3', access: 'user' as const, authorities: ['approver' as const] },
+];
+
+test('a new job or a new rule routes to the Org Admin access role', () => {
+  for (const kind of ['new_job', 'new_rule'] as const) {
+    expect(routeOfficeChange({ kind }, people).authority).toBe('org_admin');
+    expect(routeOfficeChange({ kind }, people).holders).toEqual(['p1', 'p2']);
+  }
+});
+
+test('a costly hire and a teammate request route by type, not to whoever asked', () => {
+  // PRD section 9, A-14: a costly hire follows the office-change rule A-34.
+  expect(routeOfficeChange({ kind: 'teammate_request', costly: false }, people).authority).toBe('org_admin');
+  expect(routeOfficeChange({ kind: 'teammate_request', costly: true }, people).authority).toBe('budget');
+});
+
+test('a budget increase routes to the Budget holder, which defaults to the Leader', () => {
+  expect(routeOfficeChange({ kind: 'budget_increase' }, people).holders).toEqual(['p1']);
+  const noBudgetHolder = [{ id: 'p9', access: 'admin' as const, authorities: ['leader' as const] }];
+  // Section 7.2: Budget holder defaults to the Leader.
+  expect(routeOfficeChange({ kind: 'budget_increase' }, noBudgetHolder).holders).toEqual(['p9']);
+});
+
+test('granting Standing Authority routes to a Leader, and never to an Org Admin alone', () => {
+  expect(routeOfficeChange({ kind: 'standing_authority' }, people).authority).toBe('leader');
+  expect(routeOfficeChange({ kind: 'standing_authority' }, [people[1]!]).holders).toEqual([]);
+});
+
+test('an empty Leader seat returns no holder rather than falling back to anyone', () => {
+  // Section 9, A-08: a stated fallback applies and high-risk work is HELD. The
+  // router must not quietly widen authority to fill the gap.
+  const noLeader = [{ id: 'p2', access: 'admin' as const, authorities: [] }];
+  const out = routeOfficeChange({ kind: 'standing_authority' }, noLeader);
+  expect(out.holders).toEqual([]);
+  expect(out.held).toBe(true);
+});
+
+test('an unknown change kind throws rather than defaulting to the weakest authority', () => {
+  // @ts-expect-error an unlisted change kind is not routable
+  expect(() => routeOfficeChange({ kind: 'something_new' }, people)).toThrow(/unknown office change/i);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run --project unit contract/src/v1/routing.test.ts`
+Expected: FAIL, cannot resolve `./routing.ts`.
+
+- [ ] **Step 3: Write `routing.ts`**
+
+A pure function, no I/O, no model call. A `Record` from change kind to the
+authority that approves it, the Budget-holder-defaults-to-Leader rule, and a
+`held: true` result when no person holds the required authority. An unknown kind
+throws: defaulting to the weakest authority is how an office change gets approved
+by someone who may not approve it.
+
+- [ ] **Step 4: Run the test, then the suite**
+
+Run: `npx vitest run --project unit contract/src/v1/routing.test.ts && pnpm test:unit && pnpm typecheck`
+Expected: 6 passed, suite green, typecheck clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add contract/src/v1/routing.ts contract/src/v1/routing.test.ts
+git commit -m "feat(contract): route office changes by type, as a pure function"
+```

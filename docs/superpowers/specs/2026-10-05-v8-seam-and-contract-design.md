@@ -586,10 +586,18 @@ stream more than its length.
 |---|---|---|
 | **1a Foundation and shells** | Tokens from `design/`, Tailwind theme, AppShell and nav for three apps, the six §15.4 states as one component, all **52 shells**, S-43 green on every route | M, about 1.5 weeks |
 | **1b Fill-now logic, prototype-derived** | The 15 Fill-now screens that have a prototype behaviour spec: Sign in, Home, Ask or describe, Task board, Receipts, Guided setup, Departments, People, AI teammates, Teammate profile, Requests, Connections, Fleet table, Office view, Provision | L, about 2 weeks |
-| **1c Fill-now logic, PRD-only** | The 12 with no prototype counterpart, designed from their feature IDs: Job summary check, Practice run, Task page, Waiting for you, Approval page, Jobs library, Job detail, Spending, Intake channels, Office controls, Security, and Request a teammate once it moves | L, about 2.5 weeks |
+| **1c Fill-now logic, PRD-only** | The 13 with no prototype counterpart, designed from their feature IDs: Job summary check, Practice run, Task page, Waiting for you, Approval page, Jobs library, Job detail, Spending, Intake channels, Office controls, Security, Request a teammate, **Org chart** | L, about 2.5 to 3 weeks |
 
-**About 6 weeks for Stream A**, against 3 to 4 in the original sizing of
+**About 6 to 6.5 weeks for Stream A**, against 3 to 4 in the original sizing of
 sub-project 1 alone.
+
+Amended 2026-10-06, after U-19 and A-03 moved to Fill now: **28 screens get logic,
+24 are Fill later.** U-19 Request a teammate was already in the 1c list, so it
+costs nothing. A-03 Org chart is new to 1c, not 1b, because it ships as an
+indented list with a side panel and the prototype's drag-and-drop canvas does not
+survive §15.2 — there is no prototype interaction to copy, only the strict-tree
+validation behaviour, which lives in `contract/v1` either way. That is the only
+reason the 1c range widens.
 
 **But the stream does not get longer.** The original decomposition had
 sub-project 1 at 3 to 4 weeks plus sub-project 2 at 2 weeks, so 5 to 6 weeks for

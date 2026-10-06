@@ -59,12 +59,24 @@ Both are settled. Neither is parked.
 The feature register moves to Org Admin 45 and 111 in total. The screen count
 stays at 52, because A-45 is a tab rather than a screen.
 
-## The prototype's curved-connector org visual
+## The prototype's org-chart visuals: connectors and drag-and-drop
 
-**Parked 2026-10-06.** The prototype drew reporting lines as curved SVG connectors
-coloured by status, with a dashed variant for idle, paused and draft. PRD section
-15.2 requires plain lists and bans card grids, so /org/chart renders reporting
-lines as an indented list, which section 15.6 already specifies below 768 px and
-which now applies at every width.
+**Parked 2026-10-06.** Two interactions from the prototype's org views do not
+survive PRD section 15.2, which requires plain lists and bans card grids.
 
-**What would bring it back:** a section 15.2 change, which is a PRD version bump.
+- **Curved SVG connectors.** The prototype drew reporting lines as curved
+  connectors coloured by status, with a dashed variant for idle, paused and draft.
+- **Drag-and-drop canvas.** A-03 in the prototype let you drag people and
+  teammates into place to set who reports to whom.
+
+`/org/chart` instead renders an **indented list at every width** with a side panel
+that sets the selected node's manager. Section 15.6 already specified the indented
+list below 768 px; it now applies at every width.
+
+**What carries over is the behaviour, not the interaction:** exactly one
+Coordinator, one manager each, no loops, maximum depth three, and a refused change
+saying which rule it broke. That validation is the valuable part and it lives in
+`contract/v1`.
+
+**What would bring either back:** a section 15.2 change, which is a PRD version
+bump.
