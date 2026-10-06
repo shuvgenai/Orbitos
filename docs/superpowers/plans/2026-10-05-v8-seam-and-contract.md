@@ -17,8 +17,12 @@
 - Frozen directories: `frontdesk/`, `api/`, `db/`, `shared/`, `template/`, `ops/`, `design/`. **This corrects the spec**, which named only the first five; `vitest list` shows `ops/` and `design/` also hold collected tests.
 - No file in those seven directories is modified by this sub-project. `vitest.config.ts`, `tsconfig.json`, `.gitignore`, `pnpm-workspace.yaml`, `package.json` and `.github/workflows/ci.yml` are root files and may be added to, never reduced.
 - `reference/` is read-only: excluded from typecheck, lint, every vitest project and every build.
-- Customers never see the words Paperclip, Hermes, OpenClaw or MCP. Say agents, teammates, tools, office. Runtime ids and adapter names appear only in the Super Admin Office view.
-- Customer-facing name is **Orbitcrew**. PRD v8.0 open decision 1 is closed as answered. ORBIT-OS stays the internal name.
+- **The authority is `docs/prd/ORBIT_OS_PRD_v9_0.md`.** It supersedes v8.0. v8.0 and v7.0 are the historical record and are not corrected. Where v9.0 and an earlier decision disagree, v9.0 wins.
+- **Fixed product lists live only in PRD v9.0 Appendix A** and are never restated in code, seed files or documents without citing it: A.1 roles, A.2 connector catalog, A.3 the seven task states, A.4 the four risk categories, A.5 the three-number budget, A.6 the three approval bases, A.7 the never-covers list, A.8 escalation defaults, A.9 the six safe states.
+- **Design tokens come from the frozen `design/` package**, proven by `design/tokens.test.ts`. Layout follows PRD §15.2: plain lists, no card grids, no KPI tiles, no template gallery; one red used only for errors; Inter; theme follows the phone. The prototype's purple, pink, radii and card layouts are **not** carried over.
+- **The prototype supplies behaviour, copy and screen flow only.** Names, roles, tools and visuals come from the PRD. Where prototype copy names Atlas, or a role or tool not in Appendix A, substitute the PRD's name and change nothing else in the sentence.
+- **The naming rule is scoped** (PRD §15.3). Customer screens — the User and Org Admin apps, and every customer email and push alert — never say ORBIT-OS, Paperclip, Hermes, OpenClaw, MCP, token, agent id or adapter name, including in the `<title>` tag, email subjects and error text. **The Super Admin fleet console is exempt**: it is an internal operator surface and those names are correct there.
+- Customer-facing name is **Orbitcrew**, settled in PRD v9.0 §18.1. ORBIT-OS stays the internal name.
 - Standing Authority: UI surface only, feature-flagged off, contract surface read-only (`listGrants` and nothing else). No enforcement. Blocked pending the founder's one-page decision.
 - Dependency versions are pinned exact. `.npmrc` already sets `save-exact=true`; every `pnpm add` uses `-E` as well.
 - Secrets: this project's own `.env`, never committed, `.env.example` checked in. No shared or cross-project env file is read or written.
@@ -393,7 +397,11 @@ Required content:
 - Standing Authority enforcement is blocked pending the founder's decision. Do not design or build it.
 - The first real job runs against a dedicated test mailbox and test accounts. No live inbox and no real customer data until the Action Gateway, the audit log and budget pausing are all in place and tested, and the founder has said so.
 
-- [ ] **Step 6: Write `docs/decisions.md` with the six decisions already taken**
+- [ ] **Step 6: Verify `docs/decisions.md`, which already exists**
+
+**Changed by the v9.0 rebase.** `docs/decisions.md` was created by the rebase commit and already holds fourteen entries, including the four-condition real-data gate, the design-token decision, the replaced rule 3 and the parked roles. This step no longer writes it. It verifies the entries the guards depend on are present and appends anything missing. The format is `## <ISO date> - <decision>` followed by `**Decision:**`, `**Reason:**` and `**Cost if wrong:**`.
+
+The original instruction for this step is kept below for the record, because it describes what those entries must contain:
 
 Format, one block each: `## <ISO date> — <decision>`, then `**Decision:**`, `**Reason:**`, `**Cost if wrong:**`.
 
@@ -465,12 +473,28 @@ test('no code path reads an env file outside this repo', () => {
 
 // Rule: no real data until the gate opens.
 
-test('the real-data gate is recorded, and recorded as not yet met', () => {
+test('the real-data gate is recorded with all four conditions, and recorded as not yet met', () => {
   const decisions = readFileSync(join(ROOT, 'docs/decisions.md'), 'utf8');
   expect(decisions).toMatch(/real-data gate/i);
   expect(decisions).toMatch(/dedicated test mailbox/i);
   expect(decisions).toMatch(/the founder decides/i);
   expect(decisions).toMatch(/open-pending/i);
+  // PRD v9.0 section 14.3. Three conditions is the v8.0 count and is wrong.
+  for (const condition of [/Action Gateway/i, /audit log/i, /budget pausing/i, /no-training/i]) {
+    expect(decisions, String(condition)).toMatch(condition);
+  }
+});
+
+test('the gate fails closed: the Anthropic attestation does not yet exist', () => {
+  const attestation = join(ROOT, 'docs/gates/anthropic-terms.md');
+  if (!existsSync(attestation)) return; // absent is the expected state, and the gate holds
+
+  // Present means someone is asserting the terms are signed. Then it must say
+  // who, when and where, or it is not an attestation and the gate must not open.
+  const text = readFileSync(attestation, 'utf8');
+  for (const required of [/confirmed by/i, /date/i, /signed document/i]) {
+    expect(text, String(required)).toMatch(required);
+  }
 });
 
 test('no tracked configuration names a mailbox that is not a test mailbox', () => {
@@ -1231,8 +1255,16 @@ export const Usd = z.number().finite().nonnegative();
 import { z } from 'zod';
 import { Email, Id, NonEmpty } from './common.ts';
 
+/** PRD v9.0 §7.1. One access role per person per office: the sign-in level. */
 export const AccessSchema = z.enum(['user', 'admin']);
-export const AuthoritySchema = z.enum(['leader', 'approver', 'budget']);
+
+/**
+ * PRD v9.0 §7.2. Authorities are separate from the access role, and a person may
+ * hold none, one or several. `backup` is Backup approver, restored as a named
+ * authority in v9.0: v8.0 named it only inside an escalation rule, which is why
+ * it was missing from the first draft of this schema.
+ */
+export const AuthoritySchema = z.enum(['leader', 'approver', 'backup', 'budget']);
 
 export const PersonSchema = z.object({
   id: Id,
@@ -1245,7 +1277,17 @@ export const PersonSchema = z.object({
   invited: z.boolean().optional(),
 });
 
-export const DepartmentSchema = z.object({ id: Id, name: NonEmpty });
+/**
+ * PRD v9.0 §7.3: each department has a default Approver and an escalation path,
+ * and each job belongs to exactly one department. Escalation defaults are in
+ * Appendix A.8 and are editable per job.
+ */
+export const DepartmentSchema = z.object({
+  id: Id,
+  name: NonEmpty,
+  defaultApproverId: Id.nullable(),
+  escalation: z.array(Id),
+});
 
 export const LaunchStepSchema = z.object({
   k: NonEmpty,
@@ -1294,10 +1336,12 @@ Create `contract/src/v1/teammates.test.ts`:
 import { expect, test } from 'vitest';
 import { OrgChartSchema, TeammateSchema } from './teammates.ts';
 
+// Names come from PRD v9.0 Appendix A.1, never from the prototype. The
+// Coordinator is Orbi, exactly one per office, never removable, not hired.
 const base = {
   id: 'a1',
-  jobId: 'atlas',
-  name: 'Atlas',
+  jobId: 'orbi',
+  name: 'Orbi',
   job: 'Runs the office and hands work out',
   type: 'coordinator' as const,
   deptId: null,
@@ -1309,18 +1353,31 @@ const base = {
   version: 1,
   versions: [],
   guardrails: [],
-  tools: ['gmail'],
-  budget: 50,
+  tools: ['email'],
+  budget: { monthlyUsd: 50, dailyCheapCalls: 200, turnLimit: 12 },
+  dataBoundary: [],
+  assignment: { deptId: null, teamId: null, personIds: [] },
   runsToday: 0,
   costToday: 0,
   lastActive: 0,
   provisioned: false,
 };
 
-test('instructions under 20 characters are refused and a budget must be above zero', () => {
+test('instructions under 20 characters are refused', () => {
   expect(TeammateSchema.safeParse({ ...base, prompt: 'too short' }).success).toBe(false);
-  expect(TeammateSchema.safeParse({ ...base, budget: 0 }).success).toBe(false);
-  expect(TeammateSchema.parse(base).budget).toBe(50);
+});
+
+test('a budget is three numbers, and each one must be above zero (Appendix A.5)', () => {
+  expect(TeammateSchema.parse(base).budget).toEqual({ monthlyUsd: 50, dailyCheapCalls: 200, turnLimit: 12 });
+  for (const bad of [
+    { monthlyUsd: 0, dailyCheapCalls: 200, turnLimit: 12 },
+    { monthlyUsd: 50, dailyCheapCalls: 0, turnLimit: 12 },
+    { monthlyUsd: 50, dailyCheapCalls: 200, turnLimit: 0 },
+  ]) {
+    expect(TeammateSchema.safeParse({ ...base, budget: bad }).success, JSON.stringify(bad)).toBe(false);
+  }
+  // A single number cannot express the daily cap or the turn limit, so it is refused.
+  expect(TeammateSchema.safeParse({ ...base, budget: 50 }).success).toBe(false);
 });
 
 test('a specialist reports to one manager and the coordinator reports to the board', () => {
@@ -1329,7 +1386,7 @@ test('a specialist reports to one manager and the coordinator reports to the boa
 });
 
 test('an org chart refuses a second coordinator', () => {
-  const two = [base, { ...base, id: 'a2', name: 'Atlas Two' }];
+  const two = [base, { ...base, id: 'a2', name: 'Orbi Two' }];
   const problem = OrgChartSchema.safeParse(two);
   expect(problem.success).toBe(false);
   expect(JSON.stringify(problem)).toMatch(/exactly one coordinator/i);
@@ -1338,8 +1395,8 @@ test('an org chart refuses a second coordinator', () => {
 test('an org chart refuses a reporting loop', () => {
   const loop = [
     base,
-    { ...base, id: 'a2', name: 'Scout', type: 'specialist' as const, managerId: 'a3' },
-    { ...base, id: 'a3', name: 'Ledger', type: 'specialist' as const, managerId: 'a2' },
+    { ...base, id: 'a2', name: 'Sales Analyst', type: 'specialist' as const, managerId: 'a3' },
+    { ...base, id: 'a3', name: 'Finance Clerk', type: 'specialist' as const, managerId: 'a2' },
   ];
   const problem = OrgChartSchema.safeParse(loop);
   expect(problem.success).toBe(false);
@@ -1347,7 +1404,7 @@ test('an org chart refuses a reporting loop', () => {
 });
 
 test('an org chart refuses two teammates whose names differ only by case', () => {
-  const clash = [base, { ...base, id: 'a2', name: 'atlas', type: 'specialist' as const, managerId: 'a1' }];
+  const clash = [base, { ...base, id: 'a2', name: 'orbi', type: 'specialist' as const, managerId: 'a1' }];
   expect(OrgChartSchema.safeParse(clash).success).toBe(false);
 });
 ```
@@ -1380,6 +1437,21 @@ export const PerfSchema = z.object({
   cost7: Usd,
 });
 
+/**
+ * PRD v9.0 Appendix A.5: a budget is three numbers, not one. The first draft of
+ * this schema had a single `budget` field, which could not express the daily cap
+ * or the turn limit and so could not enforce either.
+ */
+export const BudgetSchema = z.object({
+  monthlyUsd: Usd.refine((v) => v > 0, 'a monthly budget must be above zero'),
+  dailyCheapCalls: z.number().int().positive(),
+  turnLimit: z.number().int().positive(),
+});
+
+/**
+ * Operator-only. Never rendered on a customer screen: PRD §15.3 bans these names
+ * there. The Super Admin fleet console is exempt and is where they appear.
+ */
 export const RuntimeSchema = z.object({
   paperclipId: NonEmpty,
   hermesProfile: NonEmpty,
@@ -1403,7 +1475,9 @@ export const TeammateSchema = z
     versions: z.array(PromptVersionSchema),
     guardrails: z.array(NonEmpty),
     tools: z.array(Id),
-    budget: Usd.refine((v) => v > 0, 'a budget must be above zero'),
+    budget: BudgetSchema,
+    dataBoundary: z.array(Id),
+    assignment: z.object({ deptId: Id.nullable(), teamId: Id.nullable(), personIds: z.array(Id) }),
     runsToday: z.number().int().nonnegative(),
     costToday: Usd,
     lastActive: Timestamp,
@@ -1462,13 +1536,72 @@ Expected: 5 passed.
 
 Same cycle for each: write the test, run it red, write the module, run it green.
 
-**`tools.ts`** — `ConnectionSchema` is `{ on: z.boolean(), mode: z.enum(['read','draft','act']), at: Timestamp, by: Id }`. `ToolSchema` is `{ id: Id, name: NonEmpty, tier: NonEmpty, can: z.array(NonEmpty), askFirst: z.array(NonEmpty), never: z.array(NonEmpty), comingSoon: z.boolean() }`. Tests: `mode` refuses a fourth value such as `'send'`; `AssignableToolSchema`, a refinement of `ToolSchema` with `comingSoon` false, refuses a tool marked `comingSoon`.
+**`tools.ts`** — the catalog is **Appendix A.2**, not the prototype's ten. Eight entries: Email, Calendar, Drive, Slack, HubSpot, Stripe, Notion, each first-permission read-only, and WhatsApp marked not available behind a switch until Meta approves. QuickBooks, Intercom, Salesforce, Ramp, Xero, ADP and LinkedIn are **not** in the catalog and are parked in `docs/backlog.md`.
+
+Permissions are **per action**, not one mode per connection (C-04), and **everything starts read-only**:
+
+```ts
+export const ToolActionSchema = z.object({
+  id: Id,
+  label: NonEmpty,
+  /** C-04: every action is either a read or a change. A change needs approval. */
+  kind: z.enum(['read', 'change']),
+  allowed: z.boolean(),
+});
+
+export const ConnectorSchema = z.object({
+  id: Id,
+  name: NonEmpty,
+  available: z.boolean(),         // WhatsApp is false until Meta approves
+  custom: z.literal(false),       // CD-1 safe default: custom connectors disabled
+  actions: z.array(ToolActionSchema),
+  dailyCallLimit: z.number().int().positive(),   // C-11
+  dailyCostLimitUsd: Usd,                        // C-11, its own budget (CD-3 default)
+});
+
+export const ConnectionSchema = z
+  .object({
+    connectorId: Id,
+    on: z.boolean(),
+    actions: z.array(ToolActionSchema),
+    connectedBy: Id,
+    at: Timestamp,
+    /** CD-5 safe default: a Leader approves EVERY change-capable connector. */
+    leaderApprovalId: Id.nullable(),
+  })
+  .superRefine((c, ctx) => {
+    const changes = c.actions.filter((a) => a.kind === 'change' && a.allowed);
+    if (changes.length > 0 && c.leaderApprovalId === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a change-capable connector needs a Leader approval',
+        path: ['leaderApprovalId'],
+      });
+    }
+  });
+```
+
+Tests: a fresh connection has every action `allowed: false`; allowing a `change` action with no `leaderApprovalId` is refused; allowing only `read` actions parses with no approval; `available: false` cannot be switched on; `custom: true` is refused while CD-1 is unanswered; the catalog has exactly the eight Appendix A.2 entries and none of the seven parked ones.
 
 **`launch.ts`** — re-exports `LaunchJobSchema` and `LaunchStepSchema` from `org.ts` (do not redefine them) and adds `LaunchStatusSchema` = `{ job: LaunchJobSchema, retryableFrom: z.number().int().nonnegative().nullable() }` with a refinement: `retryableFrom` is the index of the first step whose status is `fail`, and `null` when no step has failed. Tests: a job whose third step is `fail` gives `retryableFrom` 2; a job with no failure gives `null`; a job claiming `retryableFrom` 0 while no step failed is refused.
 
-**`requests.ts`** — `RequestStatusSchema` is `z.enum(['pending','approved','changes','rejected'])`. `AgentRequestSchema` is `{ id: Id, by: Id, name: NonEmpty, purpose: NonEmpty, prompt: z.string().min(20), tools: z.array(Id), reason: NonEmpty, status: RequestStatusSchema, adminNote: z.string(), at: Timestamp }` with a refinement: `changes` and `rejected` both require a non-empty `adminNote`. Tests: a `rejected` request with an empty note is refused; a `changes` request with an empty note is refused; a `pending` request with an empty note parses.
+**`requests.ts`** — this is the **U-19 and A-14** flow, which v9.0 adds as a scope change: a User requests a teammate in plain words, and the Org Admin approves it, edits the prompt, adds guardrails, or declines with a reason. A request never creates a teammate on its own.
 
-**`fleet.ts`** — `FleetOfficeSchema` is `{ id: Id, name: NonEmpty, domain: NonEmpty, status: z.enum(['live','onboarding','awaiting']), agents: z.number().int().nonnegative(), spend7: Usd, version: NonEmpty, health: z.enum(['ok','warn','error']) }` with a refinement: an office whose status is `awaiting` has `agents` of 0. Tests: a negative `agents` is refused; an `awaiting` office with 3 agents is refused; a `live` office with 9 agents parses.
+`RequestStatusSchema` is `z.enum(['pending','approved','changes','rejected'])`. `TeammateRequestSchema` is `{ id: Id, by: Id, whatItWouldDo: NonEmpty, deptId: Id, why: NonEmpty, status: RequestStatusSchema, adminNote: z.string(), editedPrompt: z.string().nullable(), guardrails: z.array(NonEmpty), at: Timestamp }` with two refinements: `changes` and `rejected` both require a non-empty `adminNote`; and `approved` requires an `editedPrompt` of at least 20 characters, because approval is what sets the teammate's instructions.
+
+The fields follow U-19's wording — what it would do, which department, why — rather than the prototype's request form, which asked for a name and a tool list the requester has no authority to choose.
+
+Tests: a `rejected` request with an empty note is refused; a `changes` request with an empty note is refused; a `pending` request with an empty note parses; an `approved` request with a null or too-short `editedPrompt` is refused; a request with no `deptId` is refused.
+
+**`fleet.ts`** — the fleet row carries what **S-10** lists, and provisioning takes the **six facts** of **S-01**, not the prototype's three.
+
+`ProvisionInputSchema` is `{ name: NonEmpty, domain: NonEmpty, plan: NonEmpty, ownerEmail: Email, website: NonEmpty, calendarLink: NonEmpty }`.
+
+`FleetOfficeSchema` is `{ id: Id, name: NonEmpty, domain: NonEmpty, status: z.enum(['live','onboarding','awaiting']), version: NonEmpty, health: z.enum(['ok','warn','error']), teammates: z.number().int().nonnegative(), backupAt: Timestamp.nullable(), teamStatus: NonEmpty, connections: z.number().int().nonnegative(), incidents: z.number().int().nonnegative(), requestsOver24h: z.number().int().nonnegative(), spendMonthUsd: Usd, operatorMinutes: z.number().int().nonnegative() }` with a refinement: an office whose status is `awaiting` has `teammates` of 0.
+
+The spend figure is **month to date**, per S-10. The first draft had a seven-day total, which no PRD feature asks for.
+
+Tests: provisioning with five of the six facts is refused, once per missing fact; an invalid `ownerEmail` is refused; a negative value is refused on each counter; an `awaiting` office with 3 teammates is refused; a `live` office parses with every S-10 field present.
 
 **`index.ts`** — re-export every schema and type from the six modules. No logic.
 
@@ -1667,25 +1800,39 @@ const grant = {
   grantedBy: 'p2',
   grantedAt: 1,
   endsAt: 2,
-  limits: ['nothing above 500 dollars'],
-  neverCovers: ['anything that changes a contract'],
+  category: 'routine' as const,
+  maxAmountUsd: 500,
+  maxPerDay: null,
   active: true,
 };
 
-test('a grant carries its limits, an end date and a never-covers list', () => {
-  expect(AuthorityGrantSchema.parse(grant).neverCovers).toHaveLength(1);
+test('a grant carries a category, a numeric limit and an end date', () => {
+  expect(AuthorityGrantSchema.parse(grant).maxAmountUsd).toBe(500);
+  expect(AuthorityGrantSchema.parse({ ...grant, maxAmountUsd: null, maxPerDay: 5 }).maxPerDay).toBe(5);
+});
+
+test('a grant with no numeric limit is refused: fixed code enforces limits, not the AI', () => {
+  expect(AuthorityGrantSchema.safeParse({ ...grant, maxAmountUsd: null, maxPerDay: null }).success).toBe(false);
 });
 
 test('a grant with no end date is refused, because authority has to expire', () => {
   expect(AuthorityGrantSchema.safeParse({ ...grant, endsAt: null }).success).toBe(false);
+  expect(AuthorityGrantSchema.safeParse({ ...grant, endsAt: 1 }).success).toBe(false);
 });
 
-test('a grant with no limits is refused, because an unlimited grant is not a limited one', () => {
-  expect(AuthorityGrantSchema.safeParse({ ...grant, limits: [] }).success).toBe(false);
+test('a grant category must be one of the four fixed risk categories', () => {
+  expect(AuthorityGrantSchema.safeParse({ ...grant, category: 'anything' }).success).toBe(false);
+});
+
+test('the never-covers list is the fixed one from Appendix A.7, not per-grant text', () => {
+  expect(authority.NEVER_COVERS).toHaveLength(5);
+  expect(authority.NEVER_COVERS).toContain('Signing or agreeing to contracts');
+  // A grant cannot carry its own list, so it cannot omit one of these.
+  expect('neverCovers' in AuthorityGrantSchema.parse(grant)).toBe(false);
 });
 
 test('the module exposes no way to create, revoke or enforce a grant', () => {
-  expect(Object.keys(authority).sort()).toEqual(['AuthorityGrantSchema']);
+  expect(Object.keys(authority).sort()).toEqual(['AuthorityGrantSchema', 'NEVER_COVERS']);
   const source = readFileSync(new URL('./authority.ts', import.meta.url), 'utf8');
   for (const forbidden of [/createGrant/, /revokeGrant/, /enforce/i, /checkAuthority/]) {
     expect(source, String(forbidden)).not.toMatch(forbidden);
@@ -1700,25 +1847,59 @@ Expected: FAIL, cannot resolve `./authority.ts`.
 
 ```ts
 import { z } from 'zod';
-import { Id, NonEmpty, Timestamp } from '../v1/common.ts';
+import { Id, Timestamp, Usd } from '../v1/common.ts';
+import { RiskCategorySchema } from './tasks.ts';
 
 /**
- * Standing Authority is undecided. PRD v8.0 open decision 2 asks whether an AI
+ * Standing Authority is undecided. PRD v9.0 open decision 2 asks whether an AI
  * teammate may decide inside limits a Leader sets, which reverses the v6.2 rule
  * that AI can never approve. Until the founder answers, this file holds the
  * shape of a grant so the screens can list existing ones, and nothing else.
  * No create, no revoke, no enforcement. See docs/rules/engine.md.
  */
-export const AuthorityGrantSchema = z.object({
-  id: Id,
-  teammateId: Id,
-  grantedBy: Id,
-  grantedAt: Timestamp,
-  endsAt: Timestamp,
-  limits: z.array(NonEmpty).min(1, 'a grant without limits is not a limited grant'),
-  neverCovers: z.array(NonEmpty),
-  active: z.boolean(),
-});
+export const AuthorityGrantSchema = z
+  .object({
+    id: Id,
+    teammateId: Id,
+    grantedBy: Id,
+    grantedAt: Timestamp,
+    endsAt: Timestamp,
+    /** One of the four fixed risk categories, Appendix A.4. */
+    category: RiskCategorySchema,
+    /**
+     * PRD §12: the limit is a NUMBER, because fixed code enforces it, not the AI.
+     * An amount, a count per day, or both. At least one must be present. The
+     * first draft of this schema used an array of sentences, which no check can
+     * enforce and which made "limits are numbers" untrue.
+     */
+    maxAmountUsd: Usd.nullable(),
+    maxPerDay: z.number().int().positive().nullable(),
+    active: z.boolean(),
+  })
+  .superRefine((g, ctx) => {
+    if (g.maxAmountUsd === null && g.maxPerDay === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a grant needs a numeric limit: an amount, a count per day, or both',
+        path: ['maxAmountUsd'],
+      });
+    }
+    if (g.endsAt <= g.grantedAt) {
+      ctx.addIssue({ code: 'custom', message: 'a grant must end after it was granted', path: ['endsAt'] });
+    }
+  });
+
+/**
+ * Appendix A.7, fixed by the PRD. This is NOT free text per grant: a per-grant
+ * array would let a grant be written that silently omits one of these.
+ */
+export const NEVER_COVERS = [
+  'Hiring or removing people',
+  'Signing or agreeing to contracts',
+  'Changing roles, limits or budgets',
+  'Deleting data',
+  'Sending anything to an outside person that is not a fixed approved text',
+] as const;
 
 export type AuthorityGrant = z.infer<typeof AuthorityGrantSchema>;
 ```
@@ -1732,9 +1913,53 @@ Expected: 4 passed.
 
 - [ ] **Step 8: Write `tasks.ts` and `receipts.ts`, each test-first**
 
-**`tasks.ts`** — `TaskStatusSchema` is `z.enum(['new','assigned','waiting','done','failed','declined'])`. `TaskSchema` is `{ id: Id, jobId: Id, title: NonEmpty, assigneeId: Id.nullable(), assigneeKind: z.enum(['person','teammate']), status: TaskStatusSchema, waitingOn: Id.nullable(), createdAt: Timestamp, closedAt: Timestamp.nullable() }` with two refinements: a task whose status is `waiting` must name a `waitingOn`; a task whose status is `done`, `failed` or `declined` must have a `closedAt`, and any other status must have `closedAt` null. Tests: `waiting` with `waitingOn` null is refused; `done` with `closedAt` null is refused; `assigned` with a `closedAt` set is refused; a `waiting` task naming its approver parses.
+**`tasks.ts`** — two fixed lists from the PRD, neither invented here.
 
-**`receipts.ts`** — `ReceiptSchema` is `{ id: Id, taskId: Id, whatWasDone: NonEmpty, why: NonEmpty, byId: Id, byKind: z.enum(['person','teammate']), approvedById: Id.nullable(), approvedByGrantId: Id.nullable(), at: Timestamp, cost: Usd }` with a refinement pinning objective B4: a receipt must carry either an `approvedById` or an `approvedByGrantId`, and refusing both being null. Tests: both null is refused; a person's approval parses; a grant's approval parses; a declined task's receipt parses, since objective B6 says a declined request also gets a receipt.
+```ts
+/** PRD v9.0 Appendix A.3. Seven states. Declining is NOT a state: a declined
+ *  request ends the task as `cancelled` and writes a receipt (§6, TASK-9). */
+export const TaskStatusSchema = z.enum([
+  'new',
+  'assigned',
+  'in_progress',
+  'waiting_for_approval',
+  'done',
+  'failed',
+  'cancelled',
+]);
+
+/** PRD v9.0 Appendix A.4. Fixed checks set it from amounts, words, recipients
+ *  and the tool. A model may raise a category, never lower it (TASK-4). */
+export const RiskCategorySchema = z.enum(['routine', 'decline_or_refer', 'high_risk', 'office_change']);
+
+/** TASK-3: what the teammate attaches, and what U-35 "Why did it do this?" renders. */
+export const EvidenceSchema = z.object({
+  request: NonEmpty,
+  jobWords: NonEmpty,
+  factsRead: z.array(NonEmpty),
+  proposes: NonEmpty,
+});
+```
+
+`TaskSchema` is `{ id, jobId, deptId, title, assigneeId: Id.nullable(), assigneeKind: 'person'|'teammate', status, risk: RiskCategorySchema, evidence: EvidenceSchema.nullable(), waitingOn: Id.nullable(), remindAt: Timestamp, expiresAt: Timestamp, createdAt, closedAt: Timestamp.nullable() }` with three refinements: a task whose status is `waiting_for_approval` must name a `waitingOn`; a task whose status is `done`, `failed` or `cancelled` must have a `closedAt`, and any other status must have `closedAt` null; and `expiresAt` must be after `remindAt`.
+
+Tests: all seven states parse and an eighth does not; `declined` is refused as a state; `waiting_for_approval` with `waitingOn` null is refused; `done` with `closedAt` null is refused; `assigned` with a `closedAt` set is refused; the four risk categories parse and a fifth does not; the Appendix A.8 defaults hold, with `remindAt` two hours and `expiresAt` 72 hours after `createdAt`.
+
+**`receipts.ts`** — the approval basis is one of exactly three, with no nullable case.
+
+```ts
+/** PRD v9.0 Appendix A.6. Every receipt names exactly one. There is no
+ *  nullable or "other" case: that is what makes objective B4 checkable. */
+export const ApprovalBasisSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('per_action'), approvedById: Id }),
+  z.object({ kind: z.literal('standing_template'), templateId: Id, approvedById: Id }),
+  z.object({ kind: z.literal('standing_authority'), grantId: Id, grantedById: Id }),
+]);
+```
+
+`ReceiptSchema` is `{ id, taskId, whatWasDone: NonEmpty, why: NonEmpty, byId, byKind: 'person'|'teammate', basis: ApprovalBasisSchema, decision: z.enum(['approved','declined']), declineReason: z.string().nullable(), original: z.string().nullable(), edited: z.string().nullable(), at: Timestamp, cost: Usd }` with two refinements: `declined` requires a non-empty `declineReason`; and if `edited` is present then `original` must be too, since U-22 saves both versions on the receipt.
+
+Tests: a per-action basis parses; a standing-template basis parses; a standing-authority basis parses; an object with no `kind` is refused; a receipt with a nullable or absent basis is refused; a declined receipt with no reason is refused; a declined task still produces a valid receipt (§6, TASK-9, U-23); an `edited` value with no `original` is refused.
 
 **`index.ts`** — re-export every schema and type from the four modules. No logic.
 
@@ -2220,6 +2445,259 @@ EOF
 
 **2. Placeholder scan.** No "TBD", "TODO", "implement later" or "similar to Task N". Task 7 step 10 and Task 8 step 8 give four modules each as exact field lists, exact refinements and exact test assertions rather than full source; that is the one place the plan compresses, and nothing there is left to invention. No version string is hand-typed: `pnpm add -E` writes each resolved version.
 
-**3. Type consistency.** `Id`, `NonEmpty`, `Email`, `Timestamp`, `Usd` are defined once in `contract/src/v1/common.ts` (Task 7 step 4) and imported everywhere after, including from `contract/src/experimental/` as `../v1/common.ts` (Task 8 step 3). `LaunchJobSchema` and `LaunchStepSchema` are defined in `org.ts` and re-exported by `launch.ts`, never redefined. `OrgChartSchema` wraps `TeammateSchema` in the same file. `expectNoSeriousViolations` is defined in Task 4 step 3 and consumed in Task 11 step 2. `AuthorityGrantSchema` is the single runtime export of `authority.ts` in Task 8 and the only authority symbol in `client.ts` in Task 9. `listGrants` is spelled identically in Tasks 8, 9 and 11.
+**3. Type consistency.** `Id`, `NonEmpty`, `Email`, `Timestamp`, `Usd` are defined once in `contract/src/v1/common.ts` (Task 7 step 4) and imported everywhere after, including from `contract/src/experimental/` as `../v1/common.ts` (Task 8 step 3). `LaunchJobSchema` and `LaunchStepSchema` are defined in `org.ts` and re-exported by `launch.ts`, never redefined. `OrgChartSchema` wraps `TeammateSchema` in the same file. `expectNoSeriousViolations` is defined in Task 4 step 3 and consumed in Task 11 step 2. `authority.ts` has exactly two runtime exports, `AuthorityGrantSchema` and `NEVER_COVERS`, and its own test asserts that pair; `listGrants` is the only authority operation in `client.ts` in Task 9 and is spelled identically in Tasks 8, 9 and 11. `RiskCategorySchema` is defined once in `experimental/tasks.ts` and imported by `authority.ts`, which does not re-export it. `BudgetSchema` is defined once in `v1/teammates.ts`.
 
 **4. Review Focus.** All five lines have a test in the task owning the code: path staleness → Task 1 step 5, third test; root rules regression → Task 2 step 1, first test; frozen test deletion → Task 5 step 2, second test, proven by the deletion drill in step 4; lint ignore list → Task 3 step 2, first test; seven-line summary → Task 8 step 1, first test.
+
+---
+
+## Addendum: rebase onto PRD v9.0 (2026-10-06)
+
+`docs/prd/ORBIT_OS_PRD_v9_0.md` supersedes v8.0 and is the authority. The Global
+Constraints, the Task 7 and Task 8 code blocks and the Task 2 guards above are
+already rebased. This addendum records the rest, task by task, and adds two tasks.
+
+| Task | Change |
+|---|---|
+| 1 | `.gitignore`, `tsconfig.json` and the path guard are unchanged. **The three prototype `<title>` tags are NOT edited here.** See the ruling below. |
+| 2 | `docs/decisions.md` and `docs/backlog.md` already exist from the rebase commit; step 6 verifies rather than writes. The standing-rules guard now checks all four gate conditions and fails closed on the missing attestation. |
+| 3, 4, 5, 6 | Unchanged. Lint, the axe harness, the freeze guard and the mock-boundary guard are independent of the PRD version. |
+| 7 | Authorities gain `backup`. `DepartmentSchema` gains `defaultApproverId` and `escalation`. `BudgetSchema` replaces the single budget. `TeammateSchema` gains `dataBoundary` (A-38) and `assignment` (A-15). `tools.ts` becomes the Appendix A.2 catalog with per-action permissions. `fleet.ts` takes the six S-01 facts and the S-10 row. `requests.ts` becomes the U-19 and A-14 teammate-request flow. Names come from Appendix A.1: Orbi, not Atlas. |
+| 8 | Seven task states, four risk categories, a three-way discriminated approval basis, task evidence, reminder and expiry times, job versions and department, the numeric grant limit with its category, and the fixed `NEVER_COVERS`. `undoAction` is added for the exact 30-second window. |
+| 9 | The coverage check compares the contract against the **PRD §15.5 to §15.7 screen inventories and their feature IDs**, not against operation names grepped out of the build prompts. That is a better source: a screen inventory names what each screen must hold. |
+| 10 | CI gains the Appendix A guard and the S-43 design and naming check from the two new tasks below. |
+| 11 | The build prompts take their screen list from **§15.5 to §15.7**, 52 screens. Prompts 5b and 5c are replaced by that inventory. The new features to schedule are U-19, A-14, A-15, S-43 and the reordered A-01 setup. |
+| 12 | Unchanged. |
+
+**Ruling on the prototype titles.** PRD §15.3 says the three prototype entry
+files violate the customer naming rule and "must change". This plan also makes
+`reference/` read-only. Those two cannot both hold literally. The ruling:
+`reference/` stays untouched, because it is a historical artifact and editing it
+would make the behaviour spec disagree with the thing it documents. The title
+rule applies to the `dashboards/` entry files Stream A creates, where the User
+and Org Admin titles say **Orbitcrew** and the fleet title keeps **ORBIT-OS**
+under the §15.3 exemption. The S-43 guard in Task 14 asserts exactly that, and
+excludes `reference/`. Cost if wrong: the prototype keeps a title nobody ships.
+
+### Task 13: One guard per fixed list in Appendix A
+
+**Files:** Create `guards/appendix-a.test.ts`. Runs after Task 8.
+
+**Interfaces:** Consumes every fixed list from `contract/src/v1` and
+`contract/src/experimental`. Produces nothing other tasks depend on.
+
+PRD Appendix A says the fixed lists "may not be restated anywhere else" and that
+changing one is a PRD change with a version bump. Code has to restate them to
+work, so the guard's job is to catch a restatement drifting from the PRD without
+a matching section reference.
+
+- [ ] **Step 1: Write the guard**
+
+```ts
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from 'vitest';
+import { TaskStatusSchema, RiskCategorySchema } from '../contract/src/experimental/tasks.ts';
+import { AuthoritySchema } from '../contract/src/v1/org.ts';
+import { NEVER_COVERS } from '../contract/src/experimental/authority.ts';
+
+const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const PRD = readFileSync(join(ROOT, 'docs/prd/ORBIT_OS_PRD_v9_0.md'), 'utf8');
+
+/** A list is only allowed to exist in code if the file citing it names its PRD section. */
+function citesSection(file: string, section: string) {
+  expect(readFileSync(join(ROOT, file), 'utf8'), `${file} must cite ${section}`).toContain(section);
+}
+
+test('A.3 task states: seven, matching the PRD, and the file cites A.3', () => {
+  expect(TaskStatusSchema.options).toHaveLength(7);
+  expect(TaskStatusSchema.options).not.toContain('declined');
+  for (const state of ['New', 'Assigned', 'In progress', 'Waiting for approval', 'Done', 'Failed', 'Cancelled']) {
+    expect(PRD, state).toContain(state);
+  }
+  citesSection('contract/src/experimental/tasks.ts', 'A.3');
+});
+
+test('A.4 risk categories: four, and the file cites A.4', () => {
+  expect(RiskCategorySchema.options).toHaveLength(4);
+  citesSection('contract/src/experimental/tasks.ts', 'A.4');
+});
+
+test('A.7 never-covers: five, verbatim from the PRD, and the file cites A.7', () => {
+  expect(NEVER_COVERS).toHaveLength(5);
+  for (const item of NEVER_COVERS) expect(PRD, item).toContain(item);
+  citesSection('contract/src/experimental/authority.ts', 'A.7');
+});
+
+test('7.2 authorities: four, including Backup approver, and the file cites 7.2', () => {
+  expect(AuthoritySchema.options).toEqual(['leader', 'approver', 'backup', 'budget']);
+  citesSection('contract/src/v1/org.ts', '7.2');
+});
+
+test('A.1 roles: five hireable plus Orbi, and no parked prototype name is seeded', () => {
+  for (const role of ['Finance Clerk', 'Sales Analyst', 'Support Triager', 'HR Coordinator', 'Operations Reporter']) {
+    expect(PRD, role).toContain(role);
+  }
+  const seeds = readFileSync(join(ROOT, 'contract/src/v1/teammates.ts'), 'utf8');
+  for (const parked of ['Atlas', 'Scout', 'Echo', 'Ledger', 'Compass', 'Beacon', 'Pulse', 'Quill', 'Relay']) {
+    expect(seeds, `${parked} is parked in docs/backlog.md and must not be seeded`).not.toContain(parked);
+  }
+});
+
+test('A.5 budget: three numbers, and A.6 approval bases: three with no nullable case', () => {
+  citesSection('contract/src/v1/teammates.ts', 'A.5');
+  citesSection('contract/src/experimental/receipts.ts', 'A.6');
+  const receipts = readFileSync(join(ROOT, 'contract/src/experimental/receipts.ts'), 'utf8');
+  expect(receipts).toContain('discriminatedUnion');
+  expect(receipts).not.toMatch(/approvedById:\s*Id\.nullable\(\)/);
+});
+```
+
+- [ ] **Step 2: Run it, then prove it is not vacuous**
+
+Run: `npx vitest run --project unit guards/appendix-a.test.ts` — expected: 6 passed.
+
+Then break each list on purpose and confirm the guard fails: add an eighth task
+state; drop `backup` from the authorities; add a sixth never-covers entry; and
+remove the `A.3` citation from a comment. Restore each and confirm `git diff
+--exit-code` is clean.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add guards/appendix-a.test.ts
+git commit -m "test(guard): pin every fixed list to its PRD appendix section"
+```
+
+### Task 14: S-43, the design and naming check
+
+**Files:** Create `guards/design-naming.test.ts`, add `pnpm check:screens` to
+`package.json`, wire it into CI beside `pnpm lint`. Runs after Task 10.
+
+**Interfaces:** Consumes the frozen `design/` token set. Produces
+`pnpm check:screens`, which Stream A runs on every phase.
+
+S-43 is new in v9.0 and exists because the design collision was found by reading
+a document, which is not a repeatable check. It fails the build if a customer
+screen uses a colour outside the token set, a card grid where §15.2 requires a
+plain list, or a banned word. It runs with S-20 and in CI.
+
+- [ ] **Step 1: Write the guard**
+
+```ts
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from 'vitest';
+
+const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+
+/** Customer surfaces only. reference/ is read-only history and the fleet app is
+ *  exempt under PRD section 15.3, so neither is scanned. */
+const CUSTOMER_DIRS = ['dashboards/src/apps/user', 'dashboards/src/apps/org-admin', 'dashboards/src/shared'];
+const BANNED = [/ORBIT-OS/, /Paperclip/i, /Hermes/i, /OpenClaw/i, /\bMCP\b/, /\btoken\b/i, /adapter/i];
+
+function files(dir: string, out: string[] = []): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(join(ROOT, dir));
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const child = `${dir}/${entry}`;
+    if (statSync(join(ROOT, child)).isDirectory()) files(child, out);
+    else if (/\.(tsx?|css|html)$/.test(child)) out.push(child);
+  }
+  return out;
+}
+
+test('no customer screen names an internal system', () => {
+  const offenders: string[] = [];
+  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
+    const text = readFileSync(join(ROOT, file), 'utf8');
+    for (const word of BANNED) if (word.test(text)) offenders.push(`${file}: ${String(word)}`);
+  }
+  expect(offenders).toEqual([]);
+});
+
+test('the fleet console is exempt, and that exemption is deliberate', () => {
+  // Proves the rule is scoped rather than globally off: the fleet app may say
+  // ORBIT-OS, and a guard that banned it everywhere would fail here by design.
+  const fleet = files('dashboards/src/apps/fleet');
+  if (fleet.length === 0) return; // Stream A has not built it yet
+  expect(fleet.some((f) => /ORBIT-OS/.test(readFileSync(join(ROOT, f), 'utf8')))).toBe(true);
+});
+
+test('no customer screen introduces a colour outside the token set', () => {
+  const offenders: string[] = [];
+  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
+    const text = readFileSync(join(ROOT, file), 'utf8');
+    // Any literal hex or rgb() in a screen is a colour that bypassed the tokens.
+    for (const match of text.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g)) {
+      offenders.push(`${file}: ${match[0]}`);
+    }
+  }
+  expect(offenders).toEqual([]);
+});
+
+test('the prototype palette never reappears', () => {
+  const offenders: string[] = [];
+  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
+    const text = readFileSync(join(ROOT, file), 'utf8').toLowerCase();
+    for (const dead of ['#6316f9', '#e94bb5', '#f3f2f8', '#1a1a24', '#6b6b7b', '#e2e0eb']) {
+      if (text.includes(dead)) offenders.push(`${file}: ${dead}`);
+    }
+  }
+  expect(offenders).toEqual([]);
+});
+
+test('no customer screen builds a card grid where section 15.2 requires a plain list', () => {
+  const offenders: string[] = [];
+  for (const file of CUSTOMER_DIRS.flatMap((d) => files(d))) {
+    const text = readFileSync(join(ROOT, file), 'utf8');
+    for (const banned of [/grid-template-columns/, /\bgrid-cols-\d/, /className="[^"]*\bkpi\b/, /\bKpiTile\b/]) {
+      if (banned.test(text)) offenders.push(`${file}: ${String(banned)}`);
+    }
+  }
+  expect(offenders).toEqual([]);
+});
+
+test('the User and Org Admin titles say Orbitcrew, and the fleet title does not', () => {
+  const entries: [string, RegExp][] = [
+    ['dashboards/user/index.html', /<title>[^<]*Orbitcrew/],
+    ['dashboards/org-admin/index.html', /<title>[^<]*Orbitcrew/],
+    ['dashboards/fleet/index.html', /<title>[^<]*ORBIT-OS/],
+  ];
+  for (const [file, want] of entries) {
+    let text: string;
+    try {
+      text = readFileSync(join(ROOT, file), 'utf8');
+    } catch {
+      continue; // Stream A has not created it yet
+    }
+    expect(text, file).toMatch(want);
+  }
+});
+```
+
+- [ ] **Step 2: Run it, add the script, prove it is not vacuous**
+
+Run: `npx vitest run --project unit guards/design-naming.test.ts`. The scans pass
+vacuously until Stream A exists, which is the point: the guard is armed before
+the screens arrive, so the first violation fails on the commit that adds it.
+
+Prove it bites: create `dashboards/src/apps/user/probe.tsx` containing
+`#6316F9`, run the guard, confirm it fails naming that file and that colour, then
+delete the probe and re-run. Repeat with a `grid-cols-3` class and with the word
+`Paperclip`.
+
+Add `"check:screens": "vitest run --project unit guards/design-naming.test.ts guards/appendix-a.test.ts"`
+to `package.json`, and add `- run: pnpm check:screens` to the CI `test` job after
+`pnpm lint`.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add guards/design-naming.test.ts package.json .github/workflows/ci.yml
+git commit -m "test(guard): add S-43, the design and naming check"
+```

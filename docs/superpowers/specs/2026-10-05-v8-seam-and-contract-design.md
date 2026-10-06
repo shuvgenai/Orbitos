@@ -36,8 +36,8 @@ definition.
 - The three rules files and their scoping
 - The ApiClient contract, split into a stable dashboard layer and an
   experimental engine layer, plus its OpenAPI document
-- Re-specifying build prompts 0 to 6 against PRD v8.0, and writing new prompts
-  5b and 5c
+- Re-specifying build prompts 0 to 6 against PRD v9.0, with the screen list taken
+  from §15.5 to §15.7 rather than invented
 - The phase 0 audit instruction: a screen-by-screen gap list with file evidence
 - Worktrees, branches and the pull request flow
 - The Done checks as runnable CI, including the lead-reply freeze guard
@@ -58,7 +58,9 @@ definition.
 CLAUDE.md                          shared rules for the whole repo (new)
 ORBIT-OS_Claude_Code_Build_Prompts.md   re-specced to v8 (moved to root)
 docs/
-  prd/            ORBIT_OS_PRD_v8_0.md, ORBIT_OS_PRD_v7_0.md   (committed)
+  prd/            ORBIT_OS_PRD_v9_0.md (authority), v8_0, v7_0 (historical)
+  backlog.md      parked items, including the prototype's nine roles
+  gates/          anthropic-terms.md — absent on purpose; the guard fails closed
   decisions.md    one running log of every decision and its reason (new)
   rules/          engine.md                                      (new)
   security/       threat-model-engine.md, threat-model-gateway.md, keys.md
@@ -105,19 +107,45 @@ quality gate.
 
 ### What is copied from the prototype, and what is not
 
-**Copied exactly, as content:** the nine agent job templates with their names,
-jobs, tools, budgets and prompts (`assets/data/jobs.js`); the ten-tool catalog
-with its tiers, access modes and can / ask-first / never lists
-(`assets/data/mcps.js`); the three default guardrails and five suggestions
-(`assets/config.js`); the demo office with its five people, nine agents and two
-pending requests (`assets/data/org.js`); the fleet registry
-(`assets/data/fleet.js`); the design tokens (`assets/tokens.css`); and every
-user-facing string on every screen.
+**This rule was replaced on 2026-10-06.** The earlier version said to copy the
+prototype's seed data exactly, including its nine agent templates, its ten-tool
+catalog and its design tokens. PRD v9.0 §15.1 and Appendix A override that: the
+prototype's names, roles, tools and visuals are v7.0-era inventions, and copying
+them would have built roughly thirty screens in the wrong visual language and
+seeded a catalog the PRD does not have.
 
-**Not carried over:** its code, its patterns and its structure. No string
+**Taken from the prototype:** behaviour, copy and screen flow. How the wizard
+gates each step, what a validator refuses, what an empty state says, the order
+of fields in a form, the wording of a confirmation. That is what a working
+prototype is good for and it remains the best record of it.
+
+**Taken from the PRD, never from the prototype:** names, roles, tools, visuals.
+
+| What | Source |
+|---|---|
+| Design tokens | the frozen `design/` package, proven by `design/tokens.test.ts` |
+| Layout | PRD §15.2: plain lists, no card grids, no KPI tiles, no template gallery |
+| AI teammate roles | PRD Appendix A.1: five hireable roles, Orbi the only Coordinator |
+| Connector catalog | PRD Appendix A.2 |
+| Task states | PRD Appendix A.3: seven |
+| Risk categories | PRD Appendix A.4: four |
+| Budget | PRD Appendix A.5: three numbers |
+| Approval bases | PRD Appendix A.6: three, with no nullable case |
+| Standing Authority never-covers | PRD Appendix A.7: fixed, not per-grant text |
+| Escalation defaults | PRD Appendix A.8 |
+| Six safe approval states | PRD Appendix A.9 |
+| Screen list | PRD §15.5 to §15.7 |
+
+**Substitution rule.** Where prototype copy names Atlas, or a role or tool that
+is not in Appendix A, substitute the PRD's name and change nothing else in the
+sentence. The sentence's shape is the thing worth keeping.
+
+The prototype's nine roles are parked in `docs/backlog.md`. They are not seeded.
+
+**Not carried over at all:** its code, its patterns and its structure. No string
 templates, no `window` globals, no shared mutable store, no file organisation.
-The prototype is a behavior and copy spec. It is not a starting point for the
-implementation and it is not treated as reviewed code.
+It is not a starting point for the implementation and it is not treated as
+reviewed code.
 
 ## 4. Rules files
 
@@ -128,8 +156,16 @@ directory it is working in.
 security before speed; ask the founder on any decision affecting security,
 money, customer data or the product definition; the Done definition; the branch
 and pull request flow; the secrets policy; the naming rule that customers never
-see Paperclip, Hermes or MCP; and pointers to the two scoped files. It does
-**not** contain the frontend-only rule.
+see Paperclip, Hermes, OpenClaw, MCP, token, agent id or adapter name **and
+never see ORBIT-OS either** (PRD §15.3); and pointers to the two scoped files.
+It does **not** contain the frontend-only rule.
+
+The naming rule is **scoped, not global**. Customer screens — the User and Org
+Admin apps, and every email and push alert to a customer — follow it, including
+the `<title>` tag, email subjects and error text. The Super Admin fleet console
+is **exempt**: it is an internal operator surface, and ORBIT-OS, Paperclip,
+Hermes, runtime ids and adapter names are correct there. A guard that bans those
+words everywhere would be wrong, and would fail on the fleet console by design.
 
 **`dashboards/CLAUDE.md`.** The prototype-era frontend rules, scoped to the web
 app by sitting in its folder: frontend only, no backend, no database; all data through
@@ -145,12 +181,30 @@ action is audit-logged; one office can never read another's data.
 The root file also carries two standing rules of the founder's that nothing else
 in this repo records, each with a guard so it cannot quietly lapse.
 
-**No real data until the gate opens.** No live inbox, real mailbox or real
-customer data in **any** environment until the Action Gateway, the audit log and
-budget pausing all exist and pass their tests. Until then, a dedicated test
-mailbox and test accounts only. The founder decides when that condition is met,
-not the code. The guard asserts the gate is still recorded as open-pending in
-`docs/decisions.md` and that no committed configuration names a non-test mailbox.
+**No real data until the gate opens, and the gate has four conditions.** No live
+inbox, real mailbox or real customer data in **any** environment until all four
+of these exist and pass their tests (PRD v9.0 §14.3):
+
+1. the Action Gateway,
+2. the audit log,
+3. budget pausing,
+4. **Anthropic's no-training and zero-retention terms confirmed in writing**,
+   recorded in `docs/gates/anthropic-terms.md` naming who confirmed it, when, and
+   where the signed document lives.
+
+Until then, a dedicated test mailbox and test accounts only. The founder decides
+when the gate is met, not the code. Condition 4 is unlike the other three: it is
+a contract to request and sign rather than code to write, it has the longest lead
+time of anything in this plan, and the request must name every API organization
+the product will use and ask for ZDR approval, which planned models are Covered
+Models and their retention, which API features are ZDR-eligible, and the
+no-training commitment in the commercial agreement.
+
+The guard **fails closed**: it asserts the gate is still recorded as open-pending
+in `docs/decisions.md`, that `docs/gates/anthropic-terms.md` does not yet exist
+or does not yet record all three facts, and that no committed configuration names
+a non-test mailbox. `docs/gates/anthropic-terms.md` is deliberately **not**
+created by this sub-project. Creating it would open the gate.
 
 **This project's own env, and no other.** Its own `.env`, never committed, with
 `.env.example` checked in. No shared or cross-project env file is read or
@@ -197,6 +251,14 @@ single place churn lands.
 | receipts | `listReceipts`, `getReceipt`, `exportCsv` |
 | quality | `jobQualityScores` |
 | authority | `listGrants` **read-only**, no create, no revoke, no enforcement |
+| undo | `undoAction` — the exact 30-second window on an approved outside action (PRD §16) |
+
+Three groups gain fields rather than operations, from PRD v9.0: a task carries
+its **risk category** (A.4), its **evidence** (TASK-3) and its **reminder and
+expiry times** (TASK-6); a job carries its **version history** (JOB-7) and its
+**department** (§7.3); and a receipt names **exactly one of three approval
+bases** (A.6) with no nullable case, and records both the original and the edited
+action when a person edited before approving (U-22).
 
 The seven lines of a job summary are fixed by PRD objective B2 and are part of
 the schema, not free text: when it starts, who does it, what it may touch, the
@@ -362,14 +424,11 @@ happens when the control fails.
 ## 11. The first end-to-end job
 
 The first real job runs against a **dedicated test mailbox and test accounts**.
-No live inbox, real mailbox or real customer data in **any** environment until
-the Action Gateway, the audit log and budget pausing are all in place **and
-tested**. Those three conditions are tracked as a single named gate in
-`docs/decisions.md`. When all three are met, the founder is told, and **the
-founder decides** when real data is used, not the code. Nothing in this
-sub-project or in Stream A can satisfy that gate, and a guard asserts the gate is
-still recorded as open-pending and that no committed configuration names a
-non-test mailbox.
+The gate and its four conditions are stated once, in section 4. They are not
+restated here, because v8.0 stating the same rule in two places with different
+condition counts is exactly how condition 4 went missing from both the decision
+log and the guard. Nothing in this sub-project or in Stream A can satisfy the
+gate.
 
 ## 12. Non-goals of this sub-project
 
@@ -386,7 +445,9 @@ non-test mailbox.
 
 This sub-project is done when all of the following hold.
 
-1. `docs/prd/` holds PRD v8.0 and v7.0. **Done, commit 6804637.**
+1. `docs/prd/` holds PRD v9.0 (the authority), v8.0 and v7.0 (historical record,
+   not corrected). v8.0 and v7.0 done in commit 6804637; v9.0 in the rebase
+   commit.
 2. The prototype exists at `reference/orbit-os-frontend/` and nowhere else, is
    excluded from typecheck, lint, tests and build, and `Prompts_Frontend_docs/`
    is gone.
@@ -460,3 +521,70 @@ Recorded rather than silently rewritten, so the reasoning stays readable.
 | Two standing rules added to section 4, each with a guard | The real-data gate and the env policy were the founder's rules and were recorded nowhere in this repo. |
 | Lint findings in frozen code are reported, never fixed | A lint fix in frozen code is still a change to frozen code, and that is the founder's call case by case. |
 | The contract review includes an operation-coverage check | So the founder can see that nothing the dashboards need is missing from `contract/v1`. |
+
+## 16. Rebase onto PRD v9.0 (2026-10-06)
+
+`docs/prd/ORBIT_OS_PRD_v9_0.md` supersedes v8.0 and is the authority for this
+spec. v8.0 and v7.0 stay as the historical record and are not corrected. Where
+v9.0 and a decision recorded in commit `afc0beb` disagree, v9.0 wins.
+
+| Overridden | Was | Now |
+|---|---|---|
+| Rule 3, seed data | copy the prototype's seed data exactly | behaviour, copy and flow from the prototype; names, roles, tools and visuals from the PRD |
+| Design tokens | the prototype's `assets/tokens.css` | the frozen `design/` package, proven by `design/tokens.test.ts` (§15.1) |
+| Layout | the prototype's KPI tiles, agent cards, template grid | plain lists, no card grids, no KPI tiles, no template gallery (§15.2) |
+| Teammate roles | the prototype's nine | the five in Appendix A.1, Orbi the only Coordinator |
+| Connector catalog | the prototype's ten | Appendix A.2, subject to CD-4 |
+| Naming rule | global ban on Paperclip, Hermes, OpenClaw, MCP | scoped: customer screens also never say ORBIT-OS; the fleet console is exempt (§15.3) |
+| Task states | six, including an invented `declined` | the seven in Appendix A.3; declining ends a task Cancelled with a receipt |
+| Approval bases | two | the three in Appendix A.6, with no nullable case |
+| Grant limits | `string[]` | teammate, category, a numeric limit, an end date (§12) |
+| Never-covers | free text per grant | the fixed list in Appendix A.7 |
+| Budget | one number | the three in Appendix A.5, plus per-connector limits |
+| Authorities | Leader, Approver, Budget holder | those plus **Backup approver**, restored as a named authority (§7.2) |
+| Real-data gate | three conditions | four (§14.3), the fourth attested in `docs/gates/anthropic-terms.md` |
+| Declined request | contradictory in v8.0 | always writes a receipt (§6, TASK-9, U-23) |
+| Catalog settled? | I read v8.0's list as settled | it sat inside an open-decision table. CD-4 is open; Appendix A.2 is the default |
+
+**Connector decisions CD-1 to CD-5 (§13.1) encode the safe default, not the
+suggestion**, until each is answered: custom connectors disabled with C-07 showing
+"coming soon"; no published review target; own budget per connector; Appendix A.2
+as the catalog; and a Leader approves every change-capable connector.
+
+**New in v9.0 and scheduled here:** U-19 a User requests a teammate; A-14 the Org
+Admin queue that approves it and edits the prompt and guardrails; A-15 assign
+teammates to people and departments; S-43 the design and naming build check; and
+the reordered A-01 setup (org structure, people and roles, create teammates,
+assign teammates, connect tools, first job).
+
+**Standing Authority stays blocked** by open decision 2. It is modelled fully —
+teammate, category, numeric limit, end date, the fixed never-covers list — but
+the contract exposes `listGrants` only and the screens are flagged off and
+read-only. v6.2's rule that an AI may never approve still stands.
+
+### 16.1 Screen inventory: the difference I am reporting rather than resolving
+
+PRD §15.5 to §15.7 list **52 screens**: User 14, Org Admin 21, Super Admin 17.
+Per Appendix C item 9, these differences go to the founder before building.
+
+**In the PRD, not in my plan.** Most of the 52. My prompts covered the
+prototype's fourteen screens plus seven v8.0 gap screens plus two Standing
+Authority screens. The PRD's inventory is roughly twice that, and the growth is
+not evenly spread: the Super Admin console goes from the prototype's three
+screens to seventeen, and the Org Admin from six to twenty-one. Sub-project 1 was
+sized against the prototype, so **its size estimate is now wrong** and needs
+re-sizing before it starts.
+
+**In my plan and the prototype, not in the PRD.** Two screens:
+
+- The prototype's **Agent map** (`#/map`), the person-picker view with curved
+  SVG connectors. The nearest PRD screen is `/org/chart` (A-03), which is a
+  reporting-lines editor, not a per-person activity map.
+- The prototype's **Performance** table (`#/performance`), the sortable table
+  with sparklines and a needs-attention rule. The nearest PRD screens are
+  `/results` (A-52) and the Super Admin `/quality` (S-33), neither of which is a
+  per-teammate performance table on the Org Admin side.
+
+Both were in the v7.0-era prototype and neither maps to a v9.0 feature ID. They
+are either dropped, folded into `/org/chart` and `/results`, or added to the
+inventory as new features. **Founder's call.** I have not resolved it.
