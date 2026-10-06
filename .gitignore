@@ -6,6 +6,14 @@ landing/
 .env.*
 !.env.example
 
+# Working documents and duplicates, deliberately not tracked.
+# The two xlsx reports are generated, not authored.
+# The zip is a second copy of reference/orbit-os-frontend/, and the single-copy
+# rule must not be breakable by an accidental `git add`.
+ORBIT_OS_OBJECTIVES_AND_PROGRESS_*.xlsx
+ORBIT_OS_STATUS_*.xlsx
+orbit-os-frontend.zip
+
 # OS / editor
 .DS_Store
 Thumbs.db
