@@ -1,0 +1,1092 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>ORBIT-OS preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>/* ORBIT-OS design tokens. One place to rebrand. */
+:root{
+  --brand:#6316F9;--accent:#E94BB5;
+  --canvas:#F3F2F8;--canvas-alt:#EBEAF2;--surface:#FFFFFF;--ink:#1A1A24;--muted:#6B6B7B;--line:#E2E0EB;
+  --ok:#15803d;--ok-bg:#dcfce7;--warn:#a16207;--warn-bg:#fef3c7;--err:#dc2626;--err-bg:#fee2e2;
+  --brand-ink:color-mix(in srgb,var(--brand) 82%,#000);
+  --brand-50:color-mix(in srgb,var(--brand) 7%,var(--surface));
+  --brand-100:color-mix(in srgb,var(--brand) 15%,var(--surface));
+  --grad:linear-gradient(135deg,var(--brand),var(--accent));
+  --r-lg:18px;--r-md:12px;--r-sm:8px;
+  --shadow:0 1px 2px rgba(26,20,60,.05),0 10px 30px -12px rgba(26,20,60,.12);
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --side:232px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--canvas:#100F18;--canvas-alt:#181724;--surface:#1B1A27;--ink:#EDECF6;--muted:#A09FB4;--line:#2D2B3D;--ok:#4ade80;--ok-bg:#12321f;--warn:#fbbf24;--warn-bg:#382a0d;--err:#f87171;--err-bg:#3a1616;--brand-ink:color-mix(in srgb,var(--brand) 55%,#fff);--shadow:0 1px 0 rgba(255,255,255,.02)}
+}
+:root[data-theme="dark"]{--canvas:#100F18;--canvas-alt:#181724;--surface:#1B1A27;--ink:#EDECF6;--muted:#A09FB4;--line:#2D2B3D;--ok:#4ade80;--ok-bg:#12321f;--warn:#fbbf24;--warn-bg:#382a0d;--err:#f87171;--err-bg:#3a1616;--brand-ink:color-mix(in srgb,var(--brand) 55%,#fff);--shadow:0 1px 0 rgba(255,255,255,.02)}
+*{box-sizing:border-box}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100%;background:var(--canvas);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4,p,ul{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px}
+small,.muted{color:var(--muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.num{font-variant-numeric:tabular-nums}
+.row{display:flex;align-items:center;gap:10px}.row.wrap{flex-wrap:wrap}.grow{flex:1;min-width:0}.sp{flex:1}
+.stack{display:flex;flex-direction:column;gap:14px}
+.app{display:flex;min-height:100vh;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.side{width:var(--side);flex:none;background:var(--surface);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 6px 12px}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--grad);display:grid;place-items:center;color:#fff;font-weight:700;flex:none}
+.brand b{display:block;line-height:1.1}.brand small{font-size:12px}
+.scope{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:var(--r-md);margin-bottom:8px;background:var(--canvas)}
+.scope b{display:block;font-size:13px;line-height:1.2}.scope small{font-size:12px}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-sm);color:var(--muted);font-weight:500}
+.nav:hover{background:var(--canvas)}
+.nav.active{background:var(--brand-100);color:var(--brand-ink)}
+.nav .count{margin-left:auto;background:var(--brand);color:#fff;border-radius:99px;font-size:11px;font-weight:600;padding:0 7px;min-width:18px;text-align:center}
+.nav-label{font-size:11px;color:var(--muted);padding:12px 10px 4px;font-weight:600}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 6px 0;border-top:1px solid var(--line)}
+.me b{display:block;font-size:13px;line-height:1.2}.me small{font-size:12px}
+.mainwrap{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:20}
+.top h1{font-size:17px;letter-spacing:-.01em}
+.main{padding:24px;max-width:1120px;width:100%;margin:0 auto;flex:1}
+.page-h{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.page-h h2{font-size:24px;letter-spacing:-.02em}
+.page-h p{color:var(--muted);margin-top:2px;max-width:62ch}
+.sec-h{display:flex;align-items:center;justify-content:space-between;margin:26px 0 10px;gap:10px}
+.sec-h h3{font-size:16px}
+.roles{display:inline-flex;background:var(--canvas-alt);border-radius:99px;padding:3px;gap:2px}
+.roles a{border-radius:99px;padding:5px 13px;font-weight:500;font-size:13px;color:var(--muted)}
+.roles a[aria-current=true]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.dev{margin:0 24px 24px;border:1px dashed var(--line);border-radius:var(--r-md);background:var(--canvas-alt);padding:8px 14px}
+.dev summary{cursor:pointer;font-weight:600;font-size:13px}
+.dev .row{margin-top:10px}
+@media(max-width:860px){
+  .app{flex-direction:column}
+  .side{width:auto;height:auto;position:static;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border-right:0;border-bottom:1px solid var(--line);gap:4px}
+  .side .brand,.side .scope,.side .me,.side .nav-label{display:none}
+  .nav{white-space:nowrap}
+  .top{padding:12px 16px}.main{padding:16px}.dev{margin:0 16px 16px}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:var(--r-sm);padding:8px 14px;font-weight:500;min-height:38px;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn:hover{border-color:var(--brand)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn.primary:hover{background:var(--brand-ink)}
+.btn.sm{padding:5px 10px;min-height:32px;font-size:13px}.btn.ghost{background:transparent}
+.btn.danger{color:var(--err)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.ic{flex:none}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow)}
+.card.pad{padding:16px}
+.card.flush{overflow:hidden}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+.kpi{padding:14px 16px}.kpi small{display:block;font-size:12px}.kpi b{font-size:26px;letter-spacing:-.02em;line-height:1.2}
+.kpi.hero{background:var(--brand-50);border-color:var(--brand-100)}.kpi.hero b{color:var(--brand-ink)}
+.kpi .of{font-size:15px;font-weight:500;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:500;background:var(--canvas-alt);color:var(--muted);white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.err{background:var(--err-bg);color:var(--err)}.pill.brand{background:var(--brand-100);color:var(--brand-ink)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.pill.ok .dot{animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.av{width:32px;height:32px;border-radius:50%;background:var(--brand-100);color:var(--brand-ink);display:grid;place-items:center;font-weight:600;font-size:12px;flex:none}
+.av.lg{width:40px;height:40px;font-size:14px}
+.mono{width:36px;height:36px;border-radius:10px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
+.mono.sm{width:28px;height:28px;font-size:11px;border-radius:8px}
+.mono.tile{background:var(--tile,#56657A)}
+/* forms */
+.field{margin-bottom:12px}.field>label,.lbl{display:block;font-weight:600;margin-bottom:4px;font-size:13px}
+.help{font-size:12px;color:var(--muted);margin-top:4px}.err-t{font-size:12px;color:var(--err);margin-top:4px}
+input[type=text],input[type=email],input[type=number],textarea,select{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 11px;min-height:38px}
+textarea{min-height:150px;resize:vertical;line-height:1.55}
+input:focus,textarea:focus,select:focus{border-color:var(--brand)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:4px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.chip[aria-pressed=true]{background:var(--brand-100);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
+.chip[disabled]{opacity:.5;cursor:not-allowed}
+/* tables */
+.scroll{overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th,.tbl td{padding:10px 12px;text-align:left;border-top:1px solid var(--line);vertical-align:middle}
+.tbl th{border-top:0;font-weight:500;color:var(--muted);background:var(--canvas);white-space:nowrap}
+.tbl th button{border:0;background:none;font-weight:500;color:inherit;padding:0}
+.tbl td select,.tbl td input{min-width:120px}
+.tbl tr.row-b{cursor:pointer}.tbl tr.row-b:hover td{background:var(--brand-50)}
+.warn-t{color:var(--warn);font-weight:600}.ok-t{color:var(--ok);font-weight:600}
+/* lists, notes */
+.list>.item{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-top:1px solid var(--line)}
+.list>.item:first-child{border-top:0}
+.note{padding:10px 12px;border-radius:var(--r-sm);background:var(--warn-bg);color:var(--warn);font-size:13px}
+.note.ok{background:var(--ok-bg);color:var(--ok)}.note.err{background:var(--err-bg);color:var(--err)}.note.info{background:var(--brand-50);color:var(--brand-ink)}
+.empty{padding:30px 16px;text-align:center;color:var(--muted)}
+.empty h3{color:var(--ink);margin-bottom:4px}
+.guard{border:1px solid var(--line);border-radius:var(--r-md);padding:12px;background:var(--canvas)}
+.guard h4{font-size:13px;margin-bottom:6px}
+.gl{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.gl li{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 10px;font-size:13px}.gl li span{flex:1}
+.addrow{display:flex;gap:8px;margin-top:8px}
+/* stepper */
+.stepper{display:flex;gap:6px;margin-bottom:20px;overflow-x:auto;padding-bottom:2px}
+.step{flex:1;min-width:130px;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-md);text-align:left}
+.step .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--canvas-alt);font-weight:600;font-size:12px;flex:none}
+.step b{display:block;font-size:13px;line-height:1.2}.step small{font-size:11px}
+.step.on{border-color:var(--brand);background:var(--brand-50)}.step.on .n{background:var(--brand);color:#fff}
+.step.done .n{background:var(--ok-bg);color:var(--ok)}
+.step[disabled]{opacity:.55;cursor:not-allowed}
+.wfoot{display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:18px}
+.todo{margin:0;padding-left:18px;font-size:13px}.todo li{margin:2px 0}
+/* org tree */
+.tree,.tree ul{list-style:none;margin:0;padding:0}
+.tree ul{margin-left:18px;padding-left:18px;border-left:2px solid var(--line)}
+.tree li{position:relative;padding:5px 0}
+.tree ul>li::before{content:"";position:absolute;left:-18px;top:26px;width:18px;border-top:2px solid var(--line)}
+.tnode{display:inline-flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 12px;min-width:220px;max-width:100%}
+.tnode.board{background:var(--brand-50);border-color:var(--brand-100)}
+.tnode.dim{opacity:.6;border-style:dashed}
+.tnode b{display:block;font-size:13px;line-height:1.2}.tnode small{font-size:12px}
+button.tnode{text-align:left}button.tnode:hover{border-color:var(--brand)}
+/* connections */
+.conn{padding:14px 16px;display:flex;gap:12px;align-items:flex-start}
+.conn .body{flex:1;min-width:0}
+.conn .who{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+/* agent card */
+.agent{padding:16px;display:flex;flex-direction:column;gap:10px}
+.doing{background:var(--canvas);border-radius:var(--r-sm);padding:8px 10px;font-size:13px}.doing small{display:block;font-size:11px}
+.meta{display:flex;gap:14px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+/* map */
+.pick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.mapu{display:flex;align-items:center;margin-bottom:22px}
+.unode{width:170px;flex:none;padding:14px;text-align:center}.unode .av{margin:0 auto 6px}
+.mapsvg{flex:none;width:64px}.mapsvg path{fill:none;stroke-width:2}
+.s-running{color:var(--ok)}.s-waiting{color:var(--warn)}.s-idle,.s-draft{color:#8A8AA0}.s-paused,.s-blocked{color:var(--err)}
+.mapsvg .idle,.mapsvg .paused,.mapsvg .draft{stroke-dasharray:4 4}
+.anodes{display:flex;flex-direction:column;gap:12px;flex:1;min-width:0}
+.anode{height:64px;display:flex;align-items:center;gap:10px;padding:0 14px;text-align:left;width:100%;border-left:4px solid currentColor;background:var(--surface)}
+.anode .t{flex:1;min-width:0;color:var(--ink)}.anode b{display:block;font-size:14px}
+.anode small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:760px){.mapu{flex-direction:column;align-items:stretch}.mapsvg{display:none}.unode{width:100%;margin-bottom:10px}.anodes{padding-left:14px;border-left:2px solid var(--line)}}
+/* tabs */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto}
+.tabs button{border:0;background:transparent;padding:10px 14px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button[aria-selected=true]{color:var(--brand-ink);border-bottom-color:var(--brand)}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;border-radius:99px;background:var(--brand);color:#fff;font-size:11px;font-weight:600;margin-left:6px;padding:0 5px}
+/* progress */
+.bar{height:8px;border-radius:99px;background:var(--canvas-alt);overflow:hidden}.bar>i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .3s}
+.job li{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.job li:first-child{border-top:0}
+.job .s{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--canvas-alt);flex:none}
+.job .s.done{background:var(--ok-bg);color:var(--ok)}.job .s.run{background:var(--brand-100);color:var(--brand-ink);animation:pulse 1s infinite}.job .s.fail{background:var(--err-bg);color:var(--err)}
+/* layer */
+.scrim{position:fixed;inset:0;background:rgba(16,14,30,.45);display:flex;justify-content:flex-end;z-index:50}
+.scrim.center{justify-content:center;align-items:center;padding:16px}
+.drawer{width:min(580px,100%);height:100%;background:var(--surface);overflow:auto;padding:20px;display:flex;flex-direction:column;gap:14px;animation:slide .18s ease-out}
+.modal{width:min(540px,100%);max-height:92vh;overflow:auto;background:var(--surface);border-radius:var(--r-lg);padding:20px;display:flex;flex-direction:column;gap:14px}
+@keyframes slide{from{transform:translateX(24px);opacity:0}}
+.dh{display:flex;align-items:flex-start;gap:10px}.dh h2{font-size:18px}
+.foot{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.ver{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}.ver:first-child{border-top:0}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:99px;z-index:90;font-weight:500;max-width:90vw}
+.attn{padding:12px 16px;margin-bottom:16px;background:var(--warn-bg);color:var(--warn);border-radius:var(--r-md)}
+.hero-card{padding:22px;background:var(--brand-50);border-color:var(--brand-100)}
+.hero-card h2{font-size:20px;letter-spacing:-.01em}
+</style></head><body><div id="app"></div><div id="layer"></div>
+<script>window.ORBIT_PREVIEW = true;</script><script>/* App-wide constants. Each role's index.html sets window.ORBIT_ROLE before this loads. */
+window.CFG = {
+  APP: 'ORBIT-OS',
+  STORE_KEY: 'orbitos.v3',
+  ROLE: window.ORBIT_ROLE || null,          // 'user' | 'admin' | 'super' (null in the all-in-one preview)
+  PREVIEW: !!window.ORBIT_PREVIEW,
+  DEV: !!window.ORBIT_PREVIEW || /^(localhost|127\.0\.0\.1|)$/.test(location.hostname) || /[?&]dev=1/.test(location.search),
+  ROLES: {
+    user:  {label:'User',        dir:'../user/'},
+    admin: {label:'Org Admin',   dir:'../org-admin/'},
+    super: {label:'Super Admin', dir:'../fleet/'}
+  },
+  BASE_GUARDS: [
+    'Never send a message to a customer without human approval.',
+    'Never share pricing, discounts or contract terms.',
+    'Stop and ask if a request involves spending money.'
+  ],
+  SUGGEST_GUARDS: [
+    'Drafts only. Cannot send.',
+    'Never contact customers directly.',
+    'Spend no more than $5 per run.',
+    'Escalate anything over $5,000 to the owner.',
+    'Only use the tools listed for this agent.'
+  ]
+};
+
+/* Single source of truth, persisted in localStorage. Replace with API calls later (see api.js). */
+window.Store = (function(){
+  let S = null; const subs = [];
+  const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+  function load(){
+    try{ const r = localStorage.getItem(CFG.STORE_KEY); if(r) S = JSON.parse(r); }catch(e){}
+    if(!S || !S.org) S = Seeds.fresh();
+  }
+  function save(){ try{ localStorage.setItem(CFG.STORE_KEY, JSON.stringify(S)); }catch(e){} }
+  function emit(src){ subs.forEach(f => f(src)); }
+  return {
+    uid,
+    init(){ load(); window.addEventListener('storage', e => { if(e.key === CFG.STORE_KEY){ load(); emit('remote'); } }); },
+    get: () => S,
+    update(fn, src){ fn(S); save(); emit(src || 'user'); },
+    subscribe(f){ subs.push(f); },
+    reset(kind){ S = kind === 'demo' ? Seeds.demo() : Seeds.fresh(); save(); emit('user'); },
+    audit(who, what){ S.audit.unshift({at:Date.now(), who, what}); S.audit = S.audit.slice(0,40); }
+  };
+})();
+
+/* Tiny UI toolkit: escaping, icons, pills, layer (drawer/modal), delegated events. */
+window.UI = (function(){
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const money = n => '$' + Number(n || 0).toFixed(2);
+  const initials = n => String(n||'?').split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();
+  const ago = ts => { const m = Math.max(1, Math.round((Date.now()-ts)/60000)); return m<60 ? m+' min ago' : m<1440 ? Math.round(m/60)+' h ago' : Math.round(m/1440)+' d ago'; };
+  const P = {check:'M20 6 9 17l-5-5',plus:'M12 5v14M5 12h14',x:'M18 6 6 18M6 6l12 12',right:'m9 18 6-6-6-6',left:'m15 18-6-6 6-6',lock:'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
+    users:'M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM21 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
+    bot:'M12 8V4H8M4 8h16v12H4zM2 14h2M20 14h2M9 13v2M15 13v2',plug:'M12 22v-5M9 8V2M15 8V2M18 8v5a6 6 0 0 1-12 0V8z',
+    alert:'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',home:'m3 11 9-8 9 8M5 10v10h14V10',
+    inbox:'M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z',map:'M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15',
+    chart:'M3 3v18h18M7 15l4-4 3 3 5-6',org:'M10 3h4v5h-4zM3 16h4v5H3zM17 16h4v5h-4zM12 8v4M5 16v-4h14v4',list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+    trash:'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',send:'m22 2-7 20-4-9-9-4zM22 2 11 13',server:'M3 4h18v6H3zM3 14h18v6H3zM7 7h.01M7 17h.01',
+    rocket:'M5 15c-1 1-2 4-2 6 2 0 5-1 6-2M14 4c4-2 7-1 7-1s1 3-1 7l-8 8-5-5z',edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+    pause:'M6 4h4v16H6zM14 4h4v16h-4z',play:'M6 4l14 8-14 8z',sparkle:'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z',shield:'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'};
+  const ic = (n, s=16) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n]||P.sparkle}"/></svg>`;
+  const ST = {draft:['','Not started'],running:['ok','Running'],waiting:['warn','Waiting for approval'],idle:['','Idle'],paused:['err','Paused'],blocked:['err','Blocked']};
+  const pill = (t, c='') => `<span class="pill ${c}">${t}</span>`;
+  const statusPill = st => { const [c,l] = ST[st] || ST.idle; return `<span class="pill ${c}"><span class="dot"></span>${l}</span>`; };
+  const kpi = (label, value, of='', hero=false) => `<div class="card kpi ${hero?'hero':''}"><small>${label}</small><b class="num">${value}${of?` <span class="of">${of}</span>`:''}</b></div>`;
+  const pageH = (title, sub='', right='') => `<div class="page-h"><div><h2>${title}</h2>${sub?`<p>${sub}</p>`:''}</div>${right}</div>`;
+  const empty = (title, sub, cta='') => `<div class="card empty"><h3>${title}</h3><p>${sub}</p>${cta?`<div style="margin-top:12px">${cta}</div>`:''}</div>`;
+  const sel = (opts, val, attrs='') => `<select ${attrs}>${opts.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(val??'')?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
+
+  let tt; function toast(m){ let t = document.getElementById('toast'); if(!t){ t = document.createElement('div'); t.id='toast'; t.setAttribute('role','status'); t.setAttribute('aria-live','polite'); document.body.appendChild(t); }
+    t.className='toast'; t.textContent=m; clearTimeout(tt); tt=setTimeout(()=>{t.className='';t.textContent='';},3000); }
+
+  const layer = () => document.getElementById('layer');
+  function open(html, o={}){ const L = layer(); L.innerHTML = `<div class="scrim ${o.center?'center':''}" data-scrim="1">${html}</div>`; L.dataset.open='1';
+    const f = L.querySelector('[autofocus],textarea:not([readonly]),input:not([type=checkbox])'); if(f) f.focus(); }
+  function close(){ const L = layer(); if(L){ L.innerHTML=''; delete L.dataset.open; } UI.onClose && UI.onClose(); UI.onClose = null; }
+  const isOpen = () => !!(layer() && layer().dataset.open);
+  function confirm(msg, yes, label='Confirm'){ UI.act('_yes', ()=>{ close(); yes(); });
+    open(`<section class="modal" role="alertdialog" aria-modal="true"><h2 style="font-size:17px">${esc(msg)}</h2><div class="foot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="_yes">${esc(label)}</button></div></section>`, {center:true}); }
+
+  const acts = {}, ins = {}, chs = {};
+  const UI = {esc,money,initials,ago,ic,pill,statusPill,kpi,pageH,empty,sel,toast,open,close,isOpen,confirm,ST,
+    act:(n,f)=>{acts[n]=f;}, inp:(n,f)=>{ins[n]=f;}, chg:(n,f)=>{chs[n]=f;}, onClose:null};
+  UI.act('close', () => close());
+  document.addEventListener('click', e => {
+    const sc = e.target.closest('[data-scrim]'); if(sc && e.target === sc){ close(); return; }
+    const t = e.target.closest('[data-act]'); if(t && acts[t.dataset.act]) acts[t.dataset.act](t, t.dataset, e);
+  });
+  document.addEventListener('input', e => { const t = e.target.closest('[data-in]'); if(t && ins[t.dataset.in]) ins[t.dataset.in](t.value, t, t.dataset); });
+  document.addEventListener('change', e => { const t = e.target.closest('[data-ch]'); if(t && chs[t.dataset.ch]) chs[t.dataset.ch](t.type==='checkbox'?t.checked:t.value, t, t.dataset); });
+  document.addEventListener('keydown', e => {
+    if(e.key==='Escape' && isOpen()){ close(); return; }
+    if(e.key==='Enter' && e.target.dataset && e.target.dataset.enter){ e.preventDefault(); const f = acts[e.target.dataset.enter]; if(f) f(e.target, e.target.dataset, e); }
+    if((e.key==='Enter'||e.key===' ') && e.target.matches && e.target.matches('tr[data-act]')){ e.preventDefault(); e.target.click(); }
+  });
+  return UI;
+})();
+
+/* Hash router. Per-role index: #/home/arg. All-in-one preview: #/admin/home/arg. */
+window.Router = (function(){
+  const defs = {}; let cur = null;
+  const ROLES = ['user','admin','super'];
+  function parse(){
+    const parts = location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
+    if(!CFG.ROLE && ROLES.includes(parts[0])) cur = parts.shift();
+    return {role: CFG.ROLE || cur || 'admin', name: parts[0] || null, arg: parts[1] || null};
+  }
+  return {
+    reg(role, name, def){ (defs[role] = defs[role] || {})[name] = def; },
+    defs: r => defs[r] || {},
+    parse,
+    href(name, arg, role){ const r = role || parse().role; return '#' + (CFG.ROLE ? '' : '/' + r) + '/' + name + (arg ? '/' + arg : ''); },
+    go(name, arg, role){ location.hash = this.href(name, arg, role); }
+  };
+})();
+
+/* Demo people. dept is a name; seeds convert it to a department id. */
+window.People = {
+  maria:{id:'p_maria',name:'Maria Santos',email:'maria@brightpath.co',title:'Office manager',dept:'Operations',access:'admin',authorities:[]},
+  david:{id:'p_david',name:'David Park',email:'david@brightpath.co',title:'CEO',dept:'Sales',access:'user',authorities:['leader','approver']},
+  jordan:{id:'p_jordan',name:'Jordan Lee',email:'jordan@brightpath.co',title:'Business development',dept:'Sales',access:'user',authorities:['approver']},
+  priya:{id:'p_priya',name:'Priya Nair',email:'priya@brightpath.co',title:'Customer success',dept:'Support',access:'user',authorities:[]},
+  marcus:{id:'p_marcus',name:'Marcus Reed',email:'marcus@brightpath.co',title:'Finance lead',dept:'Finance',access:'user',authorities:['budget']}
+};
+
+/* Agent job templates ("hire from a template"). Each becomes one runtime profile with its own instructions, tools and budget. */
+window.Jobs = [
+  {id:'coordinator', type:'coordinator', name:'Atlas', job:'Organizes the office and hands work to the right teammate', dept:null, tools:['gmail','googlecal'], budget:40,
+   prompt:'You are Atlas, the Coordinator of this office. Read every new task, decide which teammate should handle it, and assign it with a one-line reason. If no teammate fits, ask the Org Admin. Never do specialist work yourself.',
+   sample:['Routing 3 new tasks to teammates','Checking the team queue for blocked work','Planning next week\'s schedule']},
+  {id:'scout', type:'specialist', name:'Scout', job:'Qualifies new inbound leads', dept:'Sales', tools:['gmail','hubspot'], budget:30,
+   prompt:'You are Scout. For each new inbound lead email, extract company, role and need. Score 1-5 on fit using our ideal customer notes. Write a two-line reason. Hand anything scoring 4 or 5 to the owner for a call.',
+   sample:['Scoring a lead from Northwind Logistics','Enriching a new HubSpot contact','Scoring a lead from Harbor & Co']},
+  {id:'echo', type:'specialist', name:'Echo', job:'Drafts first replies to qualified leads', dept:'Sales', tools:['gmail','googlecal'], budget:25,
+   prompt:'You are Echo. Draft a warm, short first reply to qualified leads in our brand voice. Propose two meeting times from the shared calendar. Never promise timelines or prices.',
+   sample:['Drafting a reply to Northwind Logistics','Finding two meeting slots for a new lead']},
+  {id:'ledger', type:'specialist', name:'Ledger', job:'Chases overdue invoices', dept:'Finance', tools:['quickbooks','gmail'], budget:20,
+   prompt:'You are Ledger. Each morning list invoices older than 30 days from QuickBooks and draft a polite reminder for each. Escalate anything over $5,000 to the owner.',
+   sample:['Checking 3 invoices older than 30 days','Drafting a reminder for invoice #1042']},
+  {id:'compass', type:'specialist', name:'Compass', job:'Codes card expenses', dept:'Finance', tools:['quickbooks'], budget:15,
+   prompt:'You are Compass. Categorize card transactions in QuickBooks using last quarter\'s patterns. Flag anything unusual or over $500 for the owner.',
+   sample:['Categorizing 12 card transactions','Flagging a $740 charge for review']},
+  {id:'beacon', type:'specialist', name:'Beacon', job:'Routes support emails to the right team', dept:'Support', tools:['gmail','slack'], budget:25,
+   prompt:'You are Beacon. Read each support email, tag it billing, technical or sales, and post it in the right Slack channel with a one-line summary.',
+   sample:['Routing a billing question to Finance','Tagging a technical issue and alerting Support']},
+  {id:'pulse', type:'specialist', name:'Pulse', job:'Writes the weekly performance digest', dept:'Operations', tools:['gdrive','slack'], budget:10,
+   prompt:'You are Pulse. Compile a Friday digest of leads received, replies sent and meetings booked. Keep it under 150 words and post it in Slack.',
+   sample:['Compiling this week\'s digest','Reading the shared KPI sheet']},
+  {id:'quill', type:'specialist', name:'Quill', job:'Drafts social posts from case studies', dept:'Operations', tools:['notion','gdrive'], budget:15,
+   prompt:'You are Quill. Draft two LinkedIn posts a week from our recent case studies. Friendly, concrete, under 120 words. Drafts only.',
+   sample:['Drafting a LinkedIn post from the Harbor case study']},
+  {id:'relay', type:'specialist', name:'Relay', job:'Routes alerts and notifications', dept:'Operations', tools:['slack'], budget:10,
+   prompt:'You are Relay. Send urgent alerts to the right Slack channel and batch low-priority ones into a daily summary.',
+   sample:['Batching 6 low-priority alerts','Sending an urgent alert to #finance']}
+];
+
+/* Mock activity (receipts) and what-an-agent-is-doing generators. */
+window.Tasks = {
+  make(agent){ const j = Jobs.find(x => x.id === agent.jobId); const s = (j && j.sample) || ['Working on a task']; return s[Math.floor(Math.random()*s.length)]; },
+  feed(agents){
+    const out = []; const now = Date.now();
+    agents.forEach((a,i) => { const j = Jobs.find(x => x.id === a.jobId); const s = (j && j.sample) || [];
+      s.slice(0,2).forEach((title,k) => out.push({id:'r_'+a.id+k, t:now-(i*37+k*95+8)*60000, agentId:a.id, title, status:k===0&&a.type==='specialist'&&i%3===1?'waiting':'done',
+        why:'Matched the instructions for '+a.name+' and passed every guardrail.', cost:+(0.03+((i*7+k*3)%9)/100).toFixed(2), dur:+(1.4+((i*5+k)%30)/10).toFixed(1)})); });
+    return out.sort((x,y)=>y.t-x.t);
+  }
+};
+
+/* Tool (MCP) catalog. All traffic goes through ORBIT's policy gateway; ORBIT holds the tokens, never the agent. */
+window.MCPS = {
+  gmail:{name:'Gmail',mono:'G',tile:'#3B6FD8',tier:'ready',auth:'Google sign-in',desc:'Read new messages and prepare drafts from your own address.',
+    can:['Read new messages','Create drafts','Apply labels'],ask:['Sending to more than one person'],never:['Deleting email']},
+  googlecal:{name:'Google Calendar',mono:'GC',tile:'#2F7FB8',tier:'early',auth:'Google sign-in',desc:'See availability and propose or book meetings.',
+    can:['Read availability','Propose meeting times'],ask:['Cancelling a meeting with a customer'],never:['Deleting calendars']},
+  slack:{name:'Slack',mono:'S',tile:'#7C4DCC',tier:'ready',auth:'Slack sign-in',desc:'Post summaries and send approval requests where your team talks.',
+    can:['Post messages','Send approvals as direct messages'],ask:['Posting in a public channel'],never:['Reading channels it was not added to']},
+  hubspot:{name:'HubSpot',mono:'H',tile:'#D0612B',tier:'ready',auth:'HubSpot sign-in',desc:'Create and update contacts, deals and notes in your CRM.',
+    can:['Create and update contacts','Update deal stages','Add notes'],ask:['Marking a deal as lost'],never:['Deleting records']},
+  quickbooks:{name:'QuickBooks Online',mono:'QB',tile:'#1F8A5B',tier:'early',auth:'Intuit sign-in',desc:'Invoices, bills, payments and reports from your books.',
+    can:['Read invoices, bills and customers','Draft payment reminders'],ask:['Creating or changing an invoice'],never:['Deleting records','Moving money']},
+  stripe:{name:'Stripe',mono:'ST',tile:'#5454C9',tier:'early',auth:'Stripe sign-in',desc:'Payments, customers and subscriptions.',
+    can:['Look up payments and customers','Check subscription status'],ask:['Issuing a refund'],never:['Sending payouts']},
+  gdrive:{name:'Google Drive',mono:'GD',tile:'#56657A',tier:'early',auth:'Google sign-in',desc:'Find and read files; save generated reports.',
+    can:['Search and read files','Save generated reports'],ask:['Sharing a file outside your company'],never:['Deleting files']},
+  notion:{name:'Notion',mono:'N',tile:'#1A1A24',tier:'early',auth:'Notion sign-in',desc:'Read pages and add database entries.',
+    can:['Search pages','Add database entries'],ask:['Editing a page someone else owns'],never:['Deleting pages']},
+  intercom:{name:'Intercom',mono:'IC',tile:'#C2410C',tier:'soon',auth:'Intercom sign-in',desc:'Customer conversations and help articles.',can:['Read conversations'],ask:['Replying to a customer'],never:['Closing conversations in bulk']},
+  salesforce:{name:'Salesforce',mono:'SF',tile:'#2F7FD0',tier:'soon',auth:'Salesforce sign-in',desc:'Leads, contacts and opportunities.',can:['Read and update leads'],ask:['Changing an opportunity amount'],never:['Deleting records']}
+};
+window.MCP_TIER = {ready:['Available','ok'],early:['Early access','brand'],soon:['Coming soon','']};
+window.MCP_MODES = [['read','Read only'],['draft','Read and prepare drafts'],['act','Read and act, with approval']];
+
+/* Operator registry of customer offices (numbers only; no customer content). The live office is merged in by the fleet screens. */
+window.Fleet = {
+  others(){ return [
+    {id:'ws_orbitum', name:'OrbitumAI (customer zero)', domain:'office.orbitumai.com', status:'live', agents:6, cost:41.2, version:'1.4.2', health:'ok', admin:'shuv@orbitumai.com'},
+    {id:'ws_northwind', name:'Northwind Logistics', domain:'office.northwind.example', status:'awaiting', agents:0, cost:0, version:'1.4.2', health:'ok', admin:'ops@northwind.example'},
+    {id:'ws_harbor', name:'Harbor & Co', domain:'office.harborco.example', status:'live', agents:4, cost:23.7, version:'1.4.1', health:'warn', admin:'lena@harborco.example'}
+  ]; },
+  steps:[['stack','Start a private instance (own database and domain)'],['company','Create the office and its org chart shell'],['gateway','Connect the tool gateway'],['admin','Invite the Org Admin']]
+};
+
+/* Starter org templates + seed builders (fresh onboarding vs. a fully launched demo office). */
+window.OrgTemplates = [
+  {id:'services', name:'Professional services', depts:['Sales','Operations','Finance']},
+  {id:'agency',   name:'Agency',                depts:['Clients','Creative','Finance']},
+  {id:'retail',   name:'Retail and e-commerce', depts:['Sales','Support','Operations']},
+  {id:'blank',    name:'Start blank',           depts:[]}
+];
+window.Seeds = (function(){
+  const uid = Store.uid;
+  const base = () => ({v:3, org:{name:'BrightPath Advisors', domain:'brightpath.co', template:null, step:1, launched:false, connectLater:false, guardrails:CFG.BASE_GUARDS.slice(), job:null},
+    departments:[], people:[], agents:[], requests:[], connections:{}, activity:[], audit:[], session:{userId:null}});
+  function fresh(){
+    const s = base(); const m = People.maria; s.people.push({id:m.id,name:m.name,email:m.email,title:m.title,deptId:null,access:'admin',authorities:[]});
+    s.audit.push({at:Date.now(), who:'System', what:'Office created for '+s.org.name}); return s;
+  }
+  function demo(){
+    const s = base(); const H = 3600000, now = Date.now();
+    s.org.template='services'; s.org.step=5; s.org.launched=true;
+    const D = {}; ['Sales','Operations','Finance','Support'].forEach(n => { const d = {id:uid('d_'), name:n}; D[n]=d.id; s.departments.push(d); });
+    Object.values(People).forEach(p => s.people.push({id:p.id,name:p.name,email:p.email,title:p.title,deptId:D[p.dept],access:p.access,authorities:p.authorities.slice()}));
+    const perf = {
+      coordinator:[[3,4,4,5,4,5,4],100,3.1,0,1.9], scout:[[11,13,12,15,14,16,14],97,6.2,8,7.9], echo:[[7,8,9,8,10,9,9],93,11.4,31,5.6],
+      ledger:[[5,5,6,6,5,7,6],99,9.8,4,2.9], compass:[[9,10,12,11,13,12,12],98,5.3,3,3.9], beacon:[[18,20,22,19,24,21,23],95,4.1,6,6.4],
+      pulse:[[1,1,1,1,1,0,0],88,8.1,12,0.3], quill:[[4,5,3,6,5,4,5],90,18.6,44,4.1], relay:[[6,5,4,6,3,4,2],86,7.7,18,1.8]};
+    const owners = {coordinator:'p_david', scout:'p_jordan', echo:'p_jordan', pulse:'p_jordan', beacon:'p_priya', quill:'p_priya', ledger:'p_marcus', compass:'p_marcus', relay:'p_marcus'};
+    const stat = {coordinator:['running','Routing 3 new tasks to teammates'], scout:['running','Scoring a lead from Northwind Logistics'], echo:['waiting','Draft ready, waiting for David to approve'],
+      ledger:['running','Checking 3 invoices older than 30 days'], compass:['idle','Waiting for the next task'], beacon:['running','Routing a billing question to Finance'],
+      pulse:['paused','Paused by Jordan Lee'], quill:['waiting','LinkedIn post ready for Priya to approve'], relay:['idle','Waiting for the next alert']};
+    const coord = Jobs.find(j=>j.type==='coordinator'); const ids = {};
+    Jobs.forEach(j => { const p = perf[j.id]; ids[j.id] = uid('a_'); s.agents.push({id:ids[j.id], jobId:j.id, name:j.name, job:j.job, type:j.type, deptId:j.dept?D[j.dept]:D['Operations'], managerId:null,
+      ownerId:owners[j.id], status:stat[j.id][0], doing:stat[j.id][1], prompt:j.prompt, version:1, guardrails:s.org.guardrails.slice(), tools:j.tools.slice(), budget:j.budget,
+      runsToday:p[0][6], costToday:+(p[4]/7).toFixed(2), lastActive:now-(2+(j.id.length*3))*60000, provisioned:true,
+      runtime:{paperclipId:'agt_'+Math.random().toString(36).slice(2,8), hermesProfile:'brightpath-'+j.name.toLowerCase(), adapter:'hermes_gateway'},
+      perf:{daily:p[0],success:p[1],avgSec:p[2],edited:p[3],cost7:p[4]}, versions:[{v:1,prompt:j.prompt,at:now-H*144,by:'Maria Santos (Org Admin)'}]}); });
+    s.agents.forEach(a => { if(a.type!=='coordinator') a.managerId = ids.coordinator; });
+    s.agents.find(a=>a.jobId==='pulse').doing='Paused by Jordan Lee';
+    ['gmail','googlecal','slack','hubspot','quickbooks','gdrive','notion'].forEach(k => s.connections[k]={on:true,mode:k==='slack'?'act':'draft',at:now-H*140,by:'Maria Santos'});
+    s.requests.push({id:uid('rq'),by:'p_jordan',name:'Proposal Chaser',purpose:'Follow up on proposals that go quiet for 3 days.',prompt:'Check HubSpot for proposals sent more than 3 days ago with no reply and draft a friendly nudge.',tools:['gmail','hubspot'],reason:'We lose about two deals a month to silence.',status:'pending',adminNote:'',at:now-H*5},
+      {id:uid('rq'),by:'p_priya',name:'Meeting Summarizer',purpose:'Summarize client calls and share notes.',prompt:'After each client call, write a summary with decisions and action items, then email it to every attendee and post it in Slack.',tools:['gdrive','slack','gmail'],reason:'Notes are inconsistent and follow-ups slip.',status:'pending',adminNote:'',at:now-H*2});
+    s.activity = Tasks.feed(s.agents);
+    s.audit.push({at:now-H*30,who:'Maria Santos',what:'Launched the office'});
+    return s;
+  }
+  return {fresh, demo};
+})();
+
+/* Mock API. Every function here maps to one real ORBIT endpoint (see README: API contract).
+   Screens only call API.*, so replacing this file with fetch() calls is the whole backend swap. */
+window.API = (function(){
+  const S = () => Store.get(), U = Store.update, uid = Store.uid;
+  const person = id => S().people.find(p => p.id === id);
+  const agent = id => S().agents.find(a => a.id === id);
+  const dept = id => S().departments.find(d => d.id === id);
+  const toolName = k => (MCPS[k]||{}).name || k;
+  const emailOk = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e||'');
+  const who = () => { const r = Router.parse().role; return r==='admin' ? 'Org Admin' : r==='super' ? 'Operator' : 'User'; };
+  let jobActive = false;
+
+  /* ---------- org structure  (POST /api/org/structure) ---------- */
+  function applyTemplate(tid){ const t = OrgTemplates.find(x=>x.id===tid); if(!t) return;
+    U(s => { s.org.template = tid; t.depts.forEach(n => { if(!s.departments.some(d=>d.name.toLowerCase()===n.toLowerCase())) s.departments.push({id:uid('d_'),name:n}); }); }); }
+  const addDept = name => { name=(name||'').trim(); if(!name) return 'Enter a name.'; if(S().departments.some(d=>d.name.toLowerCase()===name.toLowerCase())) return 'That department already exists.';
+    U(s => s.departments.push({id:uid('d_'),name})); return ''; };
+  const renameDept = (id,name) => { name=(name||'').trim(); if(name) U(s => { dept2(s,id).name = name; }); };
+  const dept2 = (s,id) => s.departments.find(d=>d.id===id);
+  const deptUse = id => S().people.filter(p=>p.deptId===id).length + S().agents.filter(a=>a.deptId===id).length;
+  const removeDept = id => { if(deptUse(id)) return 'Move its people and agents first.'; U(s => { s.departments = s.departments.filter(d=>d.id!==id); }); return ''; };
+  const addPerson = p => U(s => s.people.push({id:uid('p_'), name:'', email:'', title:'', deptId:s.departments[0]?s.departments[0].id:null, access:'user', authorities:[], ...p}));
+  const updatePerson = (id,patch) => U(s => { Object.assign(s.people.find(p=>p.id===id), patch); });
+  const toggleAuthority = (id,a) => U(s => { const p = s.people.find(x=>x.id===id); p.authorities = p.authorities.includes(a) ? p.authorities.filter(x=>x!==a) : p.authorities.concat(a); });
+  const removePerson = id => { if(S().agents.some(a=>a.ownerId===id)) return 'Reassign their agents first.'; U(s => { s.people = s.people.filter(p=>p.id!==id); }); return ''; };
+  function validateOrg(){ const s = S(), e = [];
+    if(!s.departments.length) e.push('Add at least one department.');
+    if(!s.people.some(p=>p.authorities.includes('leader'))) e.push('Mark at least one person as a Leader (the board that approves big decisions).');
+    if(!s.people.some(p=>p.access==='admin')) e.push('Keep at least one Org Admin.');
+    const seen = {}; s.people.forEach(p => { if(!p.name.trim()) e.push('Every person needs a name.'); if(!emailOk(p.email)) e.push((p.name||'A person')+' needs a valid email.'); else if(seen[p.email.toLowerCase()]) e.push('Email used twice: '+p.email); seen[(p.email||'').toLowerCase()] = 1; if(!p.deptId) e.push((p.name||'A person')+' needs a department.'); });
+    return [...new Set(e)]; }
+
+  /* ---------- agents  (POST /api/agents -> create teammate in org chart + runtime profile) ---------- */
+  const coordinator = () => S().agents.find(a=>a.type==='coordinator');
+  function descendants(id){ const out = []; const walk = i => S().agents.filter(a=>a.managerId===i).forEach(a => { out.push(a.id); walk(a.id); }); walk(id); return out; }
+  function provision(a, s, missing){ a.provisioned = true; a.runtime = a.runtime || {paperclipId:'agt_'+Math.random().toString(36).slice(2,8), hermesProfile:(s.org.name.split(' ')[0]).toLowerCase()+'-'+a.name.toLowerCase().replace(/\s+/g,'-'), adapter:'hermes_gateway'};
+    const miss = a.tools.filter(t => !(s.connections[t] && s.connections[t].on));
+    if(miss.length){ a.status='paused'; a.blockedBy=miss; a.doing='Waiting for '+miss.map(toolName).join(', ')+' to be connected'; } else { a.status='idle'; a.blockedBy=[]; a.doing='Ready. Wakes on the next task'; } }
+  function createAgent(spec){ const s0 = S(); const errs = [];
+    if(!(spec.name||'').trim()) errs.push('Give the agent a name.');
+    else if(s0.agents.some(a=>a.name.toLowerCase()===spec.name.trim().toLowerCase() && a.id!==spec.id)) errs.push('Another agent already has that name.');
+    if(!(spec.job||'').trim()) errs.push('Describe its job in one line.');
+    if((spec.prompt||'').trim().length<20) errs.push('Write at least 20 characters of instructions.');
+    if(spec.type==='coordinator' && s0.agents.some(a=>a.type==='coordinator' && a.id!==spec.id)) errs.push('Only one Coordinator is allowed.');
+    if(spec.type!=='coordinator' && !spec.managerId) errs.push('Choose who it reports to.');
+    if(spec.type!=='coordinator' && spec.managerId && spec.id && descendants(spec.id).includes(spec.managerId)) errs.push('That would create a loop in the org chart.');
+    if(!(+spec.budget>0)) errs.push('Set a monthly budget above $0.');
+    if(errs.length) return errs;
+    U(s => { const body = {name:spec.name.trim(), job:spec.job.trim(), type:spec.type, deptId:spec.deptId||null, managerId:spec.type==='coordinator'?null:spec.managerId, prompt:spec.prompt.trim(), tools:spec.tools.slice(), budget:+spec.budget, jobId:spec.jobId||null};
+      if(spec.id){ const a = s.agents.find(x=>x.id===spec.id); const pc = a.prompt.trim()!==body.prompt; Object.assign(a, body); if(pc){ a.version++; a.versions.push({v:a.version,prompt:body.prompt,at:Date.now(),by:'Org Admin'}); } if(s.org.launched) provision(a,s); }
+      else { const a = {id:uid('a_'), ...body, ownerId:null, status:'draft', doing:'Not started', version:1, guardrails:s.org.guardrails.slice(), runsToday:0, costToday:0, lastActive:Date.now(), provisioned:false,
+        perf:{daily:[0,0,0,0,0,0,0],success:100,avgSec:0,edited:0,cost7:0}, versions:[{v:1,prompt:body.prompt,at:Date.now(),by:'Org Admin'}]};
+        if(s.org.launched){ provision(a,s); } s.agents.push(a); }
+      Store.audit('Org Admin', (spec.id?'updated ':'added agent ')+body.name); });
+    return []; }
+  function removeAgent(id){ const a = agent(id); if(!a) return ''; if(S().agents.some(x=>x.managerId===id)) return 'Other agents report to '+a.name+'. Move them first.';
+    if(a.type==='coordinator' && S().agents.length>1) return 'Remove the other agents before the Coordinator.';
+    U(s => { s.agents = s.agents.filter(x=>x.id!==id); Store.audit('Org Admin','removed agent '+a.name); }); return ''; }
+  function validateAgents(){ const s = S(), e = [];
+    if(!s.agents.some(a=>a.type==='coordinator')) e.push('Add one Coordinator. It sits at the top and routes work.');
+    if(!s.agents.some(a=>a.type==='specialist')) e.push('Add at least one specialist agent.');
+    return e; }
+
+  /* ---------- assignment  (PUT /api/agents/:id/owner) ---------- */
+  const assign = (agentId, personId) => U(s => { const a = s.agents.find(x=>x.id===agentId); a.ownerId = personId || null; Store.audit('Org Admin', personId ? a.name+' assigned to '+s.people.find(p=>p.id===personId).name : a.name+' unassigned'); });
+  function autoAssign(){ U(s => { s.agents.forEach(a => { if(a.ownerId) return; let p;
+      if(a.type==='coordinator') p = s.people.find(x=>x.authorities.includes('leader')) || s.people.find(x=>x.access==='admin');
+      else { const inDept = s.people.filter(x=>x.deptId===a.deptId); p = inDept.find(x=>x.authorities.includes('approver')) || inDept[0] || s.people.find(x=>x.access==='user') || s.people[0]; }
+      if(p) a.ownerId = p.id; }); Store.audit('Org Admin','auto-assigned agents by department'); }); }
+  const validateAssign = () => S().agents.filter(a=>!a.ownerId||!person(a.ownerId)).length ? [S().agents.filter(a=>!a.ownerId||!person(a.ownerId)).map(a=>a.name).join(', ')+' still need an owner.'] : [];
+  const agentsOf = pid => S().agents.filter(a=>a.ownerId===pid);
+
+  /* ---------- tools / MCP  (POST /api/connections) ---------- */
+  function requiredTools(){ const m = {}; S().agents.forEach(a => a.tools.forEach(t => (m[t] = m[t]||[]).push(a.id))); return m; }
+  const isOn = k => !!(S().connections[k] && S().connections[k].on);
+  function connect(k, mode){ U(s => { s.connections[k] = {on:true, mode, at:Date.now(), by:'Org Admin'}; s.agents.forEach(a => { if(a.provisioned && a.status==='paused' && a.blockedBy && a.blockedBy.length && a.tools.every(t=>s.connections[t]&&s.connections[t].on) && /to be connected/.test(a.doing)){ a.status='idle'; a.blockedBy=[]; a.doing='Ready. Wakes on the next task'; } }); Store.audit('Org Admin','connected '+toolName(k)+' ('+mode+')'); }); }
+  function disconnect(k){ U(s => { delete s.connections[k]; s.agents.forEach(a => { if(a.provisioned && a.tools.includes(k)){ a.status='paused'; a.blockedBy=[k]; a.doing='Waiting for '+toolName(k)+' to be connected'; } }); Store.audit('Org Admin','disconnected '+toolName(k)); }); }
+  function validateConnections(){ if(S().org.connectLater) return []; const miss = Object.keys(requiredTools()).filter(k=>!isOn(k)); return miss.length ? ['Connect '+miss.map(toolName).join(', ')+', or choose to connect later.'] : []; }
+
+  /* ---------- launch = hiring job, resumable (POST /api/org/launch, GET /api/org/launch/status) ---------- */
+  const JOB = [['company','Set up your office'],['chart','Build the org chart'],['agents','Hire your agents'],['profiles','Give each agent its own workspace'],['budgets','Set budgets'],['tools','Apply tool permissions'],['invites','Invite your people']];
+  function startLaunch(simFail){ U(s => { s.org.job = {steps:JOB.map(([k,label])=>({k,label,status:'pending'})), simFail:!!simFail, failedOnce:false, error:'', done:false}; }, 'job'); run(); }
+  function run(){ jobActive = true; const j = S().org.job; const i = j.steps.findIndex(x=>x.status!=='done'); if(i<0){ finish(); return; }
+    U(s => { s.org.job.steps[i].status='run'; }, 'job');
+    setTimeout(() => { const jj = S().org.job; if(jj.simFail && !jj.failedOnce && jj.steps[i].k==='profiles'){ U(s => { s.org.job.steps[i].status='fail'; s.org.job.failedOnce=true; s.org.job.error='Could not create the workspace for one agent. Nothing was lost. Retry resumes from this step.'; }, 'job'); jobActive=false; return; }
+      U(s => { s.org.job.steps[i].status='done'; }, 'job'); run(); }, 600); }
+  const retryJob = () => { U(s => { s.org.job.steps.forEach(x => { if(x.status==='fail'||x.status==='run') x.status='pending'; }); s.org.job.error=''; }, 'job'); run(); };
+  function finish(){ jobActive = false; U(s => { s.org.launched = true; s.org.job.done = true; s.agents.forEach(a => provision(a, s)); s.people.forEach(p => { if(p.access!=='admin') p.invited = true; }); s.activity = Tasks.feed(s.agents); Store.audit('Org Admin','launched the office with '+s.agents.length+' agents'); }, 'job'); }
+
+  /* ---------- agent requests (user -> org admin)  (POST /api/requests, POST /api/requests/:id/decision) ---------- */
+  function submitRequest(by, q){ const body = {name:q.name.trim(),purpose:q.purpose.trim(),prompt:q.prompt.trim(),reason:q.reason.trim(),tools:q.tools.slice(),status:'pending',adminNote:'',at:Date.now()};
+    U(s => { const ex = q.revising && s.requests.find(r=>r.id===q.revising); if(ex) Object.assign(ex, body); else s.requests.push({id:uid('rq'), by, ...body}); Store.audit(person(by).name,'asked for a new agent: '+body.name); }); }
+  const cancelRequest = id => U(s => { s.requests = s.requests.filter(r=>r.id!==id); });
+  function decide(id, decision, o){ U(s => { const r = s.requests.find(x=>x.id===id); r.status = decision; r.adminNote = o.note || (decision==='approved' ? (JSON.stringify(o.guards)!==JSON.stringify(s.org.guardrails)?'Approved with guardrails added.':'Approved.') : '');
+      if(decision==='approved'){ const owner = s.people.find(p=>p.id===r.by); const c = s.agents.find(a=>a.type==='coordinator'); const a = {id:uid('a_'), jobId:null, name:r.name, job:r.purpose, type:'specialist', deptId:owner?owner.deptId:null, managerId:c?c.id:null, ownerId:r.by,
+        status:'idle', doing:'Ready. Wakes on the next task', prompt:o.prompt.trim(), version:1, guardrails:o.guards.slice(), tools:r.tools.slice(), budget:15, runsToday:0, costToday:0, lastActive:Date.now(), provisioned:false,
+        perf:{daily:[0,0,0,0,0,0,0],success:100,avgSec:0,edited:0,cost7:0}, versions:[{v:1,prompt:o.prompt.trim(),at:Date.now(),by:'Org Admin'}]}; provision(a,s); s.agents.push(a); }
+      Store.audit('Org Admin', (decision==='approved'?'approved ':decision==='changes'?'asked for changes on ':'declined ')+r.name); }); }
+
+  /* ---------- running agents (PUT /api/agents/:id) ---------- */
+  function savePrompt(id, text, byName, guards){ U(s => { const a = s.agents.find(x=>x.id===id); if(text.trim()!==a.prompt.trim()){ a.version++; a.prompt = text.trim(); a.versions.push({v:a.version,prompt:a.prompt,at:Date.now(),by:byName}); }
+    if(guards) a.guardrails = guards.slice(); Store.audit(byName,'updated '+a.name+' (v'+a.version+')'); }); }
+  const togglePause = (id, byName) => U(s => { const a = s.agents.find(x=>x.id===id); if(!a.provisioned) return; const was = a.status==='paused'; a.status = was?'idle':'paused'; a.doing = was?'Ready. Wakes on the next task':'Paused by '+byName; Store.audit(byName,(was?'resumed ':'paused ')+a.name); });
+
+  /* ---------- derived ---------- */
+  const runs7 = a => a.perf.daily.reduce((t,x)=>t+x,0);
+  const running = list => list.filter(a=>a.status==='running').length;
+
+  /* ---------- live simulation (replace with a websocket/SSE feed) ---------- */
+  function tick(){ if(!S().org.launched) return; U(st => { st.agents.filter(a=>a.provisioned && a.status!=='paused').forEach(a => { if(Math.random()<.3){ const r = Math.random();
+      if(r<.55){ a.status='running'; a.doing=Tasks.make(a); a.runsToday++; a.costToday=+(a.costToday+.02+Math.random()*.05).toFixed(2); } else if(r<.7 && a.type!=='coordinator'){ a.status='waiting'; a.doing='Draft ready, waiting for approval'; } else { a.status='idle'; a.doing='Waiting for the next task'; } a.lastActive=Date.now(); } }); }, 'tick'); }
+
+  return {person,agent,dept,toolName,emailOk,applyTemplate,addDept,renameDept,deptUse,removeDept,addPerson,updatePerson,toggleAuthority,removePerson,validateOrg,
+    coordinator,descendants,createAgent,removeAgent,validateAgents,assign,autoAssign,validateAssign,agentsOf,requiredTools,isOn,connect,disconnect,validateConnections,
+    startLaunch,retryJob,isJobActive:()=>jobActive,submitRequest,cancelRequest,decide,savePrompt,togglePause,runs7,running,tick,JOB};
+})();
+
+/* App shell: sidebar, top bar, routing, dev tools, live ticker. One shell for all three roles. */
+window.Shell = (function(){
+  const {esc, ic, initials} = UI;
+  const S = () => Store.get();
+  const pending = () => S().requests.filter(r => r.status === 'pending').length;
+  function navFor(role){
+    const s = S();
+    if(role === 'user') return [['home','home','My agents'],['new','plus','Request an agent',()=>S().requests.filter(r=>r.by===me('user').id&&r.status==='changes').length],['activity','list','Activity']];
+    if(role === 'super') return [['fleet','server','Offices'],['provision','plus','New office']];
+    return [['dashboard','home','Home'], ...(s.org.launched ? [] : [['onboarding','rocket','Set up your office']]),
+      ['requests','inbox','Requests',pending],['map','map','Agent map'],['performance','chart','Performance'],['-','Office'],['structure','org','Org structure'],['agents','bot','Agents'],['connections','plug','Connections']];
+  }
+  function me(role){
+    const s = S();
+    if(role === 'super') return {id:'op', name:'Shuv Chowdhury', title:'Operator'};
+    if(role === 'admin') return s.people.find(p => p.access === 'admin') || {id:'', name:'Org Admin'};
+    return s.people.find(p => p.id === s.session.userId) || s.people.find(p => p.access === 'user') || {id:'', name:'Guest'};
+  }
+  const defaultRoute = role => role === 'admin' && !S().org.launched ? 'onboarding' : navFor(role)[0][0];
+  const typing = () => { const a = document.activeElement; return !!(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && document.getElementById('app').contains(a)); };
+  let lastKey = '', simOn = true;
+
+  function render(){
+    const r = Router.parse(), role = r.role, nav = navFor(role), name = r.name || defaultRoute(role), def = Router.defs(role)[name], m = me(role), s = S();
+    const key = role + name + (r.arg||''); const y = key === lastKey ? window.scrollY : 0; lastKey = key;
+    const title = def ? (typeof def.title === 'function' ? def.title(r.arg) : def.title) : 'Not found';
+    const links = nav.map(n => n[0]==='-' ? `<small class="nav-label">${esc(n[1])}</small>` :
+      `<a class="nav ${n[0]===name?'active':''}" href="${Router.href(n[0],null,role)}" ${n[0]===name?'aria-current="page"':''}>${ic(n[1])}<span>${esc(n[2])}</span>${n[3]&&n[3]()?`<span class="count">${n[3]()}</span>`:''}</a>`).join('');
+    const switcher = CFG.PREVIEW ? `<div class="roles" role="group" aria-label="Preview as">${['user','admin','super'].map(k=>`<a href="#/${k}/${k==='admin'&&!s.org.launched?'onboarding':navFor(k)[0][0]}" aria-current="${k===role}">${CFG.ROLES[k].label}</a>`).join('')}</div>` : `<span class="pill brand">${CFG.ROLES[role].label}</span>`;
+    const scope = role==='super' ? `<b>All offices</b><small>Operator console</small>` : `<b>${esc(s.org.name)}</b><small>${esc(s.org.domain)}</small>`;
+    document.getElementById('app').innerHTML = `<div class="app role-${role}">
+      <aside class="side" aria-label="${CFG.ROLES[role].label} navigation"><div class="brand"><div class="logo" aria-hidden="true">O</div><div><b>${CFG.APP}</b><small>by OrbitumAI</small></div></div>
+        <div class="scope"><span class="av">${esc(initials(role==='super'?'All Offices':s.org.name))}</span><div>${scope}</div></div>${links}
+        <div class="me"><span class="av">${esc(initials(m.name))}</span><div><b>${esc(m.name)}</b><small>${CFG.ROLES[role].label}</small></div></div></aside>
+      <div class="mainwrap"><header class="top"><h1>${esc(title)}</h1><div class="sp"></div>${switcher}</header>
+        <main class="main" id="main">${def ? def.render(r.arg, m) : UI.empty('Page not found','That page does not exist for your role.',`<a class="btn" href="${Router.href(defaultRoute(role),null,role)}">Go home</a>`)}</main>${CFG.DEV ? devBar(role) : ''}</div></div>`;
+    document.title = title + ' · ' + CFG.APP; window.scrollTo(0, y);
+    if(def && def.mount) def.mount(r.arg, m);
+  }
+  function devBar(role){
+    const s = S(); const users = s.people.filter(p => p.access === 'user');
+    return `<details class="dev"><summary>Dev tools (hidden in production)</summary><div class="row wrap">
+      ${role==='user' ? `<label class="row" style="gap:6px">Sign in as ${UI.sel(users.length?users.map(p=>[p.id,p.name]):[['','No users yet']], me('user').id, 'data-ch="dev-as" style="width:auto;min-width:160px" aria-label="Sign in as"')}</label>` : ''}
+      <button class="btn sm" data-act="dev-demo">Load demo office</button><button class="btn sm" data-act="dev-fresh">Start fresh onboarding</button>
+      <label class="row" style="gap:6px"><input type="checkbox" data-ch="dev-sim" ${simOn?'checked':''}> Simulate live activity</label>
+      ${CFG.PREVIEW ? '' : Object.keys(CFG.ROLES).filter(k=>k!==role).map(k=>`<a class="btn sm ghost" href="${CFG.ROLES[k].dir}">Open ${CFG.ROLES[k].label}</a>`).join('')}</div></details>`;
+  }
+  UI.act('dev-demo', () => { Store.reset('demo'); UI.toast('Demo office loaded'); if(!CFG.ROLE||CFG.ROLE==='admin') Router.go('dashboard'); });
+  UI.act('dev-fresh', () => UI.confirm('Erase everything and restart onboarding?', () => { Store.reset('fresh'); Router.go(CFG.ROLE==='user'?'home':'onboarding', null, CFG.ROLE?undefined:'admin'); UI.toast('Fresh onboarding'); }, 'Start over'));
+  UI.chg('dev-as', v => Store.update(s => { s.session.userId = v; }));
+  UI.chg('dev-sim', v => { simOn = !!v; });
+
+  function boot(){
+    Store.init();
+    Store.subscribe(src => { if(src === 'tick' && (UI.isOpen() || typing())) return; render(); });
+    window.addEventListener('hashchange', () => { UI.close(); render(); });
+    if(!location.hash || location.hash === '#') { const r = Router.parse(); location.hash = Router.href(defaultRoute(r.role), null, r.role); } else render();
+    setInterval(() => { if(simOn && !document.hidden) API.tick(); }, 7000);
+  }
+  return {boot, render, me, navFor};
+})();
+
+/* Org Admin setup building blocks, used by the onboarding wizard AND the standalone pages.
+   1 Org structure  ·  2 Agents  ·  3 Assign  ·  4 Connections  */
+window.OA = window.OA || {};
+(function(){
+  const {esc, ic, initials, pill, statusPill, sel} = UI;
+  const S = () => Store.get();
+  const upd = (fn) => Store.update(fn);
+
+  /* ===================== 1. ORG STRUCTURE ===================== */
+  const AUTH = [['leader','Leader'],['approver','Approver'],['budget','Budget holder']];
+  function orgTree(){
+    const s = S(); const leaders = s.people.filter(p => p.authorities.includes('leader'));
+    const deptNodes = s.departments.map(d => {
+      const ppl = s.people.filter(p => p.deptId === d.id), ag = s.agents.filter(a => a.deptId === d.id);
+      return `<li><div class="tnode"><span class="mono sm" aria-hidden="true">${esc(initials(d.name))}</span><span><b>${esc(d.name)}</b><small>${ppl.length} ${ppl.length===1?'person':'people'}${ag.length?`, ${ag.length} agent${ag.length>1?'s':''}`:''}</small></span></div>
+        ${ppl.length?`<ul>${ppl.map(p => `<li><div class="tnode"><span class="av">${esc(initials(p.name||'?'))}</span><span><b>${esc(p.name||'New person')}</b><small>${esc(p.title||'No title')} · ${p.access==='admin'?'Org Admin':'User'}</small></span></div></li>`).join('')}</ul>`:''}</li>`; }).join('');
+    return `<ul class="tree"><li><div class="tnode board"><span class="mono sm" aria-hidden="true">${ic('shield',14)}</span><span><b>The board</b><small>${leaders.length?esc(leaders.map(p=>p.name||'New person').join(', ')):'No Leader yet'}</small></span></div>
+      <ul>${deptNodes || '<li><div class="tnode dim"><span><b>No departments yet</b><small>Add one or pick a template</small></span></div></li>'}</ul></li></ul>`;
+  }
+  OA.structureView = function(){
+    const s = S(), me = Shell.me('admin');
+    const deptRows = s.departments.map(d => `<div class="row" style="margin-bottom:8px"><input type="text" value="${esc(d.name)}" data-ch="dept-rename" data-id="${d.id}" aria-label="Department name"><button class="btn sm ghost danger" data-act="dept-del" data-id="${d.id}" aria-label="Remove ${esc(d.name)}">${ic('trash')}</button></div>`).join('');
+    const rows = s.people.map(p => `<tr><td><input type="text" value="${esc(p.name)}" data-ch="p-name" data-id="${p.id}" placeholder="Full name" aria-label="Name"></td>
+      <td><input type="email" value="${esc(p.email)}" data-ch="p-email" data-id="${p.id}" placeholder="name@company.com" aria-label="Email"></td>
+      <td><input type="text" value="${esc(p.title)}" data-ch="p-title" data-id="${p.id}" placeholder="Title" aria-label="Title"></td>
+      <td>${sel([['','Choose']].concat(s.departments.map(d=>[d.id,d.name])), p.deptId, `data-ch="p-dept" data-id="${p.id}" aria-label="Department"`)}</td>
+      <td>${sel([['user','User'],['admin','Org Admin']], p.access, `data-ch="p-access" data-id="${p.id}" aria-label="Access"`)}</td>
+      <td><div class="chips">${AUTH.map(([k,l]) => `<button type="button" class="chip" data-act="p-auth" data-id="${p.id}" data-a="${k}" aria-pressed="${p.authorities.includes(k)}">${l}</button>`).join('')}</div></td>
+      <td>${p.id===me.id?'':`<button class="btn sm ghost danger" data-act="p-del" data-id="${p.id}" aria-label="Remove ${esc(p.name||'person')}">${ic('trash')}</button>`}</td></tr>`).join('');
+    return `<div class="grid2">
+      <section class="card pad"><h3 style="margin-bottom:10px">Your business</h3>
+        <div class="field"><label for="orgname">Business name</label><input type="text" id="orgname" value="${esc(s.org.name)}" data-ch="org-name"></div>
+        <div class="field"><span class="lbl">Start from a template</span><div class="chips" role="group" aria-label="Templates">${OrgTemplates.map(t=>`<button type="button" class="chip" data-act="tpl" data-id="${t.id}" aria-pressed="${s.org.template===t.id}">${esc(t.name)}</button>`).join('')}</div>
+        <p class="help">Templates add starter departments. You can rename or remove any of them.</p></div></section>
+      <section class="card pad"><h3 style="margin-bottom:10px">Departments</h3>${deptRows || '<p class="muted" style="margin-bottom:8px">No departments yet.</p>'}
+        <div class="addrow"><input type="text" id="dnew" placeholder="New department, e.g. Sales" data-enter="dept-add" aria-label="New department"><button class="btn" data-act="dept-add">${ic('plus')} Add</button></div></section></div>
+    <div class="sec-h"><h3>People</h3><button class="btn sm" data-act="p-add">${ic('plus')} Add person</button></div>
+    <section class="card flush scroll"><table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Title</th><th>Department</th><th>Access</th><th>Authority</th><th></th></tr></thead><tbody>${rows}</tbody></table></section>
+    <p class="help" style="margin-top:8px"><b>Access</b> decides what someone can set up (User or Org Admin). <b>Authority</b> decides what they can approve. A Leader is part of the board. Invitations go out when you launch.</p>
+    <div class="sec-h"><h3>Your org chart</h3></div><section class="card pad">${orgTree()}</section>`;
+  };
+  UI.chg('org-name', v => upd(s => { s.org.name = v.trim() || s.org.name; }));
+  UI.act('tpl', (t,d) => API.applyTemplate(d.id));
+  UI.act('dept-add', () => { const i = document.getElementById('dnew'); const e = API.addDept(i.value); if(e) UI.toast(e); });
+  UI.chg('dept-rename', (v,t,d) => API.renameDept(d.id, v));
+  UI.act('dept-del', (t,d) => { const e = API.removeDept(d.id); if(e) UI.toast(e); });
+  UI.act('p-add', () => API.addPerson({}));
+  ['name','email','title'].forEach(k => UI.chg('p-'+k, (v,t,d) => API.updatePerson(d.id, {[k]: v.trim()})));
+  UI.chg('p-dept', (v,t,d) => API.updatePerson(d.id, {deptId: v || null}));
+  UI.chg('p-access', (v,t,d) => API.updatePerson(d.id, {access: v}));
+  UI.act('p-auth', (t,d) => API.toggleAuthority(d.id, d.a));
+  UI.act('p-del', (t,d) => { const e = API.removePerson(d.id); if(e) UI.toast(e); });
+
+  /* ===================== 2. AGENTS ===================== */
+  let ag = null; // draft in the drawer
+  function agentNodes(parentId){
+    const kids = S().agents.filter(a => a.managerId === parentId);
+    return kids.length ? `<ul>${kids.map(a => `<li><button class="tnode" data-act="agent-edit" data-id="${a.id}"><span class="mono sm" aria-hidden="true">${esc(initials(a.name))}</span><span><b>${esc(a.name)}</b><small>${esc(a.job)}</small></span></button>${agentNodes(a.id)}</li>`).join('')}</ul>` : '';
+  }
+  OA.agentsView = function(){
+    const s = S(), c = API.coordinator(); const used = new Set(s.agents.map(a => a.jobId));
+    const lib = Jobs.filter(j => !used.has(j.id) && (j.type!=='coordinator' || !c));
+    const tree = `<ul class="tree"><li><div class="tnode board"><span class="mono sm" aria-hidden="true">${ic('shield',14)}</span><span><b>The board</b><small>Leaders approve big decisions</small></span></div>
+      ${c ? `<ul><li><button class="tnode" data-act="agent-edit" data-id="${c.id}"><span class="mono sm" aria-hidden="true">${esc(initials(c.name))}</span><span><b>${esc(c.name)} ${pill('Coordinator','brand')}</b><small>${esc(c.job)}</small></span></button>${agentNodes(c.id)}</li></ul>` : `<ul><li><div class="tnode dim"><span><b>No Coordinator yet</b><small>Add ${esc(Jobs[0].name)} below to start</small></span></div></li></ul>`}</li></ul>`;
+    return `<div class="note info" style="margin-bottom:14px"><b>Front Desk is built in.</b> It watches the inbox and is the only part that sends messages, and only text a person approved. It is not an AI agent, so you do not add it here.</div>
+      <section class="card pad">${tree}</section>
+      <div class="sec-h"><h3>Hire from a template</h3><button class="btn sm" data-act="agent-new">${ic('plus')} Create a custom agent</button></div>
+      ${lib.length ? `<div class="grid">${lib.map(j => `<button class="card agent" style="text-align:left" data-act="agent-tpl" data-id="${j.id}" aria-label="Hire ${esc(j.name)}"><div class="row"><span class="mono" aria-hidden="true">${esc(initials(j.name))}</span><div class="grow"><b>${esc(j.name)}</b> ${j.type==='coordinator'?pill('Coordinator','brand'):''}<small style="display:block">${esc(j.job)}</small></div></div><div class="meta"><span>Tools: ${esc(j.tools.map(API.toolName).join(', '))}</span><span>$${j.budget}/month</span></div></button>`).join('')}</div>` : '<p class="muted">Every template is already on your team. Create a custom agent for anything else.</p>'}`;
+  };
+  function draftFrom(a, jt){
+    const s = S(), c = API.coordinator();
+    if(a) return {id:a.id, type:a.type, name:a.name, job:a.job, deptId:a.deptId, managerId:a.managerId, prompt:a.prompt, tools:a.tools.slice(), budget:a.budget, jobId:a.jobId, errs:[]};
+    if(jt){ const d = s.departments.find(x => x.name === jt.dept) || s.departments[0]; return {id:null, type:jt.type, name:jt.name, job:jt.job, deptId:d?d.id:null, managerId:jt.type==='coordinator'?null:(c?c.id:null), prompt:jt.prompt, tools:jt.tools.slice(), budget:jt.budget, jobId:jt.id, errs:[]}; }
+    return {id:null, type:c?'specialist':'coordinator', name:'', job:'', deptId:s.departments[0]?s.departments[0].id:null, managerId:c?c.id:null, prompt:'', tools:[], budget:15, jobId:null, errs:[]};
+  }
+  function agentDrawer(){
+    const s = S(), a = ag, editing = !!a.id, c = API.coordinator();
+    const blocked = editing ? API.descendants(a.id).concat(a.id) : [];
+    const mgrOpts = s.agents.filter(x => !blocked.includes(x.id)).map(x => [x.id, x.name + (x.type==='coordinator'?' (Coordinator)':'')]);
+    const typeLocked = editing || !!c;
+    UI.open(`<section class="drawer" role="dialog" aria-modal="true" aria-labelledby="adt">
+      <div class="dh"><h2 id="adt" class="grow">${editing?'Edit '+esc(a.name):'New agent'}</h2><button class="btn sm ghost" data-act="close" aria-label="Close">${ic('x')}</button></div>
+      ${a.errs.length ? `<div class="note err" role="alert"><ul class="todo">${a.errs.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
+      <div class="row wrap"><div class="field grow"><label for="agn">Name</label><input type="text" id="agn" value="${esc(a.name)}" data-in="ag-name"></div>
+        <div class="field grow"><label for="agt">Role</label>${typeLocked ? `<input type="text" id="agt" value="${a.type==='coordinator'?'Coordinator':'Specialist'}" readonly>` : sel([['coordinator','Coordinator (top of the chart)'],['specialist','Specialist']], a.type, 'id="agt" data-ch="ag-type"')}</div></div>
+      <div class="field"><label for="agj">Job in one line</label><input type="text" id="agj" value="${esc(a.job)}" data-in="ag-job" placeholder="Qualifies new inbound leads"></div>
+      <div class="row wrap"><div class="field grow"><label for="agd">Department</label>${sel([['','None']].concat(s.departments.map(d=>[d.id,d.name])), a.deptId, 'id="agd" data-ch="ag-dept"')}</div>
+        <div class="field grow"><label for="agm">Reports to</label>${a.type==='coordinator' ? `<input type="text" id="agm" value="The board (Leaders)" readonly>` : sel(mgrOpts.length?mgrOpts:[['','Add a Coordinator first']], a.managerId, 'id="agm" data-ch="ag-mgr"')}</div></div>
+      <div class="field"><label for="agp">Instructions</label><textarea id="agp" data-in="ag-prompt" style="min-height:130px">${esc(a.prompt)}</textarea><p class="help">Write it like a brief for a new assistant. Guardrails you add later always win over these instructions.</p></div>
+      <div class="field"><span class="lbl">Tools it needs</span><div class="chips" role="group" aria-label="Tools">${Object.entries(MCPS).map(([k,m]) => `<button type="button" class="chip" data-act="ag-tool" data-id="${k}" aria-pressed="${a.tools.includes(k)}" ${m.tier==='soon'?'disabled title="Coming soon"':''}>${esc(m.name)}</button>`).join('')}</div></div>
+      <div class="field"><label for="agb">Monthly budget (USD)</label><input type="number" id="agb" min="1" step="1" value="${esc(a.budget)}" data-in="ag-budget" style="max-width:140px"><p class="help">The agent pauses automatically when it reaches this.</p></div>
+      ${s.org.launched?'<div class="note info">Changes apply from the next run.</div>':''}
+      <div class="foot">${editing?`<button class="btn danger" data-act="agent-del">Remove agent</button><span class="sp"></span>`:''}<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="agent-save">${editing?'Save changes':'Add to team'}</button></div></section>`);
+  }
+  UI.act('agent-new', () => { ag = draftFrom(); agentDrawer(); });
+  UI.act('agent-tpl', (t,d) => { ag = draftFrom(null, Jobs.find(j => j.id === d.id)); agentDrawer(); });
+  UI.act('agent-edit', (t,d) => { ag = draftFrom(API.agent(d.id)); agentDrawer(); });
+  UI.inp('ag-name', v => { ag.name = v; }); UI.inp('ag-job', v => { ag.job = v; }); UI.inp('ag-prompt', v => { ag.prompt = v; }); UI.inp('ag-budget', v => { ag.budget = v; });
+  UI.chg('ag-dept', v => { ag.deptId = v || null; }); UI.chg('ag-mgr', v => { ag.managerId = v || null; });
+  UI.chg('ag-type', v => { ag.type = v; ag.managerId = v==='coordinator' ? null : (API.coordinator()||{}).id || null; agentDrawer(); });
+  UI.act('ag-tool', (t,d) => { const i = ag.tools.indexOf(d.id); i<0 ? ag.tools.push(d.id) : ag.tools.splice(i,1); t.setAttribute('aria-pressed', i<0); });
+  UI.act('agent-save', () => { const errs = API.createAgent(ag); if(errs.length){ ag.errs = errs; agentDrawer(); return; } UI.close(); UI.toast(ag.name.trim() + (ag.id?' updated':' added to your team')); });
+  UI.act('agent-del', () => { const e = API.removeAgent(ag.id); if(e){ ag.errs = [e]; agentDrawer(); return; } UI.close(); UI.toast('Agent removed'); });
+
+  /* ===================== 3. ASSIGN ===================== */
+  OA.assignView = function(){
+    const s = S(); const owners = [['','Unassigned']].concat(s.people.map(p => [p.id, p.name || 'New person']));
+    if(!s.agents.length) return UI.empty('No agents yet','Create your agents in the previous step, then assign each one to a person.');
+    const rows = s.agents.map(a => { const d = API.dept(a.deptId); return `<tr><td><div class="row"><span class="mono sm" aria-hidden="true">${esc(initials(a.name))}</span><div><b>${esc(a.name)}</b> ${a.type==='coordinator'?pill('Coordinator','brand'):''}<small style="display:block">${esc(a.job)}</small></div></div></td>
+      <td>${esc(d?d.name:'None')}</td><td>${sel(owners, a.ownerId, `data-ch="assign" data-id="${a.id}" aria-label="Owner of ${esc(a.name)}"`)}</td></tr>`; }).join('');
+    const per = s.people.map(p => { const n = API.agentsOf(p.id).length; return `<span class="chip">${esc(p.name||'New person')} <b class="num">${n}</b></span>`; }).join('');
+    return `<div class="row wrap" style="margin-bottom:12px"><div class="grow muted">Each agent has one owner. Owners see what it is doing, edit its instructions within your guardrails, and pause it. Approving messages is separate and follows Authority.</div><button class="btn" data-act="auto-assign">${ic('sparkle')} Auto-assign by department</button></div>
+      <section class="card flush scroll"><table class="tbl"><thead><tr><th>Agent</th><th>Department</th><th>Owner</th></tr></thead><tbody>${rows}</tbody></table></section>
+      <div class="sec-h"><h3>Agents per person</h3></div><div class="chips">${per}</div>`;
+  };
+  UI.chg('assign', (v,t,d) => API.assign(d.id, v));
+  UI.act('auto-assign', () => { API.autoAssign(); UI.toast('Assigned by department'); });
+
+  /* ===================== 4. CONNECTIONS (MCP) ===================== */
+  let cm = {id:null, mode:'draft', busy:false};
+  function connCard(k, usedBy){
+    const m = MCPS[k], on = API.isOn(k), c = S().connections[k], [tl,tc] = MCP_TIER[m.tier];
+    return `<div class="card conn"><span class="mono tile" style="--tile:${m.tile}" aria-hidden="true">${esc(m.mono)}</span><div class="body"><div class="row wrap"><b>${esc(m.name)}</b>${pill(tl,tc)}${on?pill('Connected','ok'):(usedBy?pill('Required','warn'):'')}</div>
+      <p class="muted">${esc(m.desc)}</p>${usedBy?`<div class="who"><small>Needed by</small>${usedBy.map(id=>`<span class="chip">${esc((API.agent(id)||{}).name)}</span>`).join('')}</div>`:''}
+      ${on?`<small>Access: ${esc((MCP_MODES.find(x=>x[0]===c.mode)||[])[1]||c.mode)}</small>`:''}</div>
+      ${m.tier==='soon' ? '' : on ? `<button class="btn sm ghost" data-act="conn-off" data-id="${k}">Disconnect</button>` : `<button class="btn sm primary" data-act="conn-open" data-id="${k}">Connect</button>`}</div>`;
+  }
+  OA.connectionsView = function(){
+    const s = S(), req = API.requiredTools(); const reqKeys = Object.keys(req), others = Object.keys(MCPS).filter(k => !req[k]);
+    const miss = reqKeys.filter(k => !API.isOn(k));
+    return `<div class="note info" style="margin-bottom:14px">${ic('lock',14)} Tools connect through ORBIT's policy gateway. ORBIT keeps the sign-in tokens, so agents never see your passwords, and every action is checked against what you allowed.</div>
+      <div class="sec-h" style="margin-top:0"><h3>Required by your agents</h3>${reqKeys.length?pill(`${reqKeys.length-miss.length} of ${reqKeys.length} connected`, miss.length?'warn':'ok'):''}</div>
+      ${reqKeys.length ? `<div class="stack">${reqKeys.map(k => connCard(k, req[k])).join('')}</div>` : UI.empty('No tools needed yet','Tools your agents need will appear here once you add agents.')}
+      ${miss.length ? `<label class="row" style="margin-top:12px;align-items:flex-start"><input type="checkbox" data-ch="connect-later" ${s.org.connectLater?'checked':''} style="margin-top:3px;width:auto"><span>Connect later. Agents that need a missing tool start <b>paused</b> and resume when you connect it.</span></label>` : ''}
+      <div class="sec-h"><h3>Other tools you can add</h3></div><div class="stack">${others.map(k => connCard(k, null)).join('')}</div>`;
+  };
+  UI.chg('connect-later', v => upd(s => { s.org.connectLater = !!v; }));
+  UI.act('conn-open', (t,d) => { cm = {id:d.id, mode:'draft', busy:false}; connModal(); });
+  function connModal(){
+    const m = MCPS[cm.id], list = (a,c) => `<ul class="todo" style="${c||''}">${a.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+    UI.open(`<section class="modal" role="dialog" aria-modal="true" aria-labelledby="cmt"><div class="dh"><span class="mono tile" style="--tile:${m.tile}" aria-hidden="true">${esc(m.mono)}</span><h2 id="cmt" class="grow">Connect ${esc(m.name)}</h2><button class="btn sm ghost" data-act="close" aria-label="Close">${ic('x')}</button></div>
+      <div class="field"><label for="cmm">How much can agents do?</label>${sel(MCP_MODES, cm.mode, 'id="cmm" data-ch="conn-mode"')}</div>
+      <div class="guard"><h4>Agents can</h4>${list(m.can)}<h4 style="margin-top:8px">Always ask a person first</h4>${list(m.ask)}<h4 style="margin-top:8px">Never</h4>${list(m.never)}</div>
+      <div class="foot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="conn-go" ${cm.busy?'disabled':''}>${cm.busy?'Connecting…':'Continue with '+esc(m.auth.replace(' sign-in',''))}</button></div></section>`, {center:true});
+  }
+  UI.chg('conn-mode', v => { cm.mode = v; });
+  UI.act('conn-go', () => { cm.busy = true; connModal(); const id = cm.id, mode = cm.mode; setTimeout(() => { UI.close(); API.connect(id, mode); UI.toast(MCPS[id].name + ' connected'); }, 700); });
+  UI.act('conn-off', (t,d) => UI.confirm('Disconnect '+MCPS[d.id].name+'? Agents that need it will pause.', () => API.disconnect(d.id), 'Disconnect'));
+
+  /* ---- standalone pages (after launch) ---- */
+  Router.reg('admin','structure',{title:'Org structure', render:() => UI.pageH('Org structure','The people, departments and board your agents report into.') + OA.structureView()});
+  Router.reg('admin','connections',{title:'Connections', render:() => UI.pageH('Connections','The tools your agents can use. Connect, change access, or disconnect.') + OA.connectionsView()});
+  let tab = 'agents';
+  UI.act('ag-tab', (t,d) => { tab = d.id; Shell.render(); });
+  Router.reg('admin','agents',{title:'Agents', render:() => UI.pageH('Agents','Your AI teammates, who owns each one, and what it is allowed to do.', `<button class="btn primary" data-act="agent-new">${ic('plus')} New agent</button>`) +
+    `<div class="tabs" role="tablist"><button role="tab" aria-selected="${tab==='agents'}" data-act="ag-tab" data-id="agents">Team</button><button role="tab" aria-selected="${tab==='assign'}" data-act="ag-tab" data-id="assign">Assignments</button></div>` + (tab==='assign' ? OA.assignView() : OA.agentsView())});
+  OA.openPromptEditor = null; // set by requests.js
+})();
+
+/* Org Admin onboarding wizard: 1 Org structure -> 2 Agents -> 3 Assign -> 4 Connections -> 5 Launch (hiring job, resumable). */
+(function(){
+  const {esc, ic, pill} = UI; const S = () => Store.get();
+  const STEPS = [
+    ['Org structure','Who is on the board and in each team', () => API.validateOrg(), () => OA.structureView()],
+    ['Agents','Hire your AI teammates', () => API.validateAgents(), () => OA.agentsView()],
+    ['Assign','Give every agent an owner', () => API.validateAssign(), () => OA.assignView()],
+    ['Connections','Connect the tools they need', () => API.validateConnections(), () => OA.connectionsView()],
+    ['Launch','Hire the team and go live', () => [], launchView]
+  ];
+  const errsUpTo = n => { for(let i = 0; i < n; i++){ const e = STEPS[i][2](); if(e.length) return {step:i+1, errs:e}; } return null; };
+  const setStep = n => Store.update(s => { s.org.step = n; });
+  const hasAgents = () => S().agents.length > 0;
+
+  function launchView(){
+    const s = S(), job = s.org.job, miss = Object.keys(API.requiredTools()).filter(k => !API.isOn(k));
+    const paused = s.agents.filter(a => a.tools.some(t => miss.includes(t))).length;
+    const stat = (n,l) => `<div class="card kpi"><small>${l}</small><b class="num">${n}</b></div>`;
+    let body = '';
+    if(!job){
+      body = `<div class="kpis" style="margin-bottom:14px">${stat(s.departments.length,'Departments')}${stat(s.people.length,'People')}${stat(s.agents.length,'Agents')}${stat(Object.keys(s.connections).length,'Tools connected')}</div>
+        ${paused ? `<div class="note" style="margin-bottom:12px">${paused} agent${paused>1?'s':''} will start paused until you connect their tools.</div>` : ''}
+        <div class="note info" style="margin-bottom:14px">Launching creates your office, builds the org chart, hires each agent with its own workspace and budget, applies tool permissions and invites your people. No agent runs until this finishes.</div>
+        ${CFG.DEV ? `<label class="row" style="margin-bottom:12px"><input type="checkbox" id="simfail" style="width:auto"> Dev: simulate a failure at "workspace" to test retry</label>` : ''}
+        <button class="btn primary" data-act="launch">${ic('rocket')} Hire the team</button>`;
+    } else {
+      const done = job.steps.filter(x => x.status === 'done').length, pct = Math.round(done / job.steps.length * 100);
+      const failed = job.steps.some(x => x.status === 'fail'), stalled = !failed && !job.done && !API.isJobActive();
+      body = `<div class="row" style="margin-bottom:10px"><div class="bar grow" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><b class="num">${pct}%</b></div>
+        <ul class="job gl" style="gap:0">${job.steps.map(x => `<li><span class="s ${x.status==='done'?'done':x.status==='run'?'run':x.status==='fail'?'fail':''}">${x.status==='done'?ic('check',12):x.status==='fail'?ic('x',12):''}</span><span class="grow" style="${x.status==='pending'?'color:var(--muted)':''}">${esc(x.label)}</span></li>`).join('')}</ul>
+        ${job.error ? `<div class="note err" role="alert" style="margin-top:12px">${esc(job.error)}</div>` : ''}
+        ${failed || stalled ? `<div style="margin-top:12px"><button class="btn primary" data-act="retry">${failed?'Retry from this step':'Resume'}</button></div>` : ''}
+        ${s.org.launched ? `<div class="note ok" style="margin-top:12px"><b>Your office is live.</b> ${paused?paused+' agent'+(paused>1?'s are':' is')+' paused until their tools are connected. ':''}Invitations were sent to your team.</div>
+          <div style="margin-top:12px"><a class="btn primary" href="${Router.href('dashboard')}">Go to your dashboard</a></div>` : ''}`;
+    }
+    return `<section class="card pad"><h3 style="margin-bottom:10px">${s.org.launched?'Done':'Ready to launch?'}</h3>${body}</section>`;
+  }
+  UI.act('launch', () => { const sf = document.getElementById('simfail'); API.startLaunch(sf && sf.checked); });
+  UI.act('retry', () => API.retryJob());
+  UI.act('wiz-go', (t,d) => { const b = errsUpTo(+d.n - 1); if(b){ UI.toast('Finish step '+b.step+' first'); return; } setStep(+d.n); });
+  UI.act('wiz-next', () => { const n = S().org.step; const e = STEPS[n-1][2](); if(e.length) return; setStep(n + 1); });
+  UI.act('wiz-back', () => setStep(Math.max(1, S().org.step - 1)));
+
+  Router.reg('admin','onboarding',{title:'Set up your office', render(){
+    const s = S(), cur = Math.min(5, Math.max(1, s.org.step));
+    if(s.org.launched && !(s.org.job && !s.org.job.seen)){ /* fall through to show final state once */ }
+    const block = errsUpTo(cur - 1); if(block && block.step < cur){ setTimeout(() => setStep(block.step), 0); }
+    const errs = STEPS[cur-1][2]();
+    const stepper = `<nav class="stepper" aria-label="Setup steps">${STEPS.map((x,i) => { const n = i + 1, ok = n < cur && !STEPS[i][2]().length; const lock = !!errsUpTo(n - 1);
+      return `<button class="step ${n===cur?'on':''} ${ok?'done':''}" data-act="wiz-go" data-n="${n}" ${lock&&n!==cur?'disabled':''} ${n===cur?'aria-current="step"':''}><span class="n">${ok?ic('check',13):n}</span><span><b>${x[0]}</b><small>${x[1].length>26?x[1].slice(0,24)+'…':x[1]}</small></span></button>`; }).join('')}</nav>`;
+    const foot = cur === 5 ? `<div class="wfoot"><button class="btn" data-act="wiz-back" ${s.org.job&&!s.org.launched?'disabled':''}>${ic('left')} Back</button><span></span></div>`
+      : `<div class="wfoot"><button class="btn" data-act="wiz-back" ${cur===1?'disabled':''}>${ic('left')} Back</button>
+        <div>${errs.length ? `<div class="note" style="text-align:left;margin-bottom:8px" role="status"><b>To continue:</b><ul class="todo">${errs.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}<div style="text-align:right"><button class="btn primary" data-act="wiz-next" ${errs.length?'disabled':''}>Continue ${ic('right')}</button></div></div></div>`;
+    const intro = ['Set up who is in your business. Leaders form the board that approves big decisions.','Hire one Coordinator, then specialists. The chart is a strict tree: every agent has exactly one manager.','Give every agent one owner so someone is responsible for it.','These are the tools your agents need. Connect each one so they can start working.','Review and launch. This creates everything in one go.'][cur-1];
+    return UI.pageH(`Step ${cur} of 5: ${STEPS[cur-1][0]}`, intro) + stepper + STEPS[cur-1][3]() + foot;
+  }});
+})();
+
+/* Requests inbox: review a user's agent request, edit its instructions, add guardrails, decide. Also edit any running agent's prompt + guardrails. */
+(function(){
+  const {esc, ic, pill} = UI; const S = () => Store.get();
+  const RQ = {pending:['warn','Waiting for you'],approved:['ok','Approved'],changes:['brand','Changes requested'],rejected:['err','Declined']};
+  let p = null; // panel draft {type:'review'|'agent', id, prompt, guards, note, err}
+
+  OA.guardEditor = function(guards){
+    return `<ul class="gl">${guards.map((g,i) => `<li><span>${esc(g)}</span><button class="btn sm ghost" data-act="g-del" data-id="${i}" aria-label="Remove guardrail: ${esc(g)}">Remove</button></li>`).join('') || '<li><span class="muted">No guardrails yet.</span></li>'}</ul>
+      <div class="addrow"><input type="text" id="gnew" placeholder="Add a guardrail, e.g. Never email customers" data-enter="g-add" aria-label="New guardrail"><button class="btn" data-act="g-add">Add</button></div>
+      <div class="chips" style="margin-top:8px">${CFG.SUGGEST_GUARDS.filter(x => !guards.includes(x)).map(x => `<button class="chip" data-act="g-sug" data-id="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>`;
+  };
+  function drawer(){
+    const s = S(), isReq = p.type === 'review';
+    const r = isReq ? s.requests.find(x => x.id === p.id) : null, a = !isReq ? s.agents.find(x => x.id === p.id) : null; if(!r && !a) return;
+    const ro = isReq && r.status !== 'pending', by = r ? API.person(r.by) : null, owner = a ? API.person(a.ownerId) : null;
+    UI.open(`<section class="drawer" role="dialog" aria-modal="true" aria-labelledby="pt">
+      <div class="dh"><div class="grow"><h2 id="pt">${esc(isReq ? r.name : a.name)}</h2><small>${isReq ? 'Requested by '+esc(by?by.name:'someone')+', '+UI.ago(r.at) : esc(owner?owner.name:'Unassigned')+' · prompt v'+a.version}</small></div><button class="btn sm ghost" data-act="close" aria-label="Close">${ic('x')}</button></div>
+      ${isReq ? `<div class="guard"><h4>What ${esc(by?by.name.split(' ')[0]:'they')} asked for</h4><p style="font-size:13px"><b>Job:</b> ${esc(r.purpose)}</p><p style="font-size:13px"><b>Why:</b> ${esc(r.reason)}</p><p style="font-size:13px"><b>Tools:</b> ${esc(r.tools.map(API.toolName).join(', ')||'none')}${r.tools.some(t=>!API.isOn(t))?` ${pill('Some not connected yet','warn')}`:''}</p></div>` : `<div class="doing"><small>Right now</small>${esc(a.doing)}</div>`}
+      <div class="field"><label for="pp">Instructions${isReq&&!ro?' (edit before approving)':''}</label><textarea id="pp" ${ro?'readonly':''} data-in="rv-prompt">${esc(p.prompt)}</textarea></div>
+      <div class="field"><span class="lbl">Guardrails</span><p class="help" style="margin:0 0 6px">Guardrails always win over instructions. The owner can read them but not change them.</p>${ro ? `<ul class="gl">${p.guards.map(g=>`<li><span>${esc(g)}</span></li>`).join('')}</ul>` : OA.guardEditor(p.guards)}</div>
+      ${isReq && !ro ? `<div class="field"><label for="pn">Note to ${esc(by?by.name.split(' ')[0]:'them')}</label><input type="text" id="pn" value="${esc(p.note)}" data-in="rv-note" placeholder="Required if you request changes or decline">${p.err?`<p class="err-t" role="alert">${esc(p.err)}</p>`:''}</div>` : ''}
+      ${ro ? `<div class="note ${r.status==='approved'?'ok':r.status==='rejected'?'err':''}">${esc(RQ[r.status][1])}${r.adminNote?': '+esc(r.adminNote):''}</div>` : ''}
+      <div class="foot">${isReq && !ro ? `<button class="btn" data-act="rv-decide" data-d="rejected">Decline</button><button class="btn" data-act="rv-decide" data-d="changes">Request changes</button><button class="btn primary" data-act="rv-decide" data-d="approved">Approve and start</button>` : !isReq ? `<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="rv-save">Save changes</button>` : ''}</div></section>`);
+  }
+  OA.openPromptEditor = id => { const a = API.agent(id); p = {type:'agent', id, prompt:a.prompt, guards:a.guardrails.slice(), note:'', err:''}; drawer(); };
+  UI.act('rv-open', (t,d) => { const r = API.agent && S().requests.find(x => x.id === d.id); p = {type:'review', id:d.id, prompt:r.prompt, guards:S().org.guardrails.slice(), note:r.adminNote || '', err:''}; drawer(); });
+  UI.act('agent-admin', (t,d) => OA.openPromptEditor(d.id));
+  UI.inp('rv-prompt', v => { p.prompt = v; }); UI.inp('rv-note', v => { p.note = v; });
+  const addG = txt => { txt = (txt||'').trim(); if(!txt) return; if(p.guards.includes(txt)){ UI.toast('Already added'); return; } p.guards.push(txt); drawer(); const i = document.getElementById('gnew'); if(i) i.focus(); };
+  UI.act('g-add', () => addG(document.getElementById('gnew').value)); UI.act('g-sug', (t,d) => addG(d.id));
+  UI.act('g-del', (t,d) => { p.guards.splice(+d.id, 1); drawer(); });
+  UI.act('rv-save', () => { if(p.prompt.trim().length < 20){ UI.toast('Instructions need at least 20 characters'); return; } const a = API.agent(p.id); UI.close(); API.savePrompt(p.id, p.prompt, 'Org Admin', p.guards); UI.toast(a.name + ' updated. Applies from the next run.'); });
+  UI.act('rv-decide', (t,d) => { const dec = d.d;
+    if((dec==='changes'||dec==='rejected') && !p.note.trim()){ p.err = dec==='changes' ? 'Say what to change so they can fix it.' : 'Add a short reason so they know why.'; drawer(); return; }
+    if(dec==='approved' && p.prompt.trim().length < 20){ UI.toast('Instructions need at least 20 characters'); return; }
+    const r = S().requests.find(x => x.id === p.id), person = API.person(r.by); const o = {prompt:p.prompt, guards:p.guards, note:p.note.trim()};
+    UI.close(); API.decide(p.id, dec, o); UI.toast(dec==='approved' ? r.name+' is set up for '+(person?person.name.split(' ')[0]:'them') : 'Decision sent'); });
+
+  Router.reg('admin','requests',{title:'Requests', render(){
+    const s = S(), pend = s.requests.filter(r => r.status === 'pending').sort((a,b) => a.at - b.at), done = s.requests.filter(r => r.status !== 'pending').sort((a,b) => b.at - a.at);
+    const row = r => { const by = API.person(r.by); return `<div class="item"><span class="av" aria-hidden="true">${esc(UI.initials(by?by.name:'?'))}</span><div class="grow"><div class="row wrap"><b>${esc(r.name)}</b>${pill(RQ[r.status][1], RQ[r.status][0])}</div><p class="muted">${esc(r.purpose)}</p><small>${esc(by?by.name:'Someone')} · ${UI.ago(r.at)} · Tools: ${esc(r.tools.map(API.toolName).join(', ')||'none')}</small></div>
+      <button class="btn sm ${r.status==='pending'?'primary':''}" data-act="rv-open" data-id="${r.id}">${r.status==='pending'?'Review':'View'}</button></div>`; };
+    return UI.pageH('Requests','Agent requests from your team. Review, adjust the instructions, add guardrails, then approve.') +
+      `<section class="card list flush" aria-label="Pending requests">${pend.length ? pend.map(row).join('') : '<div class="empty"><h3>Nothing to review</h3><p>New requests from your team appear here.</p></div>'}</section>` +
+      (done.length ? `<div class="sec-h"><h3>Decided</h3></div><section class="card list flush">${done.map(row).join('')}</section>` : '') +
+      `<div class="sec-h"><h3>Recent changes</h3></div><section class="card list flush">${s.audit.slice(0,8).map(x => `<div class="item" style="padding:10px 16px"><div class="grow"><b>${esc(x.who)}</b> ${esc(x.what)} <small>· ${UI.ago(x.at)}</small></div></div>`).join('')}</section>`;
+  }});
+})();
+
+/* Org Admin home: setup checklist until launch, then live office overview. */
+(function(){
+  const {esc, ic, pill, statusPill, kpi} = UI; const S = () => Store.get();
+  Router.reg('admin','dashboard',{title:'Home', render(){
+    const s = S();
+    if(!s.org.launched){
+      const checks = [['Org structure', s.departments.length>0 && !API.validateOrg().length],['Agents', !API.validateAgents().length && s.agents.length>0],['Assign agents', s.agents.length>0 && !API.validateAssign().length],['Connect tools', s.agents.length>0 && !API.validateConnections().length],['Launch', false]];
+      const done = checks.filter(c => c[1]).length;
+      return UI.pageH('Welcome, '+esc(Shell.me('admin').name.split(' ')[0]),'Your office is not live yet. Finish setup to hire your team.') +
+        `<section class="card hero-card"><h2>Set up your office in 5 steps</h2><p class="muted" style="margin:4px 0 14px">About 10 minutes. Nothing runs until you launch.</p>
+          <div class="row" style="margin-bottom:14px"><div class="bar grow"><i style="width:${done/5*100}%"></i></div><b class="num">${done} of 5</b></div>
+          <ul class="job gl" style="gap:0;margin-bottom:14px">${checks.map(c => `<li><span class="s ${c[1]?'done':''}">${c[1]?ic('check',12):''}</span><span class="grow">${esc(c[0])}</span></li>`).join('')}</ul>
+          <a class="btn primary" href="${Router.href('onboarding')}">${s.org.step>1||done?'Continue setup':'Start setup'} ${ic('right')}</a></section>`;
+    }
+    const all = s.agents, pend = s.requests.filter(r => r.status==='pending');
+    const attn = all.filter(a => a.perf.success < 90 || (a.blockedBy && a.blockedBy.length));
+    return UI.pageH('Home', `${API.running(all)} of ${all.length} agents are running across ${esc(s.org.name)}.`) +
+      `<section class="kpis">${kpi('Requests to review', pend.length, '', pend.length>0)}${kpi('Running now', API.running(all), 'of '+all.length, pend.length===0)}${kpi('Waiting for approval', all.filter(a=>a.status==='waiting').length)}${kpi('Spent today', UI.money(all.reduce((t,a)=>t+a.costToday,0)))}</section>` +
+      (attn.length ? `<div class="attn" role="note"><b>Needs attention:</b> ${attn.map(a => esc(a.name)+' ('+(a.blockedBy&&a.blockedBy.length?'needs '+a.blockedBy.map(API.toolName).join(', '):a.perf.success+'% success')+')').join(', ')}. <a href="${Router.href('performance')}" style="text-decoration:underline">See performance</a></div>` : '') +
+      `<div class="grid2"><section class="card list flush"><div class="item" style="justify-content:space-between"><b>Requests</b><a class="btn sm" href="${Router.href('requests')}">Open</a></div>${pend.slice(0,3).map(r => { const by = API.person(r.by); return `<div class="item"><div class="grow"><b>${esc(r.name)}</b><small style="display:block">${esc(by?by.name:'Someone')} · ${UI.ago(r.at)}</small></div><button class="btn sm" data-act="rv-open" data-id="${r.id}">Review</button></div>`; }).join('') || '<div class="empty">No requests waiting.</div>'}</section>
+        <section class="card list flush"><div class="item" style="justify-content:space-between"><b>Working right now</b><a class="btn sm" href="${Router.href('map')}">Agent map</a></div>${all.filter(a=>a.status==='running').slice(0,4).map(a => { const o = API.person(a.ownerId); return `<div class="item"><span class="mono sm" aria-hidden="true">${esc(UI.initials(a.name))}</span><div class="grow"><b>${esc(a.name)}</b><small style="display:block">${esc(a.doing)}${o?' · '+esc(o.name):''}</small></div></div>`; }).join('') || '<div class="empty">Nothing running at the moment.</div>'}</section></div>`;
+  }});
+})();
+
+/* Agent map: every person with the agents working for them, live status and what each is doing. */
+(function(){
+  const {esc, initials, ic, statusPill} = UI; const S = () => Store.get(); let who = 'all';
+  UI.act('map-user', (t,d) => { who = d.id; Shell.render(); });
+  Router.reg('admin','map',{title:'Agent map', render(){
+    const s = S(); if(!s.org.launched && !s.agents.length) return UI.pageH('Agent map','See which agents work for each person.') + UI.empty('Nothing to show yet','Create and assign agents in setup, then launch. They will appear here.', `<a class="btn primary" href="${Router.href('onboarding')}">Continue setup</a>`);
+    const owners = s.people.filter(p => s.agents.some(a => a.ownerId === p.id));
+    if(who !== 'all' && !owners.some(p => p.id === who)) who = 'all';
+    const shown = who === 'all' ? owners : owners.filter(p => p.id === who);
+    const pick = [['all','Everyone']].concat(owners.map(p => [p.id, p.name])).map(([k,l]) => `<button class="chip" data-act="map-user" data-id="${esc(k)}" aria-pressed="${who===k}">${esc(l)}</button>`).join('');
+    const blocks = shown.map(p => { const ag = s.agents.filter(a => a.ownerId === p.id), n = ag.length, H = Math.max(64, n*76-12);
+      const paths = ag.map((a,i) => `<path class="${a.status} s-${a.status}" d="M0 ${H/2} C 32 ${H/2}, 32 ${32+i*76}, 64 ${32+i*76}" stroke="currentColor"/>`).join('');
+      return `<div class="mapu"><div class="card unode"><span class="av lg">${esc(initials(p.name))}</span><b>${esc(p.name)}</b><small>${API.running(ag)} of ${n} running</small></div>
+        <svg class="mapsvg" width="64" height="${H}" viewBox="0 0 64 ${H}" aria-hidden="true">${paths}</svg>
+        <div class="anodes">${ag.map(a => { const mg = API.agent(a.managerId); return `<button class="card anode s-${a.status}" data-act="agent-admin" data-id="${a.id}" aria-label="${esc(a.name)}, ${UI.ST[a.status][1]}. ${esc(a.doing)}"><span class="mono" aria-hidden="true">${esc(initials(a.name))}</span><span class="t"><b>${esc(a.name)} <span style="font-weight:400;color:var(--muted)">· ${UI.ST[a.status][1]}</span></b><small>${esc(a.doing)}${mg?' · reports to '+esc(mg.name):''}</small></span><small class="num">${UI.money(a.costToday)}</small></button>`; }).join('')}</div></div>`; }).join('');
+    return UI.pageH('Agent map','Who each agent works for, and what it is doing right now.') + `<div class="pick" role="group" aria-label="Show agents for">${pick}</div>${blocks || UI.empty('No agents assigned','Assign agents to people from the Agents page.')}<p class="muted">Select an agent to edit its instructions and guardrails. Dashed lines mean idle, paused or not started.</p>`;
+  }});
+})();
+
+/* Performance per agent: runs, trend, success, speed, human edits, cost. */
+(function(){
+  const {esc, pill, statusPill} = UI; const S = () => Store.get(); let sort = {k:'runs', dir:-1};
+  UI.act('perf-sort', (t,d) => { sort = {k:d.id, dir: sort.k===d.id ? -sort.dir : (d.id==='name'||d.id==='owner'?1:-1)}; Shell.render(); });
+  const spark = d => { const mx = Math.max(...d,1), w=70, h=22; return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${d.map((v,i)=>(i*(w/(d.length-1))).toFixed(1)+','+(h-2-(v/mx)*(h-4)).toFixed(1)).join(' ')}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`; };
+  Router.reg('admin','performance',{title:'Performance', render(){
+    const s = S(), A = s.agents; if(!A.some(a => a.provisioned)) return UI.pageH('Performance','How each agent is doing.') + UI.empty('No data yet','Performance appears after your office goes live.', `<a class="btn primary" href="${Router.href('onboarding')}">Continue setup</a>`);
+    const own = a => (API.person(a.ownerId)||{name:'Unassigned'}).name, r7 = API.runs7;
+    const val = {name:a=>a.name, owner:own, runs:r7, success:a=>a.perf.success, time:a=>a.perf.avgSec, edited:a=>a.perf.edited, cost:a=>a.perf.cost7, cpr:a=>a.perf.cost7/Math.max(1,r7(a))}[sort.k];
+    const rows = A.slice().sort((x,y) => { const a = val(x), b = val(y); return (typeof a==='string' ? a.localeCompare(b) : a-b) * sort.dir; });
+    const th = (k,l) => `<th scope="col" aria-sort="${sort.k===k?(sort.dir>0?'ascending':'descending'):'none'}"><button data-act="perf-sort" data-id="${k}">${l}${sort.k===k?(sort.dir>0?' ▲':' ▼'):''}</button></th>`;
+    const bad = A.filter(a => a.provisioned && (a.perf.success < 90 || a.perf.edited >= 40)), tot = A.reduce((t,a)=>t+r7(a),0), cost = A.reduce((t,a)=>t+a.perf.cost7,0);
+    return UI.pageH('Performance','How each agent did over the last 7 days.') +
+      (bad.length ? `<div class="attn" role="note"><b>Needs attention:</b> ${bad.map(a => esc(a.name)+' ('+(a.perf.success<90?a.perf.success+'% success':a.perf.edited+'% of drafts edited')+')').join(', ')}.</div>` : '') +
+      `<section class="card flush scroll"><table class="tbl"><thead><tr>${th('name','Agent')}${th('owner','Owner')}<th scope="col">Status</th>${th('runs','Runs')}<th scope="col">Trend</th>${th('success','Success')}${th('time','Avg time')}${th('edited','Edited by people')}${th('cost','Cost')}${th('cpr','Per run')}</tr></thead><tbody>
+      ${rows.map(a => `<tr class="row-b" tabindex="0" data-act="agent-admin" data-id="${a.id}"><td><b>${esc(a.name)}</b></td><td>${esc(own(a))}</td><td>${statusPill(a.status)}</td><td class="num">${r7(a)}</td><td>${spark(a.perf.daily)}</td><td class="num ${a.perf.success<90?'warn-t':a.perf.success>=97?'ok-t':''}">${a.perf.success}%</td><td class="num">${a.perf.avgSec.toFixed(1)}s</td><td class="num ${a.perf.edited>=40?'warn-t':''}">${a.perf.edited}%</td><td class="num">${UI.money(a.perf.cost7)}</td><td class="num">${UI.money(a.perf.cost7/Math.max(1,r7(a)))}</td></tr>`).join('')}
+      </tbody><tfoot><tr><td colspan="3"><b>All agents</b></td><td class="num"><b>${tot}</b></td><td colspan="4"></td><td class="num"><b>${UI.money(cost)}</b></td><td class="num"><b>${UI.money(cost/Math.max(1,tot))}</b></td></tr></tfoot></table></section>
+      <p class="muted" style="margin-top:10px">Success means the run finished without an error or a rejected result. "Edited by people" is the share of drafts a person changed before approving; a high number usually means the instructions need work.</p>`;
+  }});
+})();
+
+/* User home: how many agents are running, live status, edit instructions, pause/resume. */
+(function(){
+  const {esc, ic, pill, statusPill, kpi, money} = UI; const S = () => Store.get(); let ud = null;
+  const mine = m => S().agents.filter(a => a.ownerId === m.id);
+  function card(a){
+    return `<article class="card agent" aria-label="${esc(a.name)}"><div class="row"><span class="mono" aria-hidden="true">${esc(UI.initials(a.name))}</span><div class="grow"><h3 style="font-size:15px">${esc(a.name)}</h3><small>${esc(a.job)}</small></div>${statusPill(a.status)}</div>
+      <div class="doing"><small>Right now</small>${esc(a.doing)}</div>
+      <div class="meta"><span>${a.runsToday} runs today</span><span>${money(a.costToday)} today</span><span>Active ${UI.ago(a.lastActive)}</span></div>
+      <div class="meta"><span>${a.guardrails.length} guardrails set by your admin</span><span>Instructions v${a.version}</span></div>
+      <div class="actions"><button class="btn sm primary" data-act="u-edit" data-id="${a.id}">${ic('edit',14)} Edit instructions</button>${a.provisioned?`<button class="btn sm" data-act="u-toggle" data-id="${a.id}">${a.status==='paused'?ic('play',14)+' Resume':ic('pause',14)+' Pause'}</button>`:''}</div></article>`;
+  }
+  function drawer(){
+    const a = API.agent(ud.id); if(!a) return; const dirty = ud.draft.trim() !== a.prompt.trim(), bad = ud.draft.trim().length < 20;
+    UI.open(`<section class="drawer" role="dialog" aria-modal="true" aria-labelledby="udt"><div class="dh"><h2 id="udt" class="grow">Edit ${esc(a.name)}'s instructions</h2><button class="btn sm ghost" data-act="close" aria-label="Close">${ic('x')}</button></div>
+      <div class="field"><label for="ud">What ${esc(a.name)} should do</label><textarea id="ud" data-in="u-draft">${esc(ud.draft)}</textarea><p class="help"><span id="ucnt">${ud.draft.length}</span> characters. Changes apply from the next run.</p><p class="err-t" id="uerr">${bad?'Write at least 20 characters so the agent knows its job.':''}</p></div>
+      <div class="guard"><h4>Guardrails from your Org Admin (you can't change these)</h4><ul class="todo">${a.guardrails.map(g=>`<li>${esc(g)}</li>`).join('')}</ul></div>
+      <div><h4 style="font-size:13px;margin-bottom:4px">Version history</h4>${a.versions.slice().reverse().map(v=>`<div class="ver">${pill('v'+v.v, v.v===a.version?'ok':'')}<span class="grow"><small>${esc(v.by)}, ${UI.ago(v.at)}</small></span>${v.v===a.version?'<small>Current</small>':`<button class="btn sm" data-act="u-restore" data-v="${v.v}">Use this version</button>`}</div>`).join('')}</div>
+      <div class="foot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" id="usave" data-act="u-save" ${(!dirty||bad)?'disabled':''}>Save changes</button></div></section>`);
+  }
+  UI.act('u-edit', (t,d) => { ud = {id:d.id, draft:API.agent(d.id).prompt}; drawer(); });
+  UI.inp('u-draft', v => { ud.draft = v; const a = API.agent(ud.id), bad = v.trim().length < 20; document.getElementById('ucnt').textContent = v.length; document.getElementById('uerr').textContent = bad ? 'Write at least 20 characters so the agent knows its job.' : ''; document.getElementById('usave').disabled = bad || v.trim() === a.prompt.trim(); });
+  UI.act('u-restore', (t,d) => { const a = API.agent(ud.id); ud.draft = a.versions.find(v => v.v === +d.v).prompt; drawer(); UI.toast('Version loaded. Press Save changes to use it.'); });
+  UI.act('u-save', () => { const a = API.agent(ud.id), me = Shell.me('user'); if(ud.draft.trim().length < 20) return; UI.close(); API.savePrompt(ud.id, ud.draft, me.name); UI.toast(a.name + ' updated. New instructions start with the next run.'); });
+  UI.act('u-toggle', (t,d) => { const a = API.agent(d.id), was = a.status === 'paused'; API.togglePause(d.id, Shell.me('user').name); UI.toast(a.name + (was ? ' resumed' : ' paused')); });
+
+  Router.reg('user','home',{title:'My agents', render(_, m){
+    const s = S(), a = mine(m);
+    const head = UI.pageH('My agents', a.length ? `${API.running(a)} of ${a.length} agents are working for you right now.` : 'Agents your Org Admin assigns to you appear here.', `<a class="btn primary" href="${Router.href('new')}">${ic('plus')} Request an agent</a>`);
+    if(!s.org.launched) return head + UI.empty('Your office is being set up','Your Org Admin is still hiring the team. You will see your agents here as soon as it goes live.');
+    if(!a.length) return head + UI.empty('No agents assigned yet','Ask your Org Admin to assign one, or request a new agent.', `<a class="btn primary" href="${Router.href('new')}">Request an agent</a>`);
+    return head + `<section class="kpis" aria-label="Summary">${kpi('Running now', API.running(a), 'of '+a.length, true)}${kpi('Waiting for approval', a.filter(x=>x.status==='waiting').length)}${kpi('Runs today', a.reduce((t,x)=>t+x.runsToday,0))}${kpi('Spent today', money(a.reduce((t,x)=>t+x.costToday,0)))}</section><div class="grid">${a.map(card).join('')}</div>`;
+  }});
+})();
+
+/* User: request a new agent (goes to the Org Admin) and track the answer. */
+(function(){
+  const {esc, ic, pill} = UI; const S = () => Store.get();
+  const blank = () => ({name:'', purpose:'', prompt:'', reason:'', tools:[], errs:{}, revising:null}); let q = blank();
+  const RQ = {pending:['warn','Waiting for Org Admin'],approved:['ok','Approved'],changes:['brand','Changes requested'],rejected:['err','Not approved']};
+  UI.inp('rq-name', v => { q.name = v; }); UI.inp('rq-purpose', v => { q.purpose = v; }); UI.inp('rq-prompt', v => { q.prompt = v; }); UI.inp('rq-reason', v => { q.reason = v; });
+  UI.act('u-tool', (t,d) => { const i = q.tools.indexOf(d.id); i<0 ? q.tools.push(d.id) : q.tools.splice(i,1); t.setAttribute('aria-pressed', i<0); });
+  UI.act('u-submit', () => { const e = {};
+    if(q.name.trim().length < 2) e.name = 'Give the agent a name.'; if(!q.purpose.trim()) e.purpose = 'Describe its job in one line.';
+    if(q.prompt.trim().length < 20) e.prompt = 'Write at least 20 characters of instructions.'; if(!q.reason.trim()) e.reason = 'Tell your admin why this helps.';
+    q.errs = e; if(Object.keys(e).length){ Shell.render(); return; }
+    API.submitRequest(Shell.me('user').id, q); q = blank(); UI.toast('Sent to your Org Admin. You will see the answer here.'); });
+  UI.act('u-cancel', (t,d) => { API.cancelRequest(d.id); UI.toast('Request cancelled'); });
+  UI.act('u-revise', (t,d) => { const r = S().requests.find(x => x.id === d.id); q = {name:r.name, purpose:r.purpose, prompt:r.prompt, reason:r.reason, tools:r.tools.slice(), errs:{}, revising:r.id}; Shell.render(); window.scrollTo(0,0); });
+  const err = k => q.errs[k] ? `<p class="err-t" role="alert">${q.errs[k]}</p>` : '';
+  Router.reg('user','new',{title:'Request an agent', render(_, m){
+    const s = S(), mineReq = s.requests.filter(r => r.by === m.id).sort((a,b) => b.at - a.at);
+    const form = !s.org.launched ? UI.empty('Requests open once your office is live','Your Org Admin is still setting things up.') : `<section class="card pad"><div class="note info" style="margin-bottom:14px">Your Org Admin reviews every request. They may add guardrails or edit the instructions before it starts.</div>
+      <div class="field"><label for="rn">Agent name</label><input type="text" id="rn" value="${esc(q.name)}" data-in="rq-name" placeholder="Proposal Chaser">${err('name')}</div>
+      <div class="field"><label for="rp">Its job, in one line</label><input type="text" id="rp" value="${esc(q.purpose)}" data-in="rq-purpose" placeholder="Follow up on proposals that go quiet">${err('purpose')}</div>
+      <div class="field"><label for="ri">Instructions</label><textarea id="ri" data-in="rq-prompt" style="min-height:110px" placeholder="When a proposal has had no reply for 3 days, draft a friendly nudge...">${esc(q.prompt)}</textarea>${err('prompt')}<p class="help">Describe it like you would to a new assistant.</p></div>
+      <div class="field"><span class="lbl">Tools it needs</span><div class="chips" role="group" aria-label="Tools">${Object.entries(MCPS).map(([k,t]) => `<button type="button" class="chip" data-act="u-tool" data-id="${k}" aria-pressed="${q.tools.includes(k)}" ${t.tier==='soon'?'disabled title="Coming soon"':''}>${esc(t.name)}</button>`).join('')}</div></div>
+      <div class="field"><label for="rr">Why do you need it?</label><input type="text" id="rr" value="${esc(q.reason)}" data-in="rq-reason" placeholder="We lose deals when follow-ups are late">${err('reason')}</div>
+      <button class="btn primary" data-act="u-submit">${ic('send')} ${q.revising?'Resend to Org Admin':'Send to Org Admin'}</button></section>`;
+    const list = mineReq.length ? `<section class="card list flush">${mineReq.map(r => { const [c,l] = RQ[r.status];
+      return `<div class="item"><div class="grow"><div class="row wrap"><b>${esc(r.name)}</b>${pill(l,c)}</div><p class="muted">${esc(r.purpose)}</p><small>Asked ${UI.ago(r.at)} · Tools: ${esc(r.tools.map(API.toolName).join(', ')||'none')}</small>
+        ${r.adminNote?`<div class="note ${r.status==='approved'?'ok':r.status==='rejected'?'err':''}" style="margin-top:6px"><b>Org Admin:</b> ${esc(r.adminNote)}</div>`:''}</div>
+        ${r.status==='pending'?`<button class="btn sm ghost" data-act="u-cancel" data-id="${r.id}">Cancel</button>`:''}${r.status==='changes'?`<button class="btn sm" data-act="u-revise" data-id="${r.id}">Revise and resend</button>`:''}</div>`; }).join('')}</section>` : '<div class="card empty">No requests yet.</div>';
+    return UI.pageH('Request an agent','Need help with a task? Describe it and your Org Admin will set it up.') + form + `<div class="sec-h"><h3>My requests</h3></div>` + list;
+  }});
+})();
+
+/* User: receipts for what my agents did. */
+(function(){
+  const {esc, ic, pill} = UI; const S = () => Store.get(); const open = {};
+  UI.act('u-exp', (t,d) => { open[d.id] = !open[d.id]; Shell.render(); });
+  Router.reg('user','activity',{title:'Activity', render(_, m){
+    const s = S(), ids = s.agents.filter(a => a.ownerId === m.id).map(a => a.id), items = s.activity.filter(r => ids.includes(r.agentId));
+    if(!items.length) return UI.pageH('Activity','Everything your agents did, with the reason.') + UI.empty('Nothing yet','When your agents do work, each action appears here with why it happened.');
+    return UI.pageH('Activity','Everything your agents did, with the reason.') + `<section class="card list flush">${items.map(r => { const a = API.agent(r.agentId), o = !!open[r.id];
+      return `<div class="item" style="flex-direction:column;gap:6px"><button class="row" style="width:100%;background:none;border:0;padding:0;text-align:left" data-act="u-exp" data-id="${r.id}" aria-expanded="${o}"><span class="mono sm" aria-hidden="true">${esc(UI.initials(a?a.name:'?'))}</span><span class="grow"><b>${esc(r.title)}</b><small style="display:block">${esc(a?a.name:'')} · ${UI.ago(r.t)}</small></span>${pill(r.status==='waiting'?'Waiting':'Done', r.status==='waiting'?'warn':'ok')}<small class="num">${UI.money(r.cost)}</small></button>
+        ${o?`<div class="doing" style="width:100%"><small>Why</small>${esc(r.why)}<small style="margin-top:4px">Took ${r.dur}s</small></div>`:''}</div>`; }).join('')}</section>`;
+  }});
+})();
+
+/* Super Admin: every customer office, with health and cost. */
+(function(){
+  const {esc, ic, pill} = UI; const S = () => Store.get();
+  window.FleetRows = () => { const s = S(), live = s.org.launched;
+    const cur = {id:'ws_current', name:s.org.name, domain:s.org.domain, status:live?'live':'onboarding', agents:s.agents.length, cost:+s.agents.reduce((t,a)=>t+a.perf.cost7,0).toFixed(2), version:'1.4.2', health:'ok', admin:(s.people.find(p=>p.access==='admin')||{}).email||''};
+    return [cur].concat(s.fleet || [], Fleet.others()); };
+  const ST = {live:['ok','Live'], onboarding:['brand','Org Admin onboarding'], awaiting:['warn','Awaiting onboarding']};
+  Router.reg('super','fleet',{title:'Offices', render(){
+    const rows = FleetRows(), live = rows.filter(r=>r.status==='live').length;
+    return UI.pageH('Offices','Every customer office OrbitumAI runs. Each one has its own private instance.', `<a class="btn primary" href="${Router.href('provision')}">${ic('plus')} New office</a>`) +
+      `<section class="kpis">${UI.kpi('Offices', rows.length,'',true)}${UI.kpi('Live', live)}${UI.kpi('Agents', rows.reduce((t,r)=>t+r.agents,0))}${UI.kpi('Spend (7 days)', UI.money(rows.reduce((t,r)=>t+r.cost,0)))}</section>
+      <section class="card flush scroll"><table class="tbl"><thead><tr><th>Office</th><th>Status</th><th>Agents</th><th>Spend (7 days)</th><th>Version</th><th>Health</th></tr></thead><tbody>${rows.map(r => `<tr class="row-b" tabindex="0" data-act="office-open" data-id="${r.id}"><td><b>${esc(r.name)}</b><small style="display:block">${esc(r.domain)}</small></td><td>${pill(ST[r.status][1],ST[r.status][0])}</td><td class="num">${r.agents}</td><td class="num">${UI.money(r.cost)}</td><td>${esc(r.version)}</td><td>${pill(r.health==='ok'?'Healthy':'Check',r.health==='ok'?'ok':'warn')}</td></tr>`).join('')}</tbody></table></section>`;
+  }});
+  UI.act('office-open', (t,d) => Router.go('office', d.id));
+})();
+
+/* Super Admin: one office. Shows how each customer-facing object maps to the runtime (operator-only view). */
+(function(){
+  const {esc, pill, statusPill} = UI; const S = () => Store.get();
+  Router.reg('super','office',{title:id => { const r = (window.FleetRows?FleetRows():[]).find(x=>x.id===id); return r ? r.name : 'Office'; }, render(id){
+    const rows = FleetRows(), r = rows.find(x => x.id === id); if(!r) return UI.empty('Office not found','It may have been removed.', `<a class="btn" href="${Router.href('fleet')}">Back to offices</a>`);
+    const back = `<a class="btn sm ghost" href="${Router.href('fleet')}">Back to offices</a>`;
+    if(id !== 'ws_current') return UI.pageH(esc(r.name), esc(r.domain), back) + `<div class="card pad"><div class="note info">Detail for this office comes from its own instance. This prototype shows full runtime detail for the office you are building in the Org Admin dashboard.</div><p style="margin-top:10px">Admin: ${esc(r.admin)} · ${r.agents} agents · version ${esc(r.version)}</p></div>`;
+    const s = S(), ag = s.agents;
+    return UI.pageH(esc(r.name), esc(r.domain), back) +
+      `<section class="kpis">${UI.kpi('Agents', ag.length,'',true)}${UI.kpi('Provisioned', ag.filter(a=>a.provisioned).length)}${UI.kpi('Tools connected', Object.keys(s.connections).length)}${UI.kpi('Org chart', ag.some(a=>a.type==='coordinator')?'Valid':'Incomplete')}</section>
+      ${s.org.launched ? '' : `<div class="note" style="margin-bottom:14px">The Org Admin is still onboarding. Runtime profiles are created when they launch.</div>`}
+      <section class="card flush scroll"><table class="tbl"><thead><tr><th>Agent</th><th>Type</th><th>Reports to</th><th>Runtime id</th><th>Profile</th><th>Adapter</th><th>Budget</th><th>Status</th></tr></thead><tbody>
+      ${ag.map(a => { const m = API.agent(a.managerId); return `<tr><td><b>${esc(a.name)}</b></td><td>${a.type}</td><td>${esc(m?m.name:'The board')}</td><td>${a.runtime?`<code>${esc(a.runtime.paperclipId)}</code>`:'<span class="muted">not created</span>'}</td><td>${a.runtime?`<code>${esc(a.runtime.hermesProfile)}</code>`:''}</td><td>${a.runtime?esc(a.runtime.adapter):''}</td><td class="num">$${a.budget}/mo</td><td>${statusPill(a.status)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No agents yet.</td></tr>'}</tbody></table></section>
+      <p class="muted" style="margin-top:10px">Each agent is one manager-reporting teammate in the office's control plane, with its own isolated runtime profile reached through the gateway adapter. Budgets map to the control plane's auto-pause limits.</p>`;
+  }});
+})();
+
+/* Super Admin: provision a new customer office (instance, org shell, tool gateway, admin invite). */
+(function(){
+  const {esc, ic} = UI; let f = {name:'', domain:'', email:'', errs:{}}, run = null;
+  UI.inp('pv-name', v => { f.name = v; }); UI.inp('pv-domain', v => { f.domain = v; }); UI.inp('pv-email', v => { f.email = v; });
+  UI.act('pv-go', () => { const e = {}; if(f.name.trim().length < 2) e.name = 'Enter the business name.'; if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(f.domain.trim())) e.domain = 'Enter a domain like office.acme.com.'; if(!API.emailOk(f.email)) e.email = 'Enter the Org Admin email.';
+    f.errs = e; if(Object.keys(e).length){ Shell.render(); return; }
+    run = {i:0, name:f.name.trim(), domain:f.domain.trim(), email:f.email.trim()}; Shell.render(); step(); });
+  function step(){ if(!run) return; if(run.i >= Fleet.steps.length){
+      Store.update(s => { (s.fleet = s.fleet || []).push({id:Store.uid('ws_'), name:run.name, domain:run.domain, status:'awaiting', agents:0, cost:0, version:'1.4.2', health:'ok', admin:run.email}); });
+      run.done = true; Shell.render(); return; }
+    Shell.render(); setTimeout(() => { run.i++; step(); }, 650); }
+  UI.act('pv-reset', () => { run = null; f = {name:'', domain:'', email:'', errs:{}}; Shell.render(); });
+  Router.reg('super','provision',{title:'New office', render(){
+    if(run){ const pct = Math.round(Math.min(run.i, Fleet.steps.length) / Fleet.steps.length * 100);
+      return UI.pageH('Setting up '+esc(run.name), run.done ? 'The office is ready. The Org Admin received an invitation.' : 'Creating a private instance. This takes a moment.') +
+        `<section class="card pad"><div class="row" style="margin-bottom:10px"><div class="bar grow"><i style="width:${pct}%"></i></div><b class="num">${pct}%</b></div><ul class="job gl" style="gap:0">${Fleet.steps.map(([k,l],i) => `<li><span class="s ${i<run.i?'done':i===run.i&&!run.done?'run':''}">${i<run.i?ic('check',12):''}</span><span class="grow">${esc(l)}</span></li>`).join('')}</ul>
+        ${run.done ? `<div class="row" style="margin-top:14px"><a class="btn primary" href="${Router.href('fleet')}">View offices</a><button class="btn" data-act="pv-reset">Provision another</button></div>` : ''}</section>`; }
+    const e = f.errs, er = k => e[k] ? `<p class="err-t" role="alert">${e[k]}</p>` : '';
+    return UI.pageH('New office','Each customer gets their own private instance, database and domain.') +
+      `<section class="card pad" style="max-width:560px"><div class="field"><label for="pn">Business name</label><input type="text" id="pn" value="${esc(f.name)}" data-in="pv-name" placeholder="Acme Advisors">${er('name')}</div>
+      <div class="field"><label for="pd">Office domain</label><input type="text" id="pd" value="${esc(f.domain)}" data-in="pv-domain" placeholder="office.acme.com">${er('domain')}</div>
+      <div class="field"><label for="pe">Org Admin email</label><input type="email" id="pe" value="${esc(f.email)}" data-in="pv-email" placeholder="owner@acme.com">${er('email')}<p class="help">They receive an invitation and complete onboarding: org structure, agents, assignments and tools.</p></div>
+      <button class="btn primary" data-act="pv-go">${ic('rocket')} Provision office</button></section>`;
+  }});
+})();
+
+Shell.boot();</script></body></html>
