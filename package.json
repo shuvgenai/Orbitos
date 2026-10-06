@@ -11,6 +11,7 @@
     "db:up": "node scripts/dev-db.mjs up -d --wait",
     "db:down": "node scripts/dev-db.mjs down -v",
     "typecheck": "tsc -p tsconfig.json",
+    "check:screens": "vitest run --project unit guards/design-naming.test.ts guards/appendix-a.test.ts",
     "db:generate": "pnpm --filter @orbit/db exec prisma generate",
     "db:migrate": "pnpm --filter @orbit/db exec prisma migrate deploy",
     "stack:up": "docker compose -f template/compose.yml up -d --build --wait",

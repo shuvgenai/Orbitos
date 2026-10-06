@@ -17,6 +17,7 @@ jobs:
       - run: pnpm db:up
       - run: pnpm db:generate
       - run: pnpm typecheck
+      - run: pnpm check:screens
       - run: pnpm test
       - name: Posture check, engine section (FLT-7, SEC-6)
         run: pnpm posture:check
