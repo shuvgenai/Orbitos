@@ -2920,7 +2920,6 @@ two, and without it engine churn would land in thirty screens instead of one
 folder.
 EOF
 ```
-```
 
 ### Task 14: S-43, the design and naming check
 
