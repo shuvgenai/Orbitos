@@ -3264,3 +3264,57 @@ Two rules that travel with the helper:
 Minor 6 from Task 1's review, the extension list, stays deferred. The helper takes
 `extensions` from its caller, so widening it later is a one-line change per call
 site rather than a rewrite.
+
+---
+
+## Addendum 5: Task 13 as built (2026-10-06)
+
+Three deviations from Task 13 as written, each found by running the thing rather
+than reading it.
+
+**1. The helper needs `skipAnywhere` as well as `skipAtRoot`.** Matching a
+directory name only at the top of a walk is right for `reference` and `archive`,
+and wrong for `node_modules`: pnpm creates one inside every workspace package, so
+a root-only rule walks all of them. `skipAnywhere` defaults to `node_modules` and
+`.git` so a caller cannot forget. The any-depth matching that minor 2 complained
+about was doing two jobs; the fix is two options, not one.
+
+**2. The helper needs an optional `root`.** Its own tests built a throwaway tree
+inside the repo, and `paths.test.ts` then failed with `ENOENT`: vitest runs test
+files in parallel, so it walked the probe and read a file that the probe's
+`afterAll` had already deleted. The probe now lives in the OS temp directory and
+`walkFiles` takes the root to walk. Guards that walk and then read are racy
+against anything mutating the tree, and the fix is to stop mutating the tree.
+
+**3. The code-vs-appendix half of the Appendix A guard moves to Task 8's
+acceptance.** A guard that greps files can be armed before those files exist; one
+that imports real modules cannot. `await import('../contract/...')` is still
+resolved statically by `tsc`, so it fails `pnpm typecheck` until the package
+exists, and the only way around that is a variable specifier, which buys an
+any-typed path nobody can verify today. `guards/appendix-a.test.ts` therefore
+checks the appendix itself, and carries a tripwire that fires the moment
+`contract/src/experimental/tasks.ts` appears, naming the assertions that are then
+due. A tripwire on a precondition, not an assertion that the contract is absent,
+which would have been a time bomb failing on the commit that correctly creates it.
+
+### Added to Task 8 acceptance
+
+When `contract/src/experimental/` is created, add these to
+`guards/appendix-a.test.ts` and delete its tripwire test:
+
+- `TaskStatusSchema.options` has the seven values from A.3 and does not contain `declined`
+- `RiskCategorySchema.options` has the four from A.4
+- `AuthoritySchema.options` equals `['leader', 'approver', 'backup', 'budget']` per 7.2
+- `NEVER_COVERS` has five entries, each appearing verbatim in the A.7 slice
+- each restating file cites its section: `tasks.ts` cites A.3 and A.4, `authority.ts` A.7, `org.ts` 7.2, `teammates.ts` A.5, `receipts.ts` A.6
+- none of the nine parked prototype roles appears in `contract/src/v1/teammates.ts`
+- `receipts.ts` contains `discriminatedUnion` and no `approvedById: Id.nullable()`
+
+### One defect the drills caught
+
+The slicer used `indexOf('### A.3')`, which also matches `### A.3x`. Renaming a
+heading therefore sliced the next section silently instead of throwing, and the
+drill passed when it should have failed. It is now anchored to a line start and
+required to end on whitespace, with two assertions pinning it: `prdSection('A')`
+and `prdSection('A.')` must both throw, because before the fix `'### A'` matched
+`'### A.1'`.
