@@ -393,3 +393,66 @@ plan is cheaper than discovering it during a demo.
 
 **Cost if wrong:** none. The statement costs nothing and removes a
 misunderstanding that would cost a lot.
+
+## 2026-10-06 - The landing page is a separate marketing site, not screen 53
+
+**Decision:** the marketing site stays separate, at orbitcrew.com, and is not part
+of the 52-screen inventory. It already exists as `landing/` in this repo: a Vite
+and React app of 24 source files with three commits, its copy in
+orbitcrew-landing-page-content.md. Nothing is built. Task 12 of the sub-project 0
+plan brings it under version control with its history preserved.
+
+**Reason:** public self-signup is out of scope (PRD section 2), so a landing page
+has nothing to sign anyone up to. The app lives at assistant.<customer-domain>
+(section 14.1) while marketing lives at one fixed domain. And a marketing site has
+constraints the app does not: SEO, open-graph tags, no auth, no MockApiClient.
+Folding it into the 52 would subject it to the S-43 customer-screen rules for no
+benefit.
+
+**Cost if wrong:** if the two ever need shared components, they are in separate
+packages and sharing means extracting a third. Unlikely: they share a wordmark and
+a colour set, and the colour set is already the frozen design package.
+
+## 2026-10-06 - Fleet-only components live in dashboards/src/apps/fleet
+
+**Decision:** operator-only components live in `dashboards/src/apps/fleet/**`, which
+is excluded from the S-43 CUSTOMER_DIRS scan. `dashboards/src/shared` is
+customer-safe by definition and is scanned.
+
+**Reason:** the fleet console must render runtime ids, adapter names and ORBIT-OS
+under the section 15.3 exemption, and the Office view's whole job is showing them.
+If any fleet-only component sat in src/shared, S-43 would fail it correctly and
+there would be nowhere legal to put it.
+
+**Consequence worth stating:** a fleet screen that needs a table of runtime ids
+cannot reuse a shared table that renders them. It composes the shared primitive and
+supplies operator-only cells from apps/fleet.
+
+**Cost if wrong:** some duplication between a customer table and an operator table.
+Cheaper than a shared component that has to know which surface it is on.
+
+## 2026-10-06 - The six screen states are three components and one hook
+
+**Decision:** PRD section 15.4's six states are built as three components, not one:
+
+| Component | States | Shape |
+|---|---|---|
+| ScreenState | empty, loading, error | inline, replaces the content region |
+| PausedBanner | office paused | rendered once by AppShell, not per screen |
+| Blocked | not yours, expired or already decided | whole-screen, no content preview |
+
+Plus a useScreenState hook to pick which applies.
+
+**Reason:** section 15.4 describes three different shapes, not one. Empty, loading
+and error replace the content region. Office paused is a banner that persists above
+content with actions disabled. Not yours, expired and already decided replace the
+whole screen with no content preview.
+
+**Effect on the estimate: 1a stays at about 1.5 weeks.** The reason it holds is that
+the banner lifts into AppShell, so 52 screens stop handling it individually, and
+Blocked is one component with a three-case copy table. The state system is about 2
+days of the 1.5 weeks.
+
+**Cost if wrong:** forcing all six into one component is the expensive error, not
+this one. Every screen would then choose between inline and whole-screen rendering
+at its own call site, which is where a slip would have appeared around shell 20.
