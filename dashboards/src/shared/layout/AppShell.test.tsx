@@ -150,9 +150,11 @@ test('the width contract: one column, then a persistent nav, then a narrower mai
   expect((container.querySelector('main') as HTMLElement).className).toContain('xl:max-w-3xl');
 });
 
-test('the app name is the title the entry gives, and it is the one h1', () => {
-  render(user({ appName: 'ORBIT-OS fleet console', nav: FLEET_NAV }));
-  const headings = screen.getAllByRole('heading', { level: 1 });
-  expect(headings).toHaveLength(1);
-  expect(headings[0]?.textContent).toBe('ORBIT-OS fleet console');
+test('the app name is the title the entry gives, and the shell claims no heading', () => {
+  const { container } = render(user({ appName: 'ORBIT-OS fleet console', nav: FLEET_NAV }));
+  expect(screen.getByText('ORBIT-OS fleet console')).toBeVisible();
+  // The screen owns the one h1, so the shell must not take it. Two h1 elements
+  // give a screen reader two answers to "what is this page".
+  expect(container.querySelector('h1')).toBeNull();
+  expect(screen.queryAllByRole('heading')).toHaveLength(0);
 });

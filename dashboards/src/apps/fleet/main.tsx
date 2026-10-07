@@ -1,7 +1,8 @@
 // The fleet console's entry point, mounted by dashboards/fleet/index.html.
 //
-// Minimal on purpose: it mounts the root and names the console. The AppShell,
-// the nav and the screens arrive in the slices after this one.
+// It mounts the root and hands the shell the fleet list of screens. It holds
+// no route and no screen name of its own: section 15.7 is the list, and
+// nav/screens.ts is that list in a shape code can read.
 //
 // Section 15.3 exempts this surface, and only this one. It is the OrbitumAI
 // operator's console, not a customer screen, so the name ORBIT-OS belongs
@@ -9,6 +10,8 @@
 // reason; the exemption is the whole point of the folder being separate.
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { RoleRoutes } from '../../shared/layout/RoleRoutes';
+import { FLEET_NAV } from '../../shared/nav/roles';
 // The one stylesheet. It loads the frozen design values and then the theme, in
 // that order, so this file never reaches for either of them directly.
 import '../../shared/styles/app.css';
@@ -22,6 +25,6 @@ if (container === null) throw new Error('No #root element in dashboards/fleet/in
 
 createRoot(container).render(
   <StrictMode>
-    <h1>ORBIT-OS fleet console</h1>
+    <RoleRoutes appName="ORBIT-OS fleet console" nav={FLEET_NAV} />
   </StrictMode>,
 );

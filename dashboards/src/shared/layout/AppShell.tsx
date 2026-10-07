@@ -50,7 +50,10 @@ export function AppShell({ appName, nav, activeRoute, paused = false, flags, chi
       </a>
 
       <header className="flex items-center justify-between border-b-divider border-line px-4 py-3">
-        <h1 className="text-body font-medium">{appName}</h1>
+        {/* Not an h1. The page is the screen, so the screen owns the one h1
+            and this is the name of the app it sits in. Two h1 elements would
+            leave a screen reader with two answers to "what is this page". */}
+        <p className="text-body font-medium">{appName}</p>
         {/* One control, 44 px, and gone from 768 px up where the nav is always
             there. aria-expanded carries the whole state: no icon to rotate, no
             label that flips to Close, nothing for a screen reader to disagree
