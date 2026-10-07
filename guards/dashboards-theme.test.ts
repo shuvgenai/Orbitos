@@ -219,7 +219,11 @@ function rootConfigs(): readonly RootedPath[] {
 test('the sweep finds the dashboards root configs, so it cannot pass on an empty list', () => {
   const found = rootConfigs();
   // Written out by hand. A new root config is added here deliberately.
-  expect([...found].sort()).toEqual(['dashboards/postcss.config.js', 'dashboards/tailwind.config.ts']);
+  expect([...found].sort()).toEqual([
+    'dashboards/postcss.config.js',
+    'dashboards/tailwind.config.ts',
+    'dashboards/vite.config.ts',
+  ]);
 });
 
 test('no config at the dashboards root writes a literal colour', () => {
