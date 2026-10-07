@@ -3460,15 +3460,29 @@ commit that creates `contract/package.json` and names all three items then due:
 Same pattern as Addendum 5's appendix tripwire: a tripwire on a precondition. The
 ownership the founder asked for is kept; only the moment moves.
 
-### Flagged before 1a, not done
+### `dashboards/CLAUDE.md` as built
 
-`dashboards/CLAUDE.md` is the first file an implementer reads inside that folder
-and it is stale against PRD v9.0. It lists `Card` among the design-system
-components, names React 18, says `npm run` where this repo is pnpm, seeds `mcps`,
-and its folder layout predates the §15.4 states component. Same hazard class as
-Task 11a's line 116, in the file with the strongest claim on an implementer's
-attention.
+Flagged before 1a and now done. The file was the first thing an implementer reads
+inside that folder and it was stale against PRD v9.0: it listed `Card` among the
+design-system components, named React 18, said `npm run` where this repo is pnpm,
+seeded `mcps`, and its folder layout predated the §15.4 states component. Same
+hazard class as Task 11a's line 116, in the file with the strongest claim on an
+implementer's attention.
 
-Also still open: whether an `apps/*.test.tsx` written test-first arms the S-43
-entry-file tripwire before any entry file exists. 1a writes tests, so this decides
-whether the guard blocks its own first component.
+It now states the authority order, the three entry titles the S-43 guard enforces,
+a table of what the prototype is overridden on, the six `design/tokens.css`
+variables with no literal colour anywhere, the six §15.4 states as one component,
+and which commands actually exist — `pnpm lint` and `pnpm e2e` do not, until
+Tasks 3 and 4.
+
+React is pinned at 19. PRD v9.0, the plan and the spec name no React version; the
+only pins were this file and build prompts line 156, both carried over from a
+pre-v9.0 draft, so line 156 moved with it. `landing/` stays on React 18.3.1: it
+is a separate workspace package with its own build and shares no component with
+the dashboards.
+
+### Still open before 1a
+
+Whether an `apps/*.test.tsx` written test-first arms the S-43 entry-file tripwire
+before any entry file exists. 1a writes tests, so this decides whether the guard
+blocks its own first component.
