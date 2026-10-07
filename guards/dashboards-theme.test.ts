@@ -27,13 +27,24 @@ import themeConfig from '../dashboards/tailwind.config.ts';
 //     with the sweep itself pinned so it cannot pass on an empty list
 //   - the screen-state classes: every class ScreenState.tsx uses is styled in
 //     theme.css or is a recorded hook, and every recorded hook is really used
+//   - the one stylesheet: app.css loads the frozen values before the theme,
+//     states no value of its own, and is imported once by each entry
 //
-// It says nothing about whether a screen looks right, and it cannot: no screen
-// exists yet.
+// It says nothing about whether a screen looks right, and it cannot: the
+// screens are shells.
 
 const THEME = 'dashboards/tailwind.config.ts';
 const STYLES = 'dashboards/src/shared/styles/theme.css';
 const COMPONENT = 'dashboards/src/shared/states/ScreenState.tsx';
+const APP_CSS = 'dashboards/src/shared/styles/app.css';
+const FROZEN = 'design/tokens.css';
+
+/** The three app entries. Written out, because a role added here is deliberate. */
+const ENTRIES = [
+  'dashboards/src/apps/user/main.tsx',
+  'dashboards/src/apps/org-admin/main.tsx',
+  'dashboards/src/apps/fleet/main.tsx',
+] as const;
 
 /** A hex, or a colour function call. Named colours are a separate rule below. */
 const LITERAL_COLOUR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|color-mix|oklch|lab)\(/i;
@@ -234,4 +245,40 @@ test('no config at the dashboards root writes a literal colour', () => {
     })
     .sort();
   expect(offenders, 'a colour here reaches every generated class, unseen by S-43').toEqual([]);
+});
+
+// The order inside app.css is a rule, not a preference. Every colour in
+// theme.css arrives through @apply on a class whose value is var(--color-x).
+// Declare those properties after the rules that read them and they resolve to
+// nothing, which paints an unstyled page rather than failing anything.
+test('app.css loads the frozen values first, then the theme, and states no value', () => {
+  const src = readRepoFile(APP_CSS);
+  const frozenAt = src.indexOf(FROZEN);
+  const themeAt = src.indexOf('./theme.css');
+  expect(frozenAt, 'app.css must import design/tokens.css').toBeGreaterThan(-1);
+  expect(themeAt, 'app.css must import theme.css').toBeGreaterThan(-1);
+  expect(frozenAt, 'the frozen values must come first or the theme reads nothing').toBeLessThan(themeAt);
+  expect(src, 'app.css restates a value instead of referencing one').not.toMatch(LITERAL_COLOUR);
+  expect(src).not.toMatch(NAMED_COLOUR_VALUE);
+});
+
+// One stylesheet per entry, so the import order lives in one file. An entry
+// that reaches past app.css for theme.css gets the theme without the values.
+test('each entry imports the one stylesheet, exactly once, and never the theme directly', () => {
+  for (const entry of ENTRIES) {
+    const src = readRepoFile(entry);
+    const hits = [...src.matchAll(/shared\/styles\/app\.css/g)];
+    expect(hits.length, `${entry} must import app.css exactly once`).toBe(1);
+    expect(src, `${entry} must not import theme.css directly`).not.toContain('styles/theme.css');
+    expect(src, `${entry} must not import design/tokens.css directly`).not.toContain(FROZEN);
+  }
+});
+
+test('the entry list is the three apps, so a fourth cannot be added unnoticed', () => {
+  // Written out by hand, never read from the list being pinned.
+  expect([...ENTRIES]).toEqual([
+    'dashboards/src/apps/user/main.tsx',
+    'dashboards/src/apps/org-admin/main.tsx',
+    'dashboards/src/apps/fleet/main.tsx',
+  ]);
 });

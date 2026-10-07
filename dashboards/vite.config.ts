@@ -12,6 +12,14 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // design/ sits one level above the Vite root, and the dev server refuses to
+    // serve a file outside its root. app.css imports design/tokens.css, which
+    // is frozen and must not be copied in here: a copy is a second place the
+    // values live, which is the one thing section 15.1 exists to prevent. The
+    // production build resolves the relative path without this.
+    fs: { allow: ['..'] },
+  },
   build: {
     // Named inputs, so the three bundles keep these names in the output instead
     // of being told apart by a hash. Vite builds every entry listed here; one

@@ -2,10 +2,12 @@
    component layer into its own file would need postcss-import, so the screen
    state rules live here beside the layers rather than beside the component.
 
-   design/tokens.css supplies every var() below and is loaded by each dashboard's
-   entry HTML, ahead of this file. Nothing here states a colour, a radius, a font
-   or a divider width: the theme in tailwind.config.ts names them and
-   guards/design-naming.test.ts fails on a literal. */
+   design/tokens.css supplies every var() below. app.css imports that file and
+   then this one, in that order, and each entry imports app.css: the order is a
+   rule, because a rule here that reads a property declared later resolves to
+   nothing. Nothing here states a colour, a radius, a font or a divider width:
+   the theme in tailwind.config.ts names them and guards/design-naming.test.ts
+   fails on a literal. */
 
 @tailwind base;
 @tailwind components;

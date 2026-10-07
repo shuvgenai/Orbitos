@@ -7,6 +7,9 @@
 // not an internal job, so this says Orbitcrew and never the internal name.
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+// The one stylesheet. It loads the frozen design values and then the theme, in
+// that order, so this file never reaches for either of them directly.
+import '../../shared/styles/app.css';
 
 const container = document.getElementById('root');
 
