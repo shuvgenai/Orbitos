@@ -108,23 +108,39 @@ test('the theme replaces the default palette instead of extending it', () => {
   expect(colours, 'colors must sit outside extend').toBeLessThan(extend);
 });
 
+/**
+ * Classes that mark a state in the markup and carry no rule of their own yet.
+ * Each is a hook a later screen can style.
+ *
+ * At module scope so the two tests below read the same four. While this sat
+ * inside the first test, the second test re-listed them by hand in a scope that
+ * could not see it, and a fifth hook would have been added to one list and gone
+ * unchecked by the other.
+ */
+const HOOKS = ['screen-state-empty', 'screen-state-loading', 'screen-state-not-yours', 'screen-state-closed'];
+
+const classesIn = (file: string) => new Set([...readRepoFile(file).matchAll(/\bscreen-state[\w-]*/g)].map((m) => m[0]));
+
 test('no screen-state class is used by the component but left unstyled', () => {
-  const used = new Set([...readRepoFile(COMPONENT).matchAll(/\bscreen-state[\w-]*/g)].map((m) => m[0]));
+  const used = classesIn(COMPONENT);
   const styled = new Set([...readRepoFile(STYLES).matchAll(/\.(screen-state[\w-]*)/g)].map((m) => m[1] as string));
-
-  // Written out by hand. These four mark a state in the markup and carry no rule
-  // of their own yet. Each is a hook a later screen can style; listing them here
-  // means adding a fifth is a decision, not an accident.
-  const hooks = ['screen-state-empty', 'screen-state-loading', 'screen-state-not-yours', 'screen-state-closed'];
-
-  const unstyled = [...used].filter((c) => !styled.has(c) && !hooks.includes(c)).sort();
+  const unstyled = [...used].filter((c) => !styled.has(c) && !HOOKS.includes(c)).sort();
   expect(unstyled, 'a class in ScreenState.tsx with no rule and no recorded reason').toEqual([]);
 });
 
-test('every hook listed above is really used, so the list cannot rot', () => {
-  const used = new Set([...readRepoFile(COMPONENT).matchAll(/\bscreen-state[\w-]*/g)].map((m) => m[0]));
-  expect(used.has('screen-state-empty')).toBe(true);
-  expect(used.has('screen-state-loading')).toBe(true);
-  expect(used.has('screen-state-not-yours')).toBe(true);
-  expect(used.has('screen-state-closed')).toBe(true);
+// Each hook asserted by hand against HOOKS, not by looping it. A loop here would
+// shrink with the list and let a stale entry survive, which is the same mistake
+// the six colours above used to make.
+test('every hook is really used by the component, so the list cannot rot', () => {
+  const used = classesIn(COMPONENT);
+  expect(HOOKS, 'HOOKS must hold exactly these four').toEqual([
+    'screen-state-empty',
+    'screen-state-loading',
+    'screen-state-not-yours',
+    'screen-state-closed',
+  ]);
+  expect(used.has('screen-state-empty'), 'screen-state-empty is unused').toBe(true);
+  expect(used.has('screen-state-loading'), 'screen-state-loading is unused').toBe(true);
+  expect(used.has('screen-state-not-yours'), 'screen-state-not-yours is unused').toBe(true);
+  expect(used.has('screen-state-closed'), 'screen-state-closed is unused').toBe(true);
 });
