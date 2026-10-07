@@ -1,4 +1,5 @@
 packages:
+  - dashboards
   - shared
   - db
   - api
