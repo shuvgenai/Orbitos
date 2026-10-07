@@ -17,8 +17,56 @@ const THEME = 'dashboards/tailwind.config.ts';
 const STYLES = 'dashboards/src/shared/styles/theme.css';
 const COMPONENT = 'dashboards/src/shared/states/ScreenState.tsx';
 
-/** A hex, an rgb()/hsl() call, or a three-or-more letter colour word in a value. */
+/** A hex, or a colour function call. Named colours are a separate rule below. */
 const LITERAL_COLOUR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|color-mix|oklch|lab)\(/i;
+
+const S43 = 'guards/design-naming.test.ts';
+
+/**
+ * The CSS named colours, read out of the S-43 guard as text.
+ *
+ * Importing its `NAMED_COLOURS` export would be shorter and is wrong here: that
+ * file calls `test()` at module scope, so importing it registers all 37 of its
+ * tests a second time inside this file. Measured on 2026-10-07: `pnpm test:unit`
+ * went from 341 tests to 378 and S-43 ran twice per build.
+ *
+ * Parsing keeps one source of truth without executing the module, and without
+ * editing a guard that is final at round 3. The parse is pinned by the test
+ * below, so a change to how S-43 declares the list fails loudly here instead of
+ * quietly producing an empty list and a guard that matches nothing.
+ */
+function namedColours(): string[] {
+  const src = readRepoFile(S43);
+  const declaration = /NAMED_COLOURS = \(([\s\S]*?)\)\s*\.split\(' '\)/.exec(src);
+  if (declaration === null) return [];
+  // The literal is several quoted chunks joined by +. Take the quoted text only.
+  const chunks = [...(declaration[1] as string).matchAll(/'([^']*)'/g)].map((m) => m[1] as string);
+  return chunks.join('').split(' ').filter(Boolean);
+}
+
+/**
+ * A quoted string whose whole contents are a CSS named colour, so `accent: 'red'`
+ * is caught.
+ *
+ * It has to be the whole quoted value, not any occurrence of the word. The theme
+ * mentions `bg-red-500` in a comment to explain what replacing the palette
+ * prevents, and a bare /red/ would fire on that and teach the next reader that
+ * the guard cries wolf. `transparent` and `currentColor` are absent from the
+ * list, which section 15.1 allows, and `'none'` and `'0'` are not colours.
+ */
+const NAMED_COLOUR_VALUE = new RegExp(`'(?:${namedColours().join('|')})'`, 'i');
+
+test('the named-colour list really parsed, so the rule above cannot match nothing', () => {
+  const list = namedColours();
+  // Written out by hand, not sampled from the list itself.
+  expect(list.length, 'the S-43 list should hold well over a hundred colours').toBeGreaterThan(100);
+  expect(list).toContain('red');
+  expect(list).toContain('rebeccapurple');
+  expect(list).toContain('yellowgreen');
+  // The two section 15.1 keeps legal must NOT be in it, or the theme fails on itself.
+  expect(list).not.toContain('transparent');
+  expect(list).not.toContain('currentColor');
+});
 
 // The six of PRD section 15.1, one assertion each, written out by hand.
 //
@@ -37,8 +85,16 @@ test('each of the six colours is a reference into the frozen values, not a value
   expect(src, 'danger must read var(--color-danger)').toContain("danger: 'var(--color-danger)',");
 });
 
-test('the theme states no literal colour anywhere, including its comments', () => {
+test('the theme writes no hex and no colour function, including in its comments', () => {
   expect(readRepoFile(THEME)).not.toMatch(LITERAL_COLOUR);
+});
+
+// The gap this closes: the six are pinned one by one above, so a named colour on
+// one of them fails there. A SEVENTH key is what slipped through. `accent: 'red'`
+// was caught by nothing: not by the assertions above, which name only the six,
+// and not by S-43, which never walks the dashboards root.
+test('the theme writes no named colour, on any key, including a new one', () => {
+  expect(readRepoFile(THEME)).not.toMatch(NAMED_COLOUR_VALUE);
 });
 
 test('the theme replaces the default palette instead of extending it', () => {
