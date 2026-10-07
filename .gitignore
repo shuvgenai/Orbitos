@@ -22,5 +22,9 @@ Thumbs.db
 node_modules/
 **/generated/
 
+# Vite build output. `vite build` inside dashboards/ writes here by default, so
+# without this rule a plain `git add .` after a build commits the bundles.
+dashboards/dist/
+
 # Vitest cache
 .vitest/
