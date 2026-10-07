@@ -1,0 +1,65 @@
+/* The one stylesheet. Tailwind 3 builds from a single entry, and splitting the
+   component layer into its own file would need postcss-import, so the screen
+   state rules live here beside the layers rather than beside the component.
+
+   design/tokens.css supplies every var() below and is loaded by each dashboard's
+   entry HTML, ahead of this file. Nothing here states a colour, a radius, a font
+   or a divider width: the theme in tailwind.config.ts names them and
+   guards/design-naming.test.ts fails on a literal. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-canvas font-sans text-body text-ink;
+  }
+}
+
+@layer components {
+  /* Shared by all six states of PRD section 15.4. */
+  .screen-state {
+    @apply flex flex-col gap-2 px-4 py-6;
+  }
+
+  /* The sentence a customer reads first. */
+  .screen-state-title {
+    @apply text-body font-medium text-ink;
+  }
+
+  /* Secondary line: what fills the list, who to ask, what happens now. */
+  .screen-state-detail {
+    @apply text-body text-muted;
+  }
+
+  /* "The one red" of section 15.4, used by the error state and nothing else. */
+  .screen-state-error .screen-state-title {
+    @apply text-danger;
+  }
+
+  /* Office paused is a banner, so it carries the 1 px divider. */
+  .screen-state-paused {
+    @apply border-b-divider border-line;
+  }
+
+  /* Skeleton rows stand in for the list that is loading. Canvas on paper reads
+     as a block in both themes. No shimmer: UX-3 forbids the gradient one needs. */
+  .screen-state-skeleton {
+    @apply block h-5 w-full bg-canvas;
+  }
+
+  /* 44 px minimum target and the 3 px focus ring, both from DESIGN.md UX-7. */
+  .screen-state-action {
+    @apply inline-flex min-h-target min-w-target items-center justify-center self-start rounded-button bg-ink px-4 text-body text-paper;
+  }
+
+  .screen-state-action:focus-visible {
+    @apply outline outline-focus outline-offset-focus outline-ink;
+  }
+
+  /* Announced to a screen reader, not shown. */
+  .screen-state-reader-only {
+    @apply sr-only;
+  }
+}
