@@ -140,6 +140,38 @@ test('nothing animates, so a reduced-motion setting has nothing to turn off', ()
   expect(container.innerHTML).not.toMatch(/\btransition\b|\banimate-|\bduration-/);
 });
 
+// The Org Admin nav is 28 links at 44 px, so it is taller than a laptop screen
+// before any screen has content. At 360 px the whole document scrolls, which is
+// right. From 768 px the shell is one viewport tall and the two panes scroll
+// separately, or the nav scrolls away while you read.
+test('from 768 px the nav and main each scroll, and the shell does not grow', () => {
+  const { container } = render(user({ nav: ORG_ADMIN_NAV }));
+  const shell = container.firstElementChild as HTMLElement;
+  expect(shell.className).toContain('md:h-screen');
+  expect(shell.className).toContain('md:overflow-hidden');
+  // A flex child is at least as tall as its content unless told otherwise, so
+  // without min-h-0 on the row the overflow below never happens.
+  expect((container.querySelector('[data-shell-row]') as HTMLElement).className).toContain('md:min-h-0');
+  expect(screen.getByRole('navigation').className).toContain('md:overflow-y-auto');
+  expect((container.querySelector('main') as HTMLElement).className).toContain('md:overflow-y-auto');
+});
+
+test('at 360 px the page scrolls as one document, with nothing clipped', () => {
+  const { container } = render(user({ nav: ORG_ADMIN_NAV }));
+  const shell = container.firstElementChild as HTMLElement;
+  expect(shell.className).toContain('min-h-screen');
+  // Every cap and clip is behind md:, so the phone layout keeps none of them.
+  for (const unprefixed of ['h-screen', 'overflow-hidden', 'overflow-y-auto']) {
+    expect(shell.className.split(' ')).not.toContain(unprefixed);
+  }
+  expect(screen.getByRole('navigation').className.split(' ')).not.toContain('overflow-y-auto');
+});
+
+test('the nav keeps its width when the screen name is long', () => {
+  render(user({ nav: ORG_ADMIN_NAV }));
+  expect(screen.getByRole('navigation').className).toContain('md:shrink-0');
+});
+
 test('the width contract: one column, then a persistent nav, then a narrower main', () => {
   const { container } = render(user());
   const row = container.querySelector('[data-shell-row]') as HTMLElement;

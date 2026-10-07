@@ -41,8 +41,13 @@ export function AppShell({ appName, nav, activeRoute, paused = false, flags, chi
   const [open, setOpen] = useState(false);
   const links = sidebarOf(nav, flags);
 
+  // At 360 px the page scrolls as one document, which is what a phone expects
+  // and keeps the nav out of the way once it is closed. From 768 px the shell
+  // is exactly one viewport tall and clips, so the nav and main each scroll on
+  // their own. Without that cap the Org Admin nav, 28 links at 44 px, makes the
+  // row taller than the screen and the nav scrolls away while you read.
   return (
-    <div className="flex min-h-screen flex-col bg-canvas text-ink">
+    <div className="flex min-h-screen flex-col bg-canvas text-ink md:h-screen md:min-h-0 md:overflow-hidden">
       {/* First in the document, so one Tab from the address bar reaches it. Out
           of sight until it has focus, which is the only time it is useful. */}
       <a className={`sr-only focus-visible:not-sr-only focus-visible:bg-paper focus-visible:px-4 ${FOCUS_RING}`} href="#main">
@@ -73,10 +78,13 @@ export function AppShell({ appName, nav, activeRoute, paused = false, flags, chi
           and shows on a detail route as readily as on a list. */}
       {paused ? <ScreenState state={{ kind: 'paused' }} /> : null}
 
-      <div className="flex flex-1 flex-col md:flex-row" data-shell-row>
+      {/* md:min-h-0 is what lets the two panes below scroll. A flex child's
+          default min-height is its content, so without it the row refuses to be
+          shorter than the longer pane and the overflow never happens. */}
+      <div className="flex flex-1 flex-col md:min-h-0 md:flex-row" data-shell-row>
         <nav
           aria-label="Screens"
-          className={`${open ? 'block' : 'hidden'} border-b-divider border-line md:block md:w-64 md:border-b-0 md:border-r-divider`}
+          className={`${open ? 'block' : 'hidden'} border-b-divider border-line md:block md:w-64 md:shrink-0 md:overflow-y-auto md:border-b-0 md:border-r-divider`}
           id="nav"
         >
           {/* A plain list. One row per screen, no card, no number beside it. */}
@@ -98,7 +106,7 @@ export function AppShell({ appName, nav, activeRoute, paused = false, flags, chi
         {/* tabindex="-1" so the skip link can put focus here. flex-1 takes the
             rest of the row from 768 px; xl:max-w-3xl keeps a line of text
             readable at 1280 px instead of letting it run the full width. */}
-        <main className="flex-1 px-4 py-6 xl:max-w-3xl" id="main" tabIndex={-1}>
+        <main className="flex-1 px-4 py-6 md:overflow-y-auto xl:max-w-3xl" id="main" tabIndex={-1}>
           {children}
         </main>
       </div>
