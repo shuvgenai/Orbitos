@@ -3481,8 +3481,36 @@ pre-v9.0 draft, so line 156 moved with it. `landing/` stays on React 18.3.1: it
 is a separate workspace package with its own build and shares no component with
 the dashboards.
 
-### Still open before 1a
+### Resolved before 1a: a test-first file does not arm the tripwire
 
-Whether an `apps/*.test.tsx` written test-first arms the S-43 entry-file tripwire
-before any entry file exists. 1a writes tests, so this decides whether the guard
-blocks its own first component.
+**Answer: no. S-43 does not block test-first work.** Settled by experiment against
+the real tree on 2026-10-07, not by reading the code alone.
+
+`screensExist` walks `dashboards/src/apps` for `.tsx` and then filters through
+`isScreenFile`, which rejects `NOT_SCREEN_FILE`, so a `*.test.tsx` is not a
+screen and the gate stays closed. The experiment put a real
+`dashboards/src/apps/user/Home.test.tsx` in the working tree with no entry file
+anywhere, and loaded it with exactly what S-43 flags in a screen: the name
+Paperclip, the word adapter, the dead-palette hex `#6316F9`, a
+`gridTemplateColumns` and a `kpi` class. `pnpm check:screens` passed 45 tests and
+the full unit suite passed 334. Renaming that one file to `Home.tsx` and changing
+nothing else failed the tripwire at once, naming all three missing entry files, so
+the gate is live rather than merely quiet.
+
+**Task 1a may write its tests first.** The entry files are not due until the first
+real screen component lands.
+
+**One ordering constraint did come out of it, and it is not the guard.** With a
+`.tsx` under `dashboards/src`, `pnpm typecheck` fails:
+
+```
+error TS2875: This JSX tag requires the module path 'react/jsx-runtime' to exist
+error TS7026: JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists
+```
+
+React is not installed, `dashboards/package.json` does not exist and `dashboards`
+is not in `pnpm-workspace.yaml`. Task 16 wired the project up against a lone
+declaration file, which is what its header warns about. So 1a installs React 19
+and `@types/react`, and adds `dashboards` to the workspace, in the same commit as
+or before its first `.tsx`. Otherwise typecheck is red between commits for a
+reason that has nothing to do with the code being written.
