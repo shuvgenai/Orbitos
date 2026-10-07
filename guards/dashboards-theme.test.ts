@@ -1,4 +1,11 @@
 import { expect, test } from 'vitest';
+// The theme is imported, not read as text, so the nesting test below asks the
+// object and not the file's character offsets. Note the coupling this creates:
+// an imported file joins the root tsconfig's program, so tailwind.config.ts is
+// now typechecked by the root project as well as the dashboards one. It passes
+// under both today because it holds no DOM and no JSX. A config that reaches for
+// `document` would fail under the root project, which is Node-only.
+import themeConfig from '../dashboards/tailwind.config.ts';
 import { readRepoFile } from './lib/walk.ts';
 
 // The Tailwind theme is the one file that can put a literal colour into every
@@ -97,15 +104,35 @@ test('the theme writes no named colour, on any key, including a new one', () => 
   expect(readRepoFile(THEME)).not.toMatch(NAMED_COLOUR_VALUE);
 });
 
-test('the theme replaces the default palette instead of extending it', () => {
-  const src = readRepoFile(THEME);
-  // With `extend`, bg-red-500 stays reachable and the six stop being the whole
-  // palette. The colours must sit directly under theme, not under theme.extend.
-  const colours = src.indexOf('colors: {');
-  const extend = src.indexOf('extend: {');
-  expect(colours, 'colors must be present').toBeGreaterThan(-1);
-  expect(extend, 'extend must be present').toBeGreaterThan(-1);
-  expect(colours, 'colors must sit outside extend').toBeLessThan(extend);
+// Asked of the object, not the file's text.
+//
+// This used to compare `indexOf('colors: {')` against `indexOf('extend: {')`,
+// which only proved one string appeared earlier in the file than the other. It
+// passed on a `colors` written inside a comment, and it never showed that
+// `colors` was a direct child of `theme`. The object answers both outright.
+test('the palette is replaced, not extended, so no seventh colour has a class', () => {
+  const theme = themeConfig.theme;
+  const colours = theme?.colors;
+  expect(colours, 'theme.colors must be set directly, not under extend').toBeDefined();
+
+  // Exactly the six, plus the two keywords section 15.1 allows. Written out, and
+  // compared as a whole, so an added or dropped key fails here.
+  expect(Object.keys(colours as Record<string, unknown>).sort()).toEqual([
+    'canvas',
+    'current',
+    'danger',
+    'ink',
+    'line',
+    'muted',
+    'paper',
+    'transparent',
+  ]);
+
+  // The real defect being guarded: with colours under extend, Tailwind keeps its
+  // own palette and bg-red-500 stays reachable on every screen.
+  const extend = theme?.extend as Record<string, unknown> | undefined;
+  expect(extend, 'extend must still exist, it carries the 44 px target').toBeDefined();
+  expect(extend?.['colors'], 'colours must never sit under theme.extend').toBeUndefined();
 });
 
 /**
