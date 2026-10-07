@@ -10,6 +10,7 @@
 import { HashRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { type NavFlags, type ScreenRow, sidebarOf } from '../nav/roles';
 import { AppShell } from './AppShell';
+import { Screen } from './Screen';
 
 type RoleRoutesProps = {
   /** The app's name, matching the entry title: Orbitcrew, or the fleet console. */
@@ -23,15 +24,15 @@ type RoleRoutesProps = {
 };
 
 /**
- * A screen with no data yet: its name, and nothing it cannot back up.
+ * A screen with no data yet, which is what section 15.8 calls a shell: its
+ * route, its nav entry, its title, and the section 15.4 empty state saying what
+ * will appear and what fills it. Not a placeholder, a finished screen with no
+ * data.
  *
- * Task 4 replaces this with the Screen frame, which adds the six section 15.4
- * states and the empty-state copy. Until then a route renders its title, which
- * is what makes a nav link honest today rather than sometime later.
+ * The state is built here rather than in the row, so a screen that grows real
+ * content passes its own state to Screen and this stops applying to it.
  */
-function ScreenTitle({ name }: { name: string }) {
-  return <h1 className="text-body font-medium">{name}</h1>;
-}
+const shellState = (row: ScreenRow) => ({ kind: 'empty', appears: row.appears, fills: row.fills }) as const;
 
 /** An address that matches no screen. Says which, and offers one way out. */
 function NotFound({ back }: { back: ScreenRow | undefined }) {
@@ -69,7 +70,7 @@ export function RoleScreens({ appName, nav, flags, paused }: RoleRoutesProps) {
         {/* Every row, linked or not. A screen reached by id has no nav entry
             and still needs a route, or the link from its list leads nowhere. */}
         {nav.map((row) => (
-          <Route element={<ScreenTitle name={row.screen} />} key={row.route} path={row.route} />
+          <Route element={<Screen row={row} state={shellState(row)} />} key={row.route} path={row.route} />
         ))}
         <Route element={<NotFound back={back} />} path="*" />
       </Routes>

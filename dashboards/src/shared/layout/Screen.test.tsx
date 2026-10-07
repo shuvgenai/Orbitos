@@ -13,6 +13,8 @@ const ROW: ScreenRow = {
   route: '/receipts',
   section: '15.5',
   inSidebar: true,
+  appears: 'One receipt for every action your office took',
+  fills: 'Your first finished task writes the first receipt.',
 };
 
 test('the title is the screen name the PRD gives, as the one h1', () => {
