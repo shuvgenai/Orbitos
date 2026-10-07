@@ -17,18 +17,24 @@ const THEME = 'dashboards/tailwind.config.ts';
 const STYLES = 'dashboards/src/shared/styles/theme.css';
 const COMPONENT = 'dashboards/src/shared/states/ScreenState.tsx';
 
-/** The six of PRD section 15.1, written out so dropping one fails here. */
-const SIX = ['ink', 'paper', 'canvas', 'muted', 'line', 'danger'];
-
 /** A hex, an rgb()/hsl() call, or a three-or-more letter colour word in a value. */
 const LITERAL_COLOUR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|color-mix|oklch|lab)\(/i;
 
+// The six of PRD section 15.1, one assertion each, written out by hand.
+//
+// An earlier version looped an array of the six names. That read as tidier and
+// was weaker: deleting an entry from the array deleted its assertion with it, and
+// the test passed on five. guards/design-naming.test.ts states the rule and this
+// file now obeys it. Never loop the list you are pinning.
 test('each of the six colours is a reference into the frozen values, not a value', () => {
   const src = readRepoFile(THEME);
-  for (const name of SIX) {
-    // An exact string, not a pattern: it has to read this and nothing like it.
-    expect(src, `${name} must read var(--color-${name})`).toContain(`${name}: 'var(--color-${name})',`);
-  }
+  // Exact strings, not patterns: each has to read this and nothing like it.
+  expect(src, 'ink must read var(--color-ink)').toContain("ink: 'var(--color-ink)',");
+  expect(src, 'paper must read var(--color-paper)').toContain("paper: 'var(--color-paper)',");
+  expect(src, 'canvas must read var(--color-canvas)').toContain("canvas: 'var(--color-canvas)',");
+  expect(src, 'muted must read var(--color-muted)').toContain("muted: 'var(--color-muted)',");
+  expect(src, 'line must read var(--color-line)').toContain("line: 'var(--color-line)',");
+  expect(src, 'danger must read var(--color-danger)').toContain("danger: 'var(--color-danger)',");
 });
 
 test('the theme states no literal colour anywhere, including its comments', () => {
