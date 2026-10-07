@@ -3372,3 +3372,103 @@ scans every script extension, and has a tripwire for dashboards source outside
 because a comment mention satisfied it. The appendix guard states at the top that
 it detects PRD edits and not restatement drift, and names the constant to update
 when the PRD version moves. The deferred list exists once.
+
+## Addendum 6: S-43 round 3, Task 11a and Task 16 as built (2026-10-07)
+
+### S-43 is final at round 3, with its gaps written down
+
+`guards/design-naming.test.ts` reached round 3 and is closed. Round 2 made the
+guard scan copy rather than code, which cleared the blocker that would have fired
+on correct token-based Stream A source. Round 3 closes the two defects that found:
+a hex inside customer copy is an order or an issue reference and not a colour, and
+a string is code only when it is SHAPED like a path or a URL, so "Hermes/Paperclip"
+and "and/or" are scanned again instead of being skipped for containing a slash.
+
+The file's header now carries a KNOWN LIMITS block. **It is the specification of
+what this guard does not do.** It is grouped as where copy ends, where the scanner
+mis-reads text, where a path is guessed and where a colour is missed outright.
+Every entry is accepted and deliberately unfixed. Two entries in the earlier
+header were false and are corrected there: a hex in a border shorthand or a
+gradient IS caught, and only named colours and `color-mix(` are missed; and an
+unterminated template literal swallows the rest of the file, not the rest of the
+line.
+
+**Two of the accepted gaps lose coverage that round 2 had.** Both are in the
+header and both have a known fix, left unapplied because round 3 is final:
+
+1. In markup a `<style>` or `<script>` block is blanked together with its own
+   delimiters, so the text-node regex can span it. A colour inside such a block
+   goes unreported when text follows the block directly. The fix is to blank to
+   `<` + spaces + `>` so a text node cannot cross it.
+2. A JSON or CSS `content` value counts as style only when it is wholly one hex,
+   so `{"border": "1px solid #fff"}` is not reported. In a script the same string
+   still is.
+
+One finding from the re-review is NOT in the header, because it is a weak probe
+rather than a scanner gap: the copy-mask probes survive index drift of one to six
+characters, since every hex in them sits at least five characters into its text.
+Closing it needs probes with the hex first in the text and an assertion that the
+skeleton length equals the source length. It is on the final-review list.
+
+### Mutation drills run against a committed tree
+
+281 single-point mutations of the guard all failed as required, with no survivor,
+no missing pattern and no no-op. The drill ran against an uncommitted tree and
+restored the file from a backup in the OS temp directory, so a crash mid-run would
+have left a mutated guard with no committed copy to return to. **Standing rule
+from here: a mutation drill runs against a committed tree, with reduced
+concurrency.** The Task 16 drill below followed it.
+
+### Task 11a as built
+
+One line, `ORBIT-OS_Claude_Code_Build_Prompts.md:116`. The design-system paragraph
+told an implementer to copy the prototype's tokens, named `#6316F9` and five more
+literal colours, and listed Card and Kpi among the components to build. It now
+names the six `design/tokens.css` variables, forbids writing a literal colour,
+points `tailwind.config.ts` at the CSS variables rather than restating values,
+drops Card and Kpi, adds the six §15.4 states as one component, and says to render
+a plain list where a screen description below says "tiles".
+
+That last clause matters because line 107 still orders "4 tiles" for the fleet
+screen. **The rest of Task 11 rewrites the screen descriptions against §15.5 to
+§15.7 and is where those go.**
+
+### Task 16 as built, and one deviation
+
+| Part | As built |
+|---|---|
+| `dashboards/tsconfig.json` | DOM and `dom.iterable`, `jsx: react-jsx`, root-level strictness, `types: []` so a dashboard reaching for `process` or `fs` fails |
+| Root `tsconfig.json` | excludes `dashboards`, so no file is owned by two projects under two sets of rules |
+| `pnpm typecheck` | runs both projects |
+| `dashboards/src/assets.d.ts` | the asset-import declarations, and the one input that keeps `tsc` from exiting TS18003 on an empty project. Verified by deleting it |
+| `guards/dashboards-config.test.ts` | pins every line above, plus the presence of an input file. 11 mutations drilled against the committed tree, all killed |
+
+Read a green run as "the wiring is in place", never as "the dashboards
+typecheck". The only input today is a declaration file. The guard's own header
+says so.
+
+**DEVIATION, needs sign-off.** The Dockerfile's two `COPY` lines are not added.
+CI builds this image in the `compose-smoke` job and `COPY` fails on a path that
+does not exist, so adding them before `contract/` exists turns CI red on the next
+push. The pair is instead owned by a tripwire in the new guard, which fires on the
+commit that creates `contract/package.json` and names all three items then due:
+
+- `COPY contract/package.json contract/` in the deps stage
+- `COPY contract contract` in the runtime stage
+- `contract` added to `packages` in `pnpm-workspace.yaml`
+
+Same pattern as Addendum 5's appendix tripwire: a tripwire on a precondition. The
+ownership the founder asked for is kept; only the moment moves.
+
+### Flagged before 1a, not done
+
+`dashboards/CLAUDE.md` is the first file an implementer reads inside that folder
+and it is stale against PRD v9.0. It lists `Card` among the design-system
+components, names React 18, says `npm run` where this repo is pnpm, seeds `mcps`,
+and its folder layout predates the §15.4 states component. Same hazard class as
+Task 11a's line 116, in the file with the strongest claim on an implementer's
+attention.
+
+Also still open: whether an `apps/*.test.tsx` written test-first arms the S-43
+entry-file tripwire before any entry file exists. 1a writes tests, so this decides
+whether the guard blocks its own first component.
