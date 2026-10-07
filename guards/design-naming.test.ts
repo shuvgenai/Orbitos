@@ -112,16 +112,50 @@ const COLOUR = [
 //  colour. A bare string such as '#1042' is style and still fires. In CSS
 //  content and JSON values a string that is wholly one hex still fires too.
 //
-// KNOWN LIMITS. This is a heuristic scanner, not a parser, and these gaps are
-// accepted. Do not assume coverage this file does not have.
-//  - A regex literal that contains a quote, or a lone apostrophe in JSX text,
-//    can make the scanner mis-read the rest of that line.
-//  - JSX text that starts with a parenthesis, such as "(optional)", and text that
-//    reads like an operator expression are treated as code and not scanned.
-//  - A colour written as a border shorthand (border: 1px solid red), a colour
-//    inside a gradient, and color-mix( are not caught. Only the colour
-//    properties in the NAMED rule are checked for named colours, and only the
-//    HEX rule skips copy.
+// KNOWN LIMITS. This is a heuristic scanner, not a parser. Every gap below is
+// known, accepted and deliberately NOT fixed: round 3 is final for this file.
+// Do not assume coverage this file does not have, and do not read a gap as a
+// promise that the opposite case is covered.
+//
+// Where copy ends.
+//  - Only these are copy: JSX text, an HTML or SVG text node, a readable
+//    attribute, a CSS content value, a JSON string value. A string or template
+//    in a script is style, so a message string such as
+//    const m = 'Order #1042 shipped' is reported as a colour. So is
+//    placeholder={'Order #1042'}, because the braces make it an expression
+//    rather than attribute text. The same words inside JSON are quiet. Shared
+//    message strings are where this will be met.
+//  - A JSON or CSS content value counts as style only when it is wholly one hex,
+//    so {"border": "1px solid #fff"} and {"c": "linear-gradient(#fff, #000)"}
+//    are NOT reported. In a script the same strings are reported.
+//  - In markup a <style> or <script> block is blanked with its own delimiters, so
+//    a text node can span it. A colour inside such a block is not reported when
+//    text follows the block directly: <p>x</p><style>a{color:#fff}</style>Hi<p>y</p>
+//    is quiet. Round 2 reported it. The cost is bounded by the entry files being
+//    thin shells and by stylesheets living in .css, which is scanned separately.
+//
+// Where the scanner mis-reads text.
+//  - A regex literal containing a quote, or a lone apostrophe in JSX text, can
+//    make the scanner mis-read the rest of that line. A lone backtick is worse:
+//    a template read is not newline-bounded, so it swallows the rest of the file.
+//  - JSX text that starts with a parenthesis, has unbalanced parentheses, or
+//    contains ; or = or an operator pair is code and is not scanned for words.
+//    This cuts both ways: <p>(Order #1042)</p> is reported as a colour, and a
+//    parenthesised suffix after an inline element, <p>Name <b>x</b> (Hermes)</p>,
+//    is never scanned for banned words.
+//  - A semicolon-free function body between a > and the next < can be read as JSX
+//    text, which masks a hex inside it.
+//
+// Where a path is guessed.
+//  - PATH_SHAPED knows six shapes. A bare shared/x with no extension, a Windows
+//    path, a data: URI, ~/x and mailto: are all scanned as copy. In the other
+//    direction, /^\// accepts any string with a leading slash as a path.
+//
+// Where a colour is missed outright.
+//  - Named colours are checked only in the properties the NAMED rule lists, so
+//    border: 1px solid red, a named colour in a gradient and color-mix( are not
+//    caught. A HEX in a border shorthand or a gradient IS caught, in every file
+//    type except where a copy rule above hides it.
 //  - Entry files (dashboards/*/index.html) are checked for their title only. Their
 //    other text and any colours in them are not scanned.
 //  - Only the file types in CODE are read. Anything else in a customer folder is
