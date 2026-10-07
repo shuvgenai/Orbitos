@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import { REPO_ROOT, type RootedPath, readFileIn, walkFilesIn } from './lib/walk.ts';
 // The theme is imported, not read as text, so the nesting test below asks the
 // object and not the file's character offsets. Note the coupling this creates:
 // an imported file joins the root tsconfig's program, so tailwind.config.ts is
@@ -170,4 +171,37 @@ test('every hook is really used by the component, so the list cannot rot', () =>
   expect(used.has('screen-state-loading'), 'screen-state-loading is unused').toBe(true);
   expect(used.has('screen-state-not-yours'), 'screen-state-not-yours is unused').toBe(true);
   expect(used.has('screen-state-closed'), 'screen-state-closed is unused').toBe(true);
+});
+
+/**
+ * Every config file directly at the dashboards root.
+ *
+ * Naming tailwind.config.ts alone left the gap half closed. S-43 walks only
+ * dashboards/src/apps/user, dashboards/src/apps/org-admin and
+ * dashboards/src/shared, so EVERY file at that root is unscanned, not just the
+ * one this guard happened to name. postcss.config.js was already sitting there.
+ *
+ * Depth one only. A config nested under src is inside S-43's reach, and
+ * guards/contract-boundary.test.ts already allows nothing but *.config.* up here.
+ */
+function rootConfigs(): readonly RootedPath[] {
+  return walkFilesIn(REPO_ROOT, 'dashboards', { extensions: ['.ts', '.js', '.mjs', '.cjs', '.mts', '.cts'] })
+    .filter((f) => f.slice('dashboards/'.length).includes('/') === false)
+    .filter((f) => /\.config\.[cm]?[jt]s$/.test(f));
+}
+
+test('the sweep finds the dashboards root configs, so it cannot pass on an empty list', () => {
+  const found = rootConfigs();
+  // Written out by hand. A new root config is added here deliberately.
+  expect([...found].sort()).toEqual(['dashboards/postcss.config.js', 'dashboards/tailwind.config.ts']);
+});
+
+test('no config at the dashboards root writes a literal colour', () => {
+  const offenders = rootConfigs()
+    .filter((f) => {
+      const src = readFileIn(REPO_ROOT, f);
+      return LITERAL_COLOUR.test(src) || NAMED_COLOUR_VALUE.test(src);
+    })
+    .sort();
+  expect(offenders, 'a colour here reaches every generated class, unseen by S-43').toEqual([]);
 });
