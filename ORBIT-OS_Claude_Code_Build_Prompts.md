@@ -153,7 +153,7 @@ Role: Staff frontend engineer. Follow CLAUDE.md strictly.
 Task: Build the foundation for all three dashboards. No product screens yet.
 
 Build:
-1. Vite + React 18 + TypeScript (strict) + Tailwind 3 + shadcn/ui. Multi-page build with three HTML entries: user/index.html, org-admin/index.html, fleet/index.html, each mounting its own app from src/apps/<name>/main.tsx. Inter loaded from Google Fonts with a system fallback stack.
+1. Vite + React 19 + TypeScript (strict) + Tailwind 3 + shadcn/ui. Multi-page build with three HTML entries: user/index.html, org-admin/index.html, fleet/index.html, each mounting its own app from src/apps/<name>/main.tsx. Inter loaded from Google Fonts with a system fallback stack.
 2. Tailwind theme from the design tokens in the shared spec, with light and dark.
 3. src/shared/schemas: Zod schemas and inferred types exactly as in the shared spec.
 4. src/shared/seeds: jobs, mcps, org templates, demo office, fleet registry, copied faithfully from the reference data files.
