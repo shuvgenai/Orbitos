@@ -132,6 +132,7 @@ Keep dashboard source under `src`. A source file outside it trips
 ## Commands
 | Command | State |
 |---|---|
+| `pnpm --filter @orbit/dashboards dev` | the dev server on port 5199, strict port |
 | `pnpm typecheck` | runs the root project and the dashboards project |
 | `pnpm test` | the whole suite |
 | `pnpm test:unit` | the unit project only, which is where the guards live |
@@ -141,6 +142,12 @@ Keep dashboard source under `src`. A source file outside it trips
 
 Do not invent a script. Where the table says a command does not exist, say so
 rather than working around it.
+
+The dev server serves one page per dashboard, so there are three addresses:
+`http://localhost:5199/user/index.html`, `/org-admin/index.html` and
+`/fleet/index.html`. The port is strict so a second instance fails loudly
+instead of moving to another port and serving a stale build at the address you
+had open.
 
 ## Working agreement
 - Work in the order the plan gives. Finish one piece, run `pnpm typecheck` and
