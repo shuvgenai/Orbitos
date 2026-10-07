@@ -73,6 +73,39 @@ test('the three sections are the whole of it: 52 screens, every route distinct',
   expect(new Set(SCREENS.map((s) => s.screen)).size, 'two screens share a name').toBe(52);
 });
 
+/**
+ * The routes section 15.8 lists as Fill later, with what unblocks each.
+ *
+ * Its table is "| Screen | Route | Unblocked by |", with no leading number,
+ * which is what tells it apart from the three inventories above.
+ */
+function fillLater(): { route: string; unblockedBy: string }[] {
+  const src = readRepoFile(PRD);
+  const start = src.indexOf('**Fill later: 24**');
+  if (start < 0) throw new Error(`${PRD} no longer says "Fill later: 24"`);
+  const next = src.indexOf('\n#### ', start + 1);
+  const body = src.slice(start, next < 0 ? undefined : next);
+  return [...body.matchAll(/^\|\s*([^|]+?)\s*\|\s*`([^`]+)`\s*\|\s*([^|]+?)\s*\|/gm)].map((m) => ({
+    route: m[2] as string,
+    unblockedBy: m[3] as string,
+  }));
+}
+
+// The copy for these 24 lives in dashboards/src/shared/nav/screens.ts and is
+// pinned phrase by phrase in nav/fills.test.ts. This test pins the count and
+// the routes against the document, so that list cannot quietly cover 23.
+test('section 15.8 lists 24 Fill-later screens, and each one is a real screen', () => {
+  const later = fillLater();
+  expect(later.length, 'section 15.8 says Fill later: 24').toBe(24);
+  for (const row of later) {
+    expect(
+      SCREENS.some((screen) => screen.route === row.route),
+      `${row.route} is Fill later in the PRD but is not a screen`,
+    ).toBe(true);
+    expect(row.unblockedBy.length, `${row.route} says nothing about what unblocks it`).toBeGreaterThan(0);
+  }
+});
+
 test('every screen says which section it came from, and no fourth section exists', () => {
   const sections = [...new Set(SCREENS.map((s) => s.section))].sort();
   expect(sections).toEqual(['15.5', '15.6', '15.7']);
