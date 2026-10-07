@@ -12,5 +12,5 @@
     "types": ["node"]
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "**/node_modules", "landing", "archive", "reference", "**/generated/**"]
+  "exclude": ["node_modules", "**/node_modules", "landing", "archive", "reference", "dashboards", "**/generated/**"]
 }
