@@ -5,6 +5,10 @@
 // retyped. Retyping it would be a second place a screen could go missing.
 import { FLEET_SCREENS, ORG_ADMIN_SCREENS, type ScreenRow, USER_SCREENS } from './screens';
 
+// Re-exported so a consumer of a role list gets the row type from the same
+// module, rather than reaching past it into the data file.
+export type { ScreenRow };
+
 /** Section 15.5. 14 screens. */
 export const USER_NAV: readonly ScreenRow[] = USER_SCREENS;
 

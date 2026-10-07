@@ -10,7 +10,18 @@
 import type { Config } from 'tailwindcss';
 
 export default {
-  content: ['./src/**/*.{ts,tsx,html}', './*/index.html'],
+  // Tailwind scans raw text, so any file it reads can generate a utility. Test
+  // files are excluded because they never ship and they talk ABOUT classes:
+  // AppShell.test.tsx asserts the markup holds no column class, and the word
+  // inside that assertion was enough to emit .grid{display:grid} into the
+  // production stylesheet. A class section 15.2 forbids was then one
+  // autocomplete away on every screen.
+  content: [
+    './src/**/*.{ts,tsx,html}',
+    '!./src/**/*.{test,spec,stories,story}.{ts,tsx}',
+    '!./src/**/__tests__/**',
+    './*/index.html',
+  ],
   theme: {
     // The six, plus the two keywords section 15.1 allows.
     colors: {
