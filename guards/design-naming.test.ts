@@ -81,11 +81,13 @@ const NAME = `(?:${NAMED_COLOURS.join('|')})`;
 //       ids such as #add. Not after & (an entity such as &#169;). Not inside a
 //       querySelector-style call, whose argument is a selector. Not excluded
 //       after a bare =", because fill="#fff" on an SVG is the leak this is for.
-//       Comments are removed before this runs, so "issue #123" is quiet.
+//       Comments are removed before this runs, so "issue #123" is quiet. A match
+//       inside copy is skipped (see below), so "Order #1042" is quiet too.
 //  FUNC: colour functions.
 //  NAMED: a colour property set to a CSS named colour, bare or quoted.
+const HEX = /(?<!href=["']|url\(|&|(?:querySelector(?:All)?|closest|matches)\(\s*["'])#[0-9a-fA-F]{3,8}\b/g;
 const COLOUR = [
-  /(?<!href=["']|url\(|&|(?:querySelector(?:All)?|closest|matches)\(\s*["'])#[0-9a-fA-F]{3,8}\b/g,
+  HEX,
   /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/g,
   new RegExp(
     `\\b(?:color|background(?:-color)?|border(?:-(?:top|right|bottom|left))?-color|outline-color)\\s*:\\s*["']?${NAME}\\b(?![-\\w(])` +
@@ -94,14 +96,36 @@ const COLOUR = [
   ),
 ];
 
-// ---- Where a customer can read text. ----
+// ---- Where a customer can read text, and where style lives. ----
 //
 // PRD section 15.3 bans those words in what a customer reads, not in the code
-// behind it. So the banned-word rule looks only at copy: string literals and JSX
-// text in scripts, text nodes and readable attributes in markup, content strings
-// in CSS and string values in JSON. Identifiers, types, imports, object keys and
-// comments are code and are not scanned. This is a scanner, not a parser. Its
-// known gaps are listed in the task report.
+// behind it. The file says one thing in two halves.
+//
+//  Banned words live in COPY: string literals and JSX text in scripts, text
+//  nodes and readable attributes in markup, content strings in CSS, string
+//  values in JSON. Identifiers, types, imports, keys and comments are code and
+//  are not scanned for words.
+//
+//  Colours live in STYLE: declarations, style objects, fill and stroke, class
+//  and style attributes, stylesheets. The hex rule therefore skips a match that
+//  sits inside copy, so "Order #1042" in JSX text or a text node is not a
+//  colour. A bare string such as '#1042' is style and still fires. In CSS
+//  content and JSON values a string that is wholly one hex still fires too.
+//
+// KNOWN LIMITS. This is a heuristic scanner, not a parser, and these gaps are
+// accepted. Do not assume coverage this file does not have.
+//  - A regex literal that contains a quote, or a lone apostrophe in JSX text,
+//    can make the scanner mis-read the rest of that line.
+//  - JSX text that starts with a parenthesis, such as "(optional)", and text that
+//    reads like an operator expression are treated as code and not scanned.
+//  - A colour written as a border shorthand (border: 1px solid red), a colour
+//    inside a gradient, and color-mix( are not caught. Only the colour
+//    properties in the NAMED rule are checked for named colours, and only the
+//    HEX rule skips copy.
+//  - Entry files (dashboards/*/index.html) are checked for their title only. Their
+//    other text and any colours in them are not scanned.
+//  - Only the file types in CODE are read. Anything else in a customer folder is
+//    invisible to every rule here.
 
 /** Attributes whose value a customer reads. Other attributes (className, id, data-*) are code. */
 const READABLE_ATTRS = ['placeholder', 'aria-label', 'alt', 'title', 'label'];
@@ -109,34 +133,57 @@ const READABLE_ATTRS = ['placeholder', 'aria-label', 'alt', 'title', 'label'];
 // A string right after from, import, import( or require( is a module specifier.
 const MODULE_SPECIFIER = /(?:\bfrom|\bimport\s*\(?|\brequire\s*\()\s*$/;
 
-type Scan = { copy: string[]; plain: string };
+// Strings shaped like a path or a URL are code, not prose. Prose that merely
+// contains a slash ("Hermes/Paperclip", "and/or") is still copy.
+const PATH_SHAPED = [
+  /^\.\//, // ./adapter-chip
+  /^\.\.\//, // ../adapter-chip
+  /^@[\w-]*\//, // @scope/pkg and @/shared/x
+  /^\//, // /api/x
+  /^[a-z][a-z0-9+.-]*:\/\//i, // https://x
+  /^\S+\/\S*\.[A-Za-z0-9]{1,5}$/, // design/tokens.css: no spaces, ends in an extension
+];
+const isPathShaped = (text: string) => PATH_SHAPED.some((r) => r.test(text));
 
-const cutRanges = (src: string, ranges: [number, number][]) => {
-  let out = '';
-  let at = 0;
-  for (const [s, e] of ranges) {
-    out += src.slice(at, s) + ' ';
-    at = e;
-  }
-  return out + src.slice(at);
-};
+/** A stretch of the file that is copy. `value` ranges still count as style when they are wholly one hex. */
+type Mask = { start: number; end: number; value: boolean };
+type Scan = { copy: string[]; plain: string; masks: Mask[] };
+
+// Same length as the input, so an index into the result is an index into the source.
+const blank = (s: string) => s.replace(/[^\n]/g, ' ');
 
 const hasLetter = (s: string) => /[A-Za-z]/.test(s);
+const WHOLE_COLOUR = /^\s*#[0-9a-fA-F]{3,8}\s*$/;
+
+/** True when `at` sits inside copy, where a hex is a number or a reference and not a colour. */
+function inCopy(s: Scan, at: number): boolean {
+  const mask = s.masks.find((k) => at >= k.start && at < k.end);
+  if (!mask) return false;
+  return !(mask.value && WHOLE_COLOUR.test(s.plain.slice(mask.start, mask.end)));
+}
+
+export { PATH_SHAPED, isPathShaped };
+const parensBalanced = (t: string) => (t.match(/\(/g) ?? []).length === (t.match(/\)/g) ?? []).length;
 
 function scanScript(src: string, jsx: boolean): Scan {
   const n = src.length;
   const copy: string[] = [];
+  const masks: Mask[] = [];
   const comments: [number, number][] = [];
   const stack: number[] = []; // brace depth at which a template literal resumes
   let depth = 0;
-  let code = ''; // the source with comments dropped and string bodies blanked
+  // The source with comments and string bodies blanked, same length as src.
+  let code = '';
   let i = 0;
 
-  const emit = (text: string, before: string) => {
-    if (!hasLetter(text) || text.includes('/') || MODULE_SPECIFIER.test(before)) return;
+  const emit = (text: string, before: string, start: number) => {
+    if (!hasLetter(text) || isPathShaped(text) || MODULE_SPECIFIER.test(before)) return;
     // A JSX attribute (no spaces around =) is copy only when a customer reads it.
     const attr = /(?:^|\s)([\w:-]+)=$/.exec(before);
-    if (attr && !READABLE_ATTRS.includes((attr[1] as string).toLowerCase())) return;
+    if (attr) {
+      if (!READABLE_ATTRS.includes((attr[1] as string).toLowerCase())) return;
+      masks.push({ start, end: start + text.length, value: false });
+    }
     copy.push(text);
   };
 
@@ -149,12 +196,12 @@ function scanScript(src: string, jsx: boolean): Scan {
         text += src.slice(j, j + 2);
         j++;
       } else if (c === '`') {
-        emit(text, code);
-        code += '""';
+        emit(text, code, start);
+        code += ' '.repeat(j - start) + '`';
         return j + 1;
       } else if (c === '$' && src[j + 1] === '{') {
-        emit(text, code);
-        code += '""';
+        emit(text, code, start);
+        code += ' '.repeat(j - start) + '${';
         stack.push(depth);
         depth++;
         return j + 2;
@@ -162,7 +209,8 @@ function scanScript(src: string, jsx: boolean): Scan {
         text += c;
       }
     }
-    emit(text, code);
+    emit(text, code, start);
+    code += ' '.repeat(n - start);
     return n;
   };
 
@@ -173,14 +221,14 @@ function scanScript(src: string, jsx: boolean): Scan {
       const e = src.indexOf('\n', i);
       const end = e < 0 ? n : e;
       comments.push([i, end]);
+      code += ' '.repeat(end - i);
       i = end;
-      code += ' ';
     } else if (c === '/' && d === '*') {
       const e = src.indexOf('*/', i + 2);
       const end = e < 0 ? n : e + 2;
       comments.push([i, end]);
+      code += blank(src.slice(i, end));
       i = end;
-      code += ' ';
     } else if (c === '"' || c === "'") {
       let j = i + 1;
       let text = '';
@@ -190,10 +238,12 @@ function scanScript(src: string, jsx: boolean): Scan {
           j += 2;
         } else text += src[j++];
       }
-      emit(text, code);
-      code += '""';
-      i = src[j] === c ? j + 1 : j;
+      emit(text, code, i + 1);
+      const closed = src[j] === c;
+      code += c + ' '.repeat(j - i - 1) + (closed ? c : '');
+      i = closed ? j + 1 : j;
     } else if (c === '`') {
+      code += '`';
       i = readTemplate(i + 1);
     } else {
       if (c === '{') depth++;
@@ -201,6 +251,7 @@ function scanScript(src: string, jsx: boolean): Scan {
         depth--;
         if (stack.length > 0 && stack[stack.length - 1] === depth) {
           stack.pop();
+          code += '}';
           i = readTemplate(i + 1);
           continue;
         }
@@ -212,45 +263,81 @@ function scanScript(src: string, jsx: boolean): Scan {
 
   if (jsx) {
     // Text between a closing > (not =>) or } and the next <, or before a {.
-    // Text that looks like an operator expression or contains parentheses is
-    // code (a comparison, a generic, a call) and is skipped.
+    // Text that reads like an operator expression, has unbalanced parentheses or
+    // starts with one is code (a comparison, a generic, a call) and is skipped.
+    // Balanced parentheses inside the text are copy: "Adapter (optional)".
     for (const re of [/(?:(?<!=)>|\})([^<>{}]+)</g, /(?<!=)>([^<>{}]+)\{/g]) {
       for (const m of code.matchAll(re)) {
         const text = m[1] as string;
-        if (!hasLetter(text) || /[;=()]|&&|\|\||\s[?:]\s/.test(text)) continue;
+        if (!hasLetter(text) || /[;=]|&&|\|\||\s[?:]\s/.test(text)) continue;
+        if (!parensBalanced(text) || /^\s*\(/.test(text)) continue;
         copy.push(text);
+        const start = (m.index as number) + 1;
+        masks.push({ start, end: start + text.length, value: false });
       }
     }
   }
-  return { copy, plain: cutRanges(src, comments) };
+  return { copy, plain: blankRanges(src, comments), masks };
 }
 
+const blankRanges = (src: string, ranges: [number, number][]) => {
+  let out = '';
+  let at = 0;
+  for (const [s, e] of ranges) {
+    out += src.slice(at, s) + blank(src.slice(s, e));
+    at = e;
+  }
+  return out + src.slice(at);
+};
+
 function scanMarkup(src: string): Scan {
-  const plain = src.replace(/<!--[\s\S]*?-->/g, ' ');
-  const body = plain.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ');
+  const plain = src.replace(/<!--[\s\S]*?-->/g, blank);
+  const body = plain.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, blank);
   const copy: string[] = [];
-  for (const m of body.matchAll(/>([^<]+)</g)) if (hasLetter(m[1] as string)) copy.push(m[1] as string);
+  const masks: Mask[] = [];
+  for (const m of body.matchAll(/>([^<]+)</g)) {
+    const text = m[1] as string;
+    if (!hasLetter(text)) continue;
+    copy.push(text);
+    const start = (m.index as number) + 1;
+    masks.push({ start, end: start + text.length, value: false });
+  }
   const attrs = new RegExp(`\\b(?:${READABLE_ATTRS.join('|')})\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'gi');
-  for (const m of body.matchAll(attrs)) copy.push((m[1] ?? m[2]) as string);
-  return { copy, plain };
+  for (const m of body.matchAll(attrs)) {
+    const text = (m[1] ?? m[2]) as string;
+    copy.push(text);
+    const start = (m.index as number) + m[0].length - 1 - text.length;
+    masks.push({ start, end: start + text.length, value: false });
+  }
+  return { copy, plain, masks };
 }
 
 function scanCss(src: string): Scan {
-  const plain = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const plain = src.replace(/\/\*[\s\S]*?\*\//g, blank);
   const copy: string[] = [];
-  for (const m of plain.matchAll(/\bcontent\s*:\s*(["'])((?:(?!\1).)*)\1/g)) copy.push(m[2] as string);
-  return { copy, plain };
+  const masks: Mask[] = [];
+  for (const m of plain.matchAll(/\bcontent\s*:\s*(["'])((?:(?!\1).)*)\1/g)) {
+    const text = m[2] as string;
+    copy.push(text);
+    const start = (m.index as number) + m[0].length - 1 - text.length;
+    masks.push({ start, end: start + text.length, value: true });
+  }
+  return { copy, plain, masks };
 }
 
 function scanJson(src: string): Scan {
   // String values only. A key is code.
   const copy: string[] = [];
+  const masks: Mask[] = [];
   for (const m of src.matchAll(/"((?:[^"\\]|\\.)*)"(\s*:)?/g)) {
     if (m[2]) continue;
     const text = m[1] as string;
-    if (hasLetter(text) && !text.includes('/')) copy.push(text);
+    if (!hasLetter(text) || isPathShaped(text)) continue;
+    copy.push(text);
+    const start = (m.index as number) + 1;
+    masks.push({ start, end: start + text.length, value: true });
   }
-  return { copy, plain: src };
+  return { copy, plain: src, masks };
 }
 
 function scanFile(file: string, src: string): Scan {
@@ -288,8 +375,15 @@ export const cardGrids = (root: string) => scan(root, CARD_GRID, (s) => [s.plain
 export function colourLiterals(root: string): string[] {
   const out: string[] = [];
   for (const file of customerFiles(root)) {
-    const { plain } = scanFile(file, readFileIn(root, file));
-    for (const rule of COLOUR) for (const m of plain.matchAll(rule)) out.push(`${file}: ${m[0]}`);
+    const s = scanFile(file, readFileIn(root, file));
+    for (const rule of COLOUR) {
+      for (const m of s.plain.matchAll(rule)) {
+        // Only the hex rule skips copy. A colour function or named colour needs a
+        // property or a call around it, which prose does not have.
+        if (rule === HEX && inCopy(s, m.index as number)) continue;
+        out.push(`${file}: ${m[0]}`);
+      }
+    }
   }
   return out;
 }
@@ -486,6 +580,13 @@ Object.entries(ATTR_PROBES).forEach(([name, [tsx, html]]) => {
 // A real leak: two internal words in one sentence a customer reads.
 put(`${USER}/leak/Expired.tsx`, 'export const A = () => <p>Your MCP token expired</p>;');
 
+// Prose that contains parentheses or a slash is still copy. These used to escape.
+put(`${USER}/prose/Parens.tsx`, 'export const A = () => <p>Adapter (optional)</p>;');
+put(`${USER}/prose/Slash.tsx`, 'export const A = () => <p>Hermes/Paperclip</p>;');
+put(`${USER}/prose/slash-string.ts`, "export const m = 'Hermes/Paperclip';");
+put(`${USER}/prose/spaced-slash.ts`, "export const m = 'and/or tokens';");
+put(`${USER}/prose/slash.json`, '{"m": "Hermes/Paperclip"}');
+
 // One probe per DEAD_PALETTE entry. The first is upper case to prove the match
 // ignores case.
 const PALETTE_PROBES: Record<string, string> = {
@@ -549,6 +650,11 @@ const COLOUR_PROBES: [string, string, string][] = [
   ['named-fill.svg', '<rect fill="red" />', 'fill="red'],
   ['named-stroke.svg', '<rect stroke="blue" />', 'stroke="blue'],
   ['named-quoted.tsx', "export const s = { color: 'red' };", "color: 'red"],
+  // A hex is style unless it sits in copy. These are style, so they still fire.
+  ['hex-string.tsx', "export const s = { color: '#1042' };", '#1042'],
+  ['hex-long-string.ts', "export const b = { border: '1px solid #fff' };", '#fff'],
+  ['hex-json.json', '{"color": "#abcd"}', '#abcd'],
+  ['hex-content.css', 'a::after { content: "#abcd"; }', '#abcd'],
 ];
 COLOUR_PROBES.forEach(([f, b]) => put(`${USER}/colours/${f}`, b));
 
@@ -658,7 +764,17 @@ const QUIET_PROBES: [string, string, RegExp][] = [
   ],
   [
     'Paths.ts',
-    ["export const a = './adapter-chip';", "export const b = '@/shared/token-chip';", 'export const c = (x: string) => `/api/${x}/tokens`;'].join('\n'),
+    [
+      // One line per path shape in PATH_SHAPED, so dropping a shape fails here.
+      "export const a = './adapter-chip';",
+      "export const a2 = '../adapter-chip';",
+      "export const b = '@/shared/token-chip';",
+      "export const b2 = '@scope/adapter';",
+      "export const b3 = '/api/adapter';",
+      "export const b4 = 'https://adapter.example';",
+      "export const b5 = 'design/adapter.css';",
+      'export const c = (x: string) => `/api/${x}/tokens`;',
+    ].join('\n'),
     /adapter|\btokens?\b/i,
   ],
   [
@@ -666,6 +782,7 @@ const QUIET_PROBES: [string, string, RegExp][] = [
     [
       'export const f = (a: number, tokens: number) => (a > tokens ? <b>x</b> : null);',
       'export function g<T>(tokens: T) { return tokens; }',
+      'export function k(a: number, tokens: number) { if (a > tokens) { return 1; } return 0; }',
       'export const h = (a: number, adapter: number) => a > adapter && <b>y</b>;',
     ].join('\n'),
     /\btokens?\b|adapter/i,
@@ -687,8 +804,34 @@ const QUIET_PROBES: [string, string, RegExp][] = [
     /\b(?:color|background|fill|stroke)\s*:\s*["']?(?:red|tan|blue|whitesmoke)/i,
   ],
   ['theme.css', '/* token adapter */ .chip { color: var(--color-ink); --tokens: 1; --adapter: 2; }', /\btokens?\b|adapter/i],
-  ['theme.json', '{"token": "ink", "adapter": {"tokens": 1}}', /\btokens?\b|adapter/i],
+  ['theme.json', '{"token": "ink", "adapter": {"tokens": 1}, "src": "./adapter-chip.css"}', /\btokens?\b|adapter/i],
   ['Kpi.ts', '// KpiTile and grid-cols-3 were removed\nexport const ok = 1;', /KpiTile|grid-cols-3/],
+  // Order numbers, invoice numbers and issue references read as hex colours but
+  // sit in copy, where a hex is not a colour.
+  [
+    'Order.tsx',
+    // The lines before the JSX hold a line comment, a block comment, strings and
+    // a template, so a skeleton that changes length would point the copy ranges
+    // at the wrong text.
+    [
+      '// a fairly long line comment about orders',
+      '/* a longer block comment',
+      '   spanning two lines */',
+      "export const label = 'a string with several words in it';",
+      'export const tpl = (n: number) => `before ${n} after ${n} and a long closing tail of the template`;',
+      'export const A = ({ name }: { name: string }) => <p>Order #1042 for {name}. Issue #123 and #beef.</p>;',
+      'export const B = ({ name }: { name: string }) => <p>{name}: invoice #20231</p>;',
+    ].join('\n'),
+    /#[0-9a-fA-F]{3,8}\b/,
+  ],
+  ['Placeholder.tsx', 'export const A = () => <input placeholder="Order #1042" />;', /#[0-9a-fA-F]{3,8}\b/],
+  [
+    'order.html',
+    '<!-- a comment of some length --><style>.a { margin: 0 auto; }</style><script>const n = 1;</script><p>Order #1042</p><input placeholder="Order #1042"><svg><text>Ticket #123</text></svg><a title="Ref #beef">x</a>',
+    /#[0-9a-fA-F]{3,8}\b/,
+  ],
+  ['order.css', '/* a comment of some length */ a::after { content: "Order #1042"; }', /#[0-9a-fA-F]{3,8}\b/],
+  ['order.json', '{"msg": "Order #1042 shipped"}', /#[0-9a-fA-F]{3,8}\b/],
 ];
 QUIET_PROBES.forEach(([f, b]) => put(`${USER}/quiet/${f}`, b));
 
@@ -823,6 +966,7 @@ test('every quiet probe is in the quiet directory and was scanned', () => {
     sorted([
       'tokens-module.ts', 'Chip.tsx', 'Props.ts', 'Icon.tsx', 'Selectors.ts', 'page.html', 'comments.ts', 'Keys.ts',
       'Attrs.tsx', 'Paths.ts', 'Compare.tsx', 'Operators.tsx', 'Scale.ts', 'theme.css', 'theme.json', 'Kpi.ts',
+      'Order.tsx', 'Placeholder.tsx', 'order.html', 'order.css', 'order.json',
     ].map((f) => `${USER}/quiet/${f}`)),
   );
 });
@@ -945,4 +1089,42 @@ test('the tripwire wires the gate to the rule, so the real-tree test can fail on
   expect(tripwireProblems(withoutScreen, none)).toEqual([]);
   expect(tripwireProblems(onlyTest, none)).toEqual([]);
   expect(tripwireProblems(withScreen, goodTitle)).toEqual([]);
+});
+
+test('prose with parentheses or a slash is still copy', () => {
+  expect(sorted(wordsIn(`${USER}/prose`, bannedWords(PROBE)))).toEqual([
+    `${USER}/prose/Parens.tsx: /adapter/i`,
+    `${USER}/prose/Slash.tsx: /Hermes/i`,
+    `${USER}/prose/Slash.tsx: /Paperclip/i`,
+    `${USER}/prose/slash-string.ts: /Hermes/i`,
+    `${USER}/prose/slash-string.ts: /Paperclip/i`,
+    `${USER}/prose/slash.json: /Hermes/i`,
+    `${USER}/prose/slash.json: /Paperclip/i`,
+    `${USER}/prose/spaced-slash.ts: /\\btokens?\\b/i`,
+  ]);
+});
+
+// The path shapes, written out. Each sample matches exactly one rule, and the
+// rule list must match this copy in both directions.
+const PATH_SAMPLES: [string, string][] = [
+  ['./adapter-chip', '/^\\.\\//'],
+  ['../adapter-chip', '/^\\.\\.\\//'],
+  ['@scope/adapter', '/^@[\\w-]*\\//'],
+  ['/api/adapter', '/^\\//'],
+  ['https://adapter.example', '/^[a-z][a-z0-9+.-]*:\\/\\//i'],
+  ['design/adapter.css', '/^\\S+\\/\\S*\\.[A-Za-z0-9]{1,5}$/'],
+];
+
+test('the path shapes are exactly these six, each matching on its own', () => {
+  expect(sorted(PATH_SHAPED.map(String))).toEqual(sorted(PATH_SAMPLES.map(([, rule]) => rule)));
+  for (const [sample, rule] of PATH_SAMPLES) {
+    expect(PATH_SHAPED.filter((r) => r.test(sample)).map(String), sample).toEqual([rule]);
+    expect(isPathShaped(sample), sample).toBe(true);
+  }
+});
+
+test('prose is not path-shaped', () => {
+  for (const prose of ['Hermes/Paperclip', 'and/or tokens', 'Adapter / token', 'Yes/No']) {
+    expect(isPathShaped(prose), prose).toBe(false);
+  }
 });
