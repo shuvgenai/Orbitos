@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { REPO_ROOT, type RootedPath, readFileIn, walkFilesIn } from './lib/walk.ts';
+import { REPO_ROOT, type RootedPath, readFileIn, readRepoFile, walkFilesIn } from './lib/walk.ts';
 // The theme is imported, not read as text, so the nesting test below asks the
 // object and not the file's character offsets. Note the coupling this creates:
 // an imported file joins the root tsconfig's program, so tailwind.config.ts is
@@ -7,19 +7,29 @@ import { REPO_ROOT, type RootedPath, readFileIn, walkFilesIn } from './lib/walk.
 // under both today because it holds no DOM and no JSX. A config that reaches for
 // `document` would fail under the root project, which is Node-only.
 import themeConfig from '../dashboards/tailwind.config.ts';
-import { readRepoFile } from './lib/walk.ts';
 
-// The Tailwind theme is the one file that can put a literal colour into every
-// screen at once, and S-43 does not scan it.
+// The dashboards root is unscanned by S-43, and the Tailwind theme is the worst
+// file to leave there: it can put a literal colour into every screen at once.
 //
 // guards/design-naming.test.ts only walks dashboards/src/apps/user,
-// dashboards/src/apps/org-admin and dashboards/src/shared. tailwind.config.ts
-// sits at the dashboards root, outside all three, so a hex written there would
-// reach every class the theme generates and no existing guard would see it.
-// That gap is what this file closes.
+// dashboards/src/apps/org-admin and dashboards/src/shared. Nothing sitting at
+// the dashboards root is inside any of the three, so a hex written in
+// tailwind.config.ts or in any config beside it would reach every class the
+// theme generates and no existing guard would see it. That gap is what this
+// file closes.
 //
-// It pins the theme and the state stylesheet only. It says nothing about whether
-// a screen looks right, and it cannot: no screen exists yet.
+// What it covers now:
+//   - the six colours of section 15.1, each a var() reference and not a value
+//   - the theme carrying no hex, no colour function and no CSS named colour,
+//     on any key, including a seventh one nobody has pinned
+//   - the palette replacing Tailwind's defaults rather than extending them
+//   - every other config at the dashboards root, swept for the same colours,
+//     with the sweep itself pinned so it cannot pass on an empty list
+//   - the screen-state classes: every class ScreenState.tsx uses is styled in
+//     theme.css or is a recorded hook, and every recorded hook is really used
+//
+// It says nothing about whether a screen looks right, and it cannot: no screen
+// exists yet.
 
 const THEME = 'dashboards/tailwind.config.ts';
 const STYLES = 'dashboards/src/shared/styles/theme.css';
@@ -118,7 +128,16 @@ test('the palette is replaced, not extended, so no seventh colour has a class', 
 
   // Exactly the six, plus the two keywords section 15.1 allows. Written out, and
   // compared as a whole, so an added or dropped key fails here.
-  expect(Object.keys(colours as Record<string, unknown>).sort()).toEqual([
+  //
+  // Object.keys takes `colours` with no cast, and that is deliberate.
+  // tailwind.config.ts ends in `satisfies Config`, so theme.colors keeps its own
+  // literal type and the eight keys are known here. Annotate the config
+  // `: Config` instead and theme.colors widens to Tailwind's ResolvableTo
+  // union, which Object.keys refuses, and the typecheck says so. A
+  // `as Record<string, unknown>` would silence exactly that warning: a theme
+  // written as a function has no keys, Object.keys returns [], and the failure
+  // arrives as a puzzling empty-array mismatch instead.
+  expect(Object.keys(colours).sort()).toEqual([
     'canvas',
     'current',
     'danger',
@@ -131,6 +150,13 @@ test('the palette is replaced, not extended, so no seventh colour has a class', 
 
   // The real defect being guarded: with colours under extend, Tailwind keeps its
   // own palette and bg-red-500 stays reachable on every screen.
+  //
+  // This Record cast is load-bearing, unlike the absent one above. The literal
+  // type of theme.extend today is { minHeight, minWidth }, so `extend.colors`
+  // is a property TypeScript knows is not there, and reading it is an error
+  // rather than `undefined`. The cast is what lets the test ask about a key that
+  // must stay absent. `| undefined` is kept for the day extend is deleted
+  // outright, which the assertion on the next line is here to catch.
   const extend = theme?.extend as Record<string, unknown> | undefined;
   expect(extend, 'extend must still exist, it carries the 44 px target').toBeDefined();
   expect(extend?.['colors'], 'colours must never sit under theme.extend').toBeUndefined();
