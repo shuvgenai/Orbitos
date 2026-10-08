@@ -1405,3 +1405,95 @@ under v3 is proven by a CI run, not by this entry.
 not reach this step until somebody edits the line. That is the trade accepted
 for a pin, and the three calls above are what tell the next person which tag
 this SHA came from and how to resolve the next one.
+
+## 2026-10-08 - Task 2 is done, in two commits, with five deviations recorded
+
+**Result:** the five governance documents and the two guards exist. `CLAUDE.md`,
+`docs/rules/engine.md`, `docs/security/threat-model-engine.md`,
+`docs/security/threat-model-gateway.md` and `docs/security/keys.md` are written;
+`guards/rules.test.ts` and `guards/standing-rules.test.ts` check them and pass
+15 cases between them. The 2026-10-08 entry above titled "Task 2 is not
+scheduled" listed seven missing artifacts. All seven now exist.
+
+Two commits, pushed together. The guards landed first and deliberately red, so
+the second commit had something to turn green, and so the log shows a guard that
+failed before it passed.
+
+**Reason the guards were committed red rather than beside the documents:** a
+guard committed green has never been seen to fail, and a guard that cannot fail
+is indistinguishable from a guard that checks nothing. `guards/rules.test.ts`
+failed with ENOENT on each missing path before the documents were written. That
+is in the history now rather than in a paragraph claiming it.
+
+**`guards/standing-rules.test.ts` passed on its first run, so each rule was
+broken on purpose.** Its two rules are currently kept, so a green first run
+proves only that the rules hold today. Four probes, each restored immediately:
+
+| Rule broken | Test that failed |
+| --- | --- |
+| a tracked `.env` | no .env file is tracked by git |
+| the gate recorded as met | the four-conditions test and the fails-closed test |
+| `ceo@bigtestcorp.com` in `.env.example` | no tracked configuration names a mailbox that is not an allowed test mailbox |
+| a third climbing env reference | every env-file reference that climbs a directory is one of the recorded ones |
+
+The gate probe failing two tests is the pair working: the fails-closed test's
+absent-attestation branch asserts the log still records the gate as unmet, so
+flipping the log breaks both halves at once.
+
+**Deviation 1: the check count was seven and the plan listed six.** Neither
+number is what vitest prints. There are seven checks and eight cases, because
+the threat-model check is a `test.each` over two files. The count is written into
+the guard's header comment so the next reader does not have to recount.
+
+**Deviation 2: the env-climb check does not grep for `../.env`.** The plan's
+regex looked for `../` and `.env` inside one string literal. This repository
+composes those paths out of separate arguments: `db/prisma.config.ts:6` is
+`resolve(process.cwd(), '..', '.env.local')`, which that regex does not match.
+The regex would have passed by luck and would have missed
+`resolve(ROOT, '..', '..', 'shared', '.env')` as well. The guard now names the
+two references that climb, with the reason each stays inside this repository and
+the snippet it was recorded against, so a third fails until somebody writes the
+same sentence for it. A static guard cannot resolve `process.cwd()`, and the
+guard says so rather than implying it checked.
+
+**Deviation 3: `CLAUDE.md` section 6a states four conditions, not three.** The
+plan's text for that section named the Action Gateway, the audit log and budget
+pausing. The 2026-10-06 entry above supersedes that with four, adding the
+Anthropic no-training and zero-retention terms. Writing the plan's three would
+have put a superseded count into the file every future session reads first.
+
+**Deviation 4: the source of truth is PRD v9.0, not v8.0.** The plan's Step 3
+named `docs/prd/ORBIT_OS_PRD_v8_0.md`. `docs/prd/ORBIT_OS_PRD_v9_0.md` exists
+and this log already cites its sections 12 and 14.3, so `CLAUDE.md` names v9.0
+and records v8.0 and v7.0 as superseded.
+
+**Deviation 5: Step 4 of Task 2 was not done, and is not claimed.** Rescoping
+`dashboards/CLAUDE.md` is outside the approved scope for this task, which was
+five documents and two guards. Four of its items are still open: the v8 routes
+are absent, so `#/waiting`, `#/tasks`, `#/jobs`, `#/quality` and `#/catalog` are
+in no rules file; its rule 9 still forbids logging a secret, which `CLAUDE.md`
+section 6 now also says, and two copies drift; its "Working agreement" section
+still carries a commit instruction that the root file now owns; and its
+reference paths were not checked. Whoever schedules that work should read this
+paragraph rather than the plan's Step 4, which assumes none of the root file
+exists yet.
+
+**`docs/gates/anthropic-terms.md` was not created**, per the founder's
+instruction and the 2026-10-06 entry. The guard's fails-closed test treats its
+absence as the expected state and asserts the log still reads open-pending in
+that branch, so the absent file and the shut gate cannot drift apart.
+
+**Two gaps found while writing the key inventory**, both recorded at the end of
+`docs/security/keys.md` rather than fixed here. `RESEND_FROM` and
+`RESEND_CHECK_TO` are read by `ops/src/send-resend-check.ts:4` and are missing
+from `.env.example`; `ops/` is frozen and `RESEND_CHECK_TO` names a mailbox, so
+it needs a founder answer while the real-data gate is shut. And every key in the
+inventory has the founder as its only rotation owner, which is the single point
+of failure both threat models name as closing their secret-leakage failure part.
+
+**Cost if wrong:** section 8's Decisions row is now enforced by a guard that
+checks shape and not substance, and the Security review row is still open,
+because this entry is not a security review. A reader who sees two new guards
+and assumes both rows are closed gets the same false green the "Task 2 is not
+scheduled" entry above was written to prevent.
+
