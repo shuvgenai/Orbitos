@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": ">=24.11" },
+  "engines": {
+    "node": ">=24.11"
+  },
   "scripts": {
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
@@ -19,19 +21,23 @@
     "resend:check": "pnpm --filter @orbit/ops exec node --env-file=../.env.local --import tsx src/send-resend-check.ts",
     "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts",
     "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "e2e": "playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@babel/core": "8.0.7",
     "@babel/eslint-parser": "8.0.7",
     "@babel/preset-react": "8.0.1",
     "@babel/preset-typescript": "8.0.7",
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.64.0",
     "@types/node": "24.19.0",
     "@types/pg": "8.23.1",
     "eslint": "9.39.5",
     "eslint-plugin-react": "7.37.5",
     "globals": "17.13.0",
+    "http-server": "14.1.1",
     "pg": "8.23.1",
     "typescript": "7.0.2",
     "vitest": "5.0.3",

@@ -28,3 +28,7 @@ dashboards/dist/
 
 # Vitest cache
 .vitest/
+
+# Playwright run artefacts.
+test-results/
+playwright-report/

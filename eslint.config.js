@@ -44,6 +44,9 @@ const NOT_OURS = [
   '**/generated/',
   '**/dist/',
   '**/.vitest/',
+  // Playwright run artefacts.
+  'test-results/',
+  'playwright-report/',
 ];
 
 /**
@@ -138,6 +141,7 @@ export default [
       '*.{js,ts}',
       'scripts/**/*.{js,mjs,ts}',
       'dashboards/*.{js,ts}',
+      'e2e/**/*.ts',
       'web/src/**/*.ts',
       'worker/src/**/*.ts',
       'contract/**/*.ts',
