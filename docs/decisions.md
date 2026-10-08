@@ -456,3 +456,90 @@ days of the 1.5 weeks.
 **Cost if wrong:** forcing all six into one component is the expensive error, not
 this one. Every screen would then choose between inline and whole-screen rendering
 at its own call site, which is where a slip would have appeared around shell 20.
+
+## 2026-10-07 - Lint findings in the frozen packages are recorded, not fixed
+
+**Decision:** `pnpm lint` reports the counts below inside the seven frozen
+packages. None are fixed. A lint fix in frozen code needs the founder's explicit
+approval, case by case, and never as part of another task.
+
+**Counts at the time the linter was added:**
+
+| Frozen package | Errors | Rules |
+|---|---|---|
+| `frontdesk/` | 0 | — |
+| `api/` | 1 | `no-control-regex` 1 |
+| `db/` | 0 | — |
+| `shared/` | 0 | — |
+| `template/` | 0 | — |
+| `ops/` | 0 | — |
+| `design/` | 0 | — |
+
+The one finding is `api/src/auth.ts:25:50`, `no-control-regex`: a regular
+expression that matches the control characters `\x00` to `\x1f`. It is doing that
+on purpose, because it rejects header and token input containing them. It is
+reported here and left alone.
+
+The frozen packages are not linted by `pnpm lint`: they are in the config's
+ignore list, because a gate that cannot go green is a gate somebody switches
+off. The counts above were collected by running ESLint against a throwaway
+config that imports `eslint.config.js` and filters the seven directories back
+out of the ignore list. `--no-ignore` cannot be used for this, because it lifts
+the `node_modules` and `generated` ignores at the same time and reports on
+vendored code.
+
+**Reason:** a lint fix is still a change to frozen code. The freeze exists
+because 44 merged commits and 442 tests depend on that code behaving exactly as
+it does, and a reformat that looks harmless is still a diff nobody asked for.
+
+**Cost if wrong:** the frozen packages carry style findings for the life of the
+project, visible in every lint run and ignored by everyone. At one finding, that
+cost is currently near zero.
+
+## 2026-10-07 - no-undef and no-unused-vars are off for TypeScript, and tsc owns them
+
+**Decision:** in `eslint.config.js`, core `no-undef` and `no-unused-vars` are
+`off` for `**/*.{ts,tsx}` and stay on for `.js`, `.mjs` and `.cjs`. In exchange,
+`noUnusedLocals` and `noUnusedParameters` are turned on in both `tsconfig.json`
+and `dashboards/tsconfig.json`.
+
+**Reason:** `@babel/eslint-parser` strips the types before ESLint sees the file.
+Core `no-undef` then reads every type name and every type-literal member name as
+an undeclared global, and core `no-unused-vars` reads every `import type` as dead
+code. On the first full run that produced 82 errors across `dashboards/` and
+`guards/` and 670 across the frozen packages, every one of them a correct piece
+of TypeScript:
+
+```
+guards/lib/walk.ts
+  28:13  error  'RootedPath' is not defined            no-undef
+dashboards/src/shared/states/ScreenState.tsx
+  13:16  error  'kind' is not defined                  no-undef
+  10:15  error  'ReactNode' is defined but never used  no-unused-vars
+```
+
+No rule option tells a type name from a missing one. `typescript-eslint`'s
+type-aware replacements are what normally do this, and this repo does not use it:
+it needs every linted file to sit in a tsconfig project, and the two projects
+here between them exclude `reference/`, `landing/`, `archive/` and `dashboards/`
+from the root one.
+
+**Nothing is left ungated.** An undefined name is a `tsc` error, TS2304, on the
+`pnpm typecheck` gate. Unused locals, unused parameters and unused imports are
+now `tsc` errors too, TS6133 and TS6196, which is a stricter reading than the
+ESLint rule gave: the compiler knows which names are type-only. `pnpm typecheck`
+stayed at 0 errors after the two flags went on, in every package including the
+seven frozen ones, so no frozen code had to change for this.
+
+**Consequence worth stating:** this is the one place where the `pnpm lint` gate
+is deliberately quieter than ESLint's recommended set. It is recorded here rather
+than left as two `off` lines somebody later reads as carelessness. Two additive
+rules went the other way at the same time: `react/jsx-uses-vars` and
+`react/jsx-uses-react`, which report nothing themselves and tell
+`no-unused-vars` that a name used inside JSX is used. Without them the `.js`
+side of the gate would blame every imported component as dead.
+
+**Cost if wrong:** a shape-level mistake that `tsc` does not look for goes
+unreported in a `.ts` file. `no-undef` and `no-unused-vars` are not that class of
+rule, so the exposure is small; the fix if it bites is to adopt
+`typescript-eslint` and give every linted file a tsconfig project.
