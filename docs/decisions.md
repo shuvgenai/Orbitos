@@ -1708,3 +1708,73 @@ is the right direction to fail, and it does couple the guard to the config being
 importable in a Node test environment. If a future Vite config needs a
 browser-only import at module scope, this guard breaks before the config does,
 and the fix is to read it another way rather than to delete the check.
+
+## 2026-10-08 - H2 closed: section 6a now claims only what is checked
+
+**Result:** `CLAUDE.md` section 6a no longer says the real-data gate is
+"Enforced by `guards/standing-rules.test.ts`, which fails closed". Two
+paragraphs replace that sentence. One lists what the guard actually asserts. The
+other says plainly what nothing checks, and that this section does not claim a
+control it does not have.
+
+**Reason the old sentence was wrong rather than imprecise.** It was written this
+morning and it read as a statement about the running system. What the guard
+checks is the wording of two Markdown files and the contents of committed
+configuration. Live values live in `.env.local` and `template/.env`, neither of
+which is committed, so pointing `MAIL_FROM` and the Gmail credentials at a real
+mailbox leaves every assertion green. A reader who trusted the old sentence
+would have believed real customer mail could not flow while CI was green. It
+can.
+
+**What the section says now.** The guard asserts that the 2026-10-06 entry still
+names all four conditions and still reads open-pending; that
+`docs/gates/anthropic-terms.md` is absent, or else names who confirmed the
+terms, when, and where the signed document lives; that no tracked configuration
+names an address outside a list of reserved test domains; and that no mail
+variable in a tracked env example or workflow holds anything but an empty value
+or one of those placeholders. The gate is a rule the founder keeps, and the
+guard protects the record of that rule from being edited away. That is a smaller
+claim, and it is true.
+
+**The new check, and why it is not the address scan again.** The address scan
+looks for anything shaped like an address. The new check looks at the three
+variables whose value is a mailbox, `MAIL_FROM`, `RESEND_FROM` and
+`RESEND_CHECK_TO`, and refuses any value that is not empty, not an
+interpolation, and not an address on a reserved domain. The case it adds is a
+value that is not an address at all. `MAIL_FROM: smoke` passes the address scan
+by not looking like an address, passes compose's own required-variable check by
+being non-empty, and then reaches a mailer that treats it as a sender.
+
+**Probe.** Four cases, each restored immediately:
+
+```
+MAIL_FROM=smoke in .env.example
+  x no mail variable ... holds a non-placeholder value
+  +   ".env.example:37 MAIL_FROM"
+      Tests  1 failed | 7 passed (8)
+
+RESEND_CHECK_TO=ops@acme.com in .env.example
+  x no mail variable ... holds a non-placeholder value
+  +   ".env.example:37 RESEND_CHECK_TO"
+  x no tracked configuration names a mailbox that is not an allowed test mailbox
+      Tests  2 failed | 6 passed (8)
+
+MAIL_FROM: smoke in .github/workflows/ci.yml
+  x no mail variable ... holds a non-placeholder value
+  +   ".github/workflows/ci.yml:156 MAIL_FROM"
+      Tests  1 failed | 7 passed (8)
+
+MAIL_FROM=smoke@example.com in .env.example
+      Tests  8 passed (8)
+```
+
+The first two cases together are the point. A non-address placeholder is caught
+by the new check and missed by the address scan. A real mailbox is caught by
+both. The fourth case is the form a fake value has to take, and it is the form
+the compose-smoke fix will use.
+
+**Cost if wrong:** the honest version of section 6a is weaker, and a reader who
+wanted reassurance now gets a paragraph headed "What nothing checks". That is the
+intended effect. The risk is that somebody reads it as permission rather than as
+a warning, and the mitigation is the sentence saying the gate is a rule people
+keep, not a mechanism that stops them.

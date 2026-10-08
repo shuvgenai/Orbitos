@@ -111,6 +111,40 @@ const isConfig = (file: string) =>
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
+/**
+ * Variables that name a mailbox. A value here reaches a real inbox the moment
+ * the program starts, so it is held to a stricter rule than any other setting.
+ *
+ * `MAIL_FROM` is read by `api` and `frontdesk`. `RESEND_FROM` and
+ * `RESEND_CHECK_TO` are read by `ops/src/send-resend-check.ts`, which sends.
+ */
+const MAIL_VARIABLES = ['MAIL_FROM', 'RESEND_FROM', 'RESEND_CHECK_TO'];
+
+/** `NAME=value` and `NAME: value`, which covers an env file and a workflow alike. */
+const ASSIGNMENT = /^\s*(?:-\s*)?([A-Z_][A-Z0-9_]*)\s*[:=]\s*(.*?)\s*$/;
+
+/** Workflow files, which set job env the same way an env file does. */
+const isWorkflow = (file: string) => file.startsWith('.github/workflows/') && /\.ya?ml$/.test(file);
+
+/**
+ * Whether a mail variable's value is acceptable in a committed file.
+ *
+ * Empty is acceptable: `.env.example` carries names with no values. An address
+ * on a reserved test domain is acceptable, because none of them can be
+ * delivered to. Anything else fails, INCLUDING a value that is not an address
+ * at all. A placeholder like `smoke` passes the address scan below by not
+ * looking like an address, and then reaches a mailer that treats it as one.
+ */
+function mailValueAllowed(raw: string): boolean {
+  const value = raw.replace(/\s+#.*$/, '').replace(/^["']|["']$/g, '').trim();
+  if (value === '') return true;
+  if (value.startsWith('$')) return true; // an interpolation, resolved outside this file
+  const match = value.match(/^[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+)$/);
+  if (match === null) return false;
+  const domain = (match[1] ?? '').toLowerCase();
+  return ALLOWED_TEST_ADDRESSES.includes(value.toLowerCase()) || ALLOWED_TEST_DOMAINS.includes(domain);
+}
+
 /** Read a tracked file, skipping one deleted without the deletion staged. walk.ts documents that case. */
 function readTracked(file: string): string | undefined {
   try {
@@ -204,6 +238,38 @@ test('the gate fails closed: the attestation is absent, or it says who, when and
   const vague = [/confirmed by/i, /date/i, /signed document/i].filter((part) => !part.test(text)).map(String);
 
   expect(vague, `${ATTESTATION} exists but does not attest anything`).toEqual([]);
+});
+
+test('no mail variable in a tracked env example or workflow holds a non-placeholder value', () => {
+  // Narrower than the address scan below and stricter. That scan looks for
+  // anything shaped like an address; this one looks at the variables whose value
+  // IS a mailbox, and refuses a value that is not a reserved-domain placeholder.
+  // `MAIL_FROM: smoke` is the case neither the address scan nor compose's own
+  // required-variable check would catch: it is not an address, so the scan skips
+  // it, and it is non-empty, so compose accepts it.
+  const offenders: string[] = [];
+  let checked = 0;
+
+  for (const file of trackedFiles().filter((f) => isConfig(f) || isWorkflow(f))) {
+    const text = readTracked(file);
+    if (text === undefined) continue;
+
+    for (const [index, line] of text.split('\n').entries()) {
+      const match = line.match(ASSIGNMENT);
+      if (match === null) continue;
+      const [, name = '', value = ''] = match;
+      if (!MAIL_VARIABLES.includes(name)) continue;
+      checked += 1;
+      if (mailValueAllowed(value)) continue;
+      offenders.push(`${file}:${index + 1} ${name}`);
+    }
+  }
+
+  expect(offenders, 'use an address on a reserved test domain, or leave it empty').toEqual([]);
+
+  // This file sets MAIL_FROM with an empty value, so there is always one to
+  // check. Zero means the scan stopped finding assignments.
+  expect(checked, 'no mail variable was examined, so this check examined nothing').toBeGreaterThanOrEqual(1);
 });
 
 test('no tracked configuration names a mailbox that is not an allowed test mailbox', () => {

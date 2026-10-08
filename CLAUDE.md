@@ -105,8 +105,24 @@ Until then, a dedicated test mailbox and test accounts only.
 recorded in the 2026-10-06 entry of `docs/decisions.md`, and it currently reads
 open-pending.
 
-Enforced by `guards/standing-rules.test.ts`, which fails closed. That guard's
-header says how the gate opens, and it is never loosened to clear a red run.
+**What checks this, exactly.** `guards/standing-rules.test.ts` checks the record
+and the committed configuration, not the running system. It asserts that the
+2026-10-06 entry still names all four conditions and still reads open-pending,
+so the gate cannot be closed by a code change alone; that
+`docs/gates/anthropic-terms.md` is absent, or, if present, names who confirmed
+the terms, when, and where the signed document lives; that no tracked
+configuration names an email address outside an explicit list of reserved test
+domains; and that no mail variable in a tracked `.env.example` or workflow file
+holds anything but an empty value or one of those placeholders.
+
+**What nothing checks.** Live values live in `.env.local` and in
+`template/.env`, which are never committed, so no guard in this repository can
+see them. Pointing `MAIL_FROM` and the Gmail credentials at a real mailbox would
+leave every assertion above green. The gate is a rule the founder and this
+repository's authors keep, and the guard protects the record of that rule from
+being edited away. It is not a control that blocks real data, and this section
+does not claim one. Finding H2 of the 2026-10-08 security review is the reason
+this paragraph exists.
 
 ## 7. Done
 
