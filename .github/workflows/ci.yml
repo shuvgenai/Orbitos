@@ -216,7 +216,41 @@ jobs:
       # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
       # verified on the staging instance instead (PRD section 9, "a staging instance on the next
       # pinned versions"). Revisit if CI moves to a larger runner.
-      - run: docker compose -f template/compose.yml up -d --build --wait --scale paperclip=0
+      #
+      # No --wait on this first up. api reads gmail_connections before it
+      # listens (api/src/main.ts:32) and calls fail() unless it finds exactly one
+      # row, and the init script creates empty databases, so api crash-loops
+      # until the seed below lands. Waiting for health now would time out on a
+      # container that is about to be fine. restart: unless-stopped brings it
+      # back once the row exists.
+      - run: docker compose -f template/compose.yml up -d --build --scale paperclip=0
+      - name: Wait for the two services the migrations need
+        run: docker compose -f template/compose.yml up -d --wait postgres redis
+      # psql inside the container, not prisma migrate deploy, because the
+      # postgres service publishes no host port and nothing on the runner can
+      # reach the database. The DEP-1 check below already shells in the same way.
+      # None of the migrations needs CREATE EXTENSION, so orbit_app, which owns
+      # the database, can apply them.
+      - name: Apply every migration, oldest first
+        run: |
+          for dir in db/prisma/migrations/*/; do
+            name=$(basename "$dir")
+            echo "applying $name"
+            docker compose -f template/compose.yml exec -T \
+              -e PGPASSWORD="$ORBIT_DB_PASSWORD" postgres \
+              psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U orbit_app -d orbit < "$dir/migration.sql"
+          done
+      # tsx lives in the workspace packages rather than the root, so this borrows
+      # the ops copy the way `pnpm resend:check` already does. It installs
+      # nothing and modifies nothing in ops/, which is frozen.
+      - name: Seed the one GmailConnection row api requires
+        run: |
+          pnpm --filter @orbit/ops exec node --import tsx ../scripts/ci-seed-instance.ts \
+            | docker compose -f template/compose.yml exec -T \
+                -e PGPASSWORD="$ORBIT_DB_PASSWORD" postgres \
+                psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U orbit_app -d orbit
+      - name: Now every service can be healthy
+        run: docker compose -f template/compose.yml up -d --wait --scale paperclip=0
       - name: Both databases exist and each login reaches its own (DEP-1)
         run: |
           dbs=$(docker compose -f template/compose.yml exec -T postgres psql -U postgres -tAc "select datname from pg_database where datname in ('orbit','paperclip') order by 1")
@@ -226,5 +260,10 @@ jobs:
           p=$(docker compose -f template/compose.yml exec -T -e PGPASSWORD="$PAPERCLIP_DB_PASSWORD" postgres psql -h 127.0.0.1 -U paperclip_app -d paperclip -tAc "select current_database()")
           test "$p" = paperclip || { echo "paperclip_app login failed: $p"; exit 1; }
       - run: curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:8081/healthz
+      # Say what the containers did. The first two runs of this job reported only
+      # `container X is unhealthy`, which names the service and not the reason,
+      # and both reasons were sitting in a container log that was thrown away.
+      - if: failure()
+        run: docker compose -f template/compose.yml logs --tail 50
       - if: always()
         run: docker compose -f template/compose.yml down -v

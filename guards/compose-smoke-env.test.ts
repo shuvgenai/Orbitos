@@ -13,7 +13,7 @@
 // is the failure this guard exists to prevent.
 import { expect, test } from 'vitest';
 import { hex32Check, secretCheck, urlCheck } from '../shared/src/config.ts';
-import { readRepoFile } from './lib/walk.ts';
+import { readRepoFile, trackedFiles } from './lib/walk.ts';
 
 const COMPOSE = 'template/compose.yml';
 const WORKFLOW = '.github/workflows/ci.yml';
@@ -202,6 +202,48 @@ test('no value the compose-smoke job sets looks like a real credential', () => {
   }
 
   expect(offenders, 'a fake value must not be shaped like a real one').toEqual([]);
+});
+
+/** Every migration directory, oldest first, which is the order they must be applied in. */
+function migrationDirs(): readonly string[] {
+  return trackedFiles()
+    .filter((f) => /^db\/prisma\/migrations\/[^/]+\/migration\.sql$/.test(f))
+    .map((f) => f.split('/')[3] ?? '')
+    .sort();
+}
+
+test('compose-smoke applies every migration and seeds, before it waits for health', () => {
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  // The schema has to exist before api's startup query runs, and api starts with
+  // the stack, so the wait for health comes after the seed.
+  const seedAt = job.indexOf('ci-seed-instance');
+  // The LAST wait, not the first. The job waits twice on purpose: once for
+  // postgres and redis, which the migrations need, and once at the end for every
+  // service. Only the second one gates api, and the first legitimately comes
+  // before the seed. Written as indexOf first, which made this test fail against
+  // a correct workflow.
+  const finalWaitAt = job.lastIndexOf('--wait');
+  expect(seedAt, 'compose-smoke never runs the seed').toBeGreaterThan(-1);
+  expect(finalWaitAt, 'compose-smoke never waits for health').toBeGreaterThan(-1);
+  expect(seedAt, 'the seed must run before the final wait, or api is still crash-looping').toBeLessThan(
+    finalWaitAt,
+  );
+
+  // The glob, not each name. The first version of this test required every
+  // migration directory name to appear in the job, and the job globs the
+  // directory instead, which is the better design: a migration added later is
+  // applied with no workflow edit. Requiring the names would have forced one.
+  expect(job, 'apply the migrations by globbing the directory, so a new one needs no workflow edit').toContain(
+    'db/prisma/migrations/*/',
+  );
+
+  // The glob is only worth anything if there is something to glob. Five
+  // migrations existed when this was written.
+  expect(migrationDirs().length, 'no migration was found, so the loop above applies nothing').toBeGreaterThanOrEqual(
+    5,
+  );
 });
 
 test('the guard is reading both files, not an empty list', () => {

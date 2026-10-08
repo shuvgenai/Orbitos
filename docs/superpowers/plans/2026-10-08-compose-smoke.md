@@ -527,3 +527,187 @@ git add docs/decisions.md
 git commit -m "docs(decisions): compose-smoke, and what a green smoke test does not prove"
 git push
 ```
+
+---
+
+### Task 4: The schema and the one row api refuses to start without
+
+**Added 2026-10-08, after the second CI run.** Tasks 1 and 2 fixed the env and
+the failure moved twice: `frontdesk` unhealthy, then `api` unhealthy.
+`api/src/main.ts:32-35` runs before it listens, reads
+`prisma.gmailConnection.findMany({ take: 2 })`, and calls `fail()` unless it
+finds **exactly one** row. `template/postgres/init/01-databases.sh` creates two
+roles and two empty databases, so compose-smoke has no schema and no row. Env
+was never the whole problem. Founder chose migrate-and-seed over excluding `api`.
+
+**Files:**
+- Create: `scripts/ci-seed-instance.ts`
+- Modify: `guards/compose-smoke-env.test.ts` (one test appended)
+- Modify: `.github/workflows/ci.yml` (the `compose-smoke` steps, resequenced)
+
+**Interfaces:**
+- Consumes: `encryptToken` from `shared/src/token-crypto.ts`; `jobEnv` from this guard file.
+- Produces: `scripts/ci-seed-instance.ts` writes SQL to stdout and nothing else, so the workflow can pipe it into `psql`.
+
+**Why psql and not `prisma migrate deploy`.** The `postgres` service publishes no
+host port, so nothing on the runner can reach the database. The DEP-1 step
+already shells in with `docker compose exec -T postgres psql`, so the migrations
+go the same way. All five migration files were checked for `CREATE EXTENSION`
+and none needs one, so `orbit_app`, which owns the database, can apply them.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `guards/compose-smoke-env.test.ts`:
+
+```ts
+/** Every migration directory, oldest first, which is the order they must be applied in. */
+function migrationDirs(): readonly string[] {
+  return trackedFiles()
+    .filter((f) => /^db\/prisma\/migrations\/[^/]+\/migration\.sql$/.test(f))
+    .map((f) => f.split('/')[3] ?? '')
+    .sort();
+}
+
+test('compose-smoke applies every migration and seeds, before it waits for health', () => {
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  // The schema has to exist before api's startup query runs, and api starts
+  // with the stack, so the wait for health comes after the seed.
+  const seedAt = job.indexOf('ci-seed-instance');
+  const waitAt = job.indexOf('--wait');
+  expect(seedAt, 'compose-smoke never runs the seed').toBeGreaterThan(-1);
+  expect(waitAt, 'compose-smoke never waits for health').toBeGreaterThan(-1);
+  expect(seedAt, 'the seed must run before the wait, or api is still crash-looping').toBeLessThan(waitAt);
+
+  // Named, not counted. A migration added later and not applied here is the
+  // failure this pins, and it would otherwise show up as api unhealthy with no
+  // clue why.
+  const unapplied = migrationDirs().filter((dir) => !job.includes(dir));
+  expect(unapplied, 'apply these migrations in the compose-smoke job').toEqual([]);
+});
+```
+
+- [ ] **Step 2: Run it to make sure it fails**
+
+Run: `pnpm vitest run --project unit guards/compose-smoke-env.test.ts`
+Expected: FAIL with `compose-smoke never runs the seed`.
+
+- [ ] **Step 3: Write the seed script**
+
+Create `scripts/ci-seed-instance.ts`:
+
+```ts
+// The one row api refuses to start without, as SQL on stdout.
+//
+// api/src/main.ts reads gmailConnection.findMany({ take: 2 }) before it
+// listens and calls fail() unless it finds exactly one row. The compose stack
+// creates empty databases, so CI has to put the row there.
+//
+// SQL on stdout rather than a database connection, because the postgres service
+// publishes no host port. The workflow pipes this into psql inside the
+// container, which is how the DEP-1 check already reaches the database.
+//
+// The cipher is generated here rather than hardcoded: encryptToken uses a random
+// IV, so there is no fixed string to paste, and a hand-written one would decrypt
+// to nothing the first time anybody exercised that path.
+import { encryptToken } from '../shared/src/token-crypto.ts';
+
+const key = process.env['TOKEN_ENCRYPTION_KEY'];
+if (key === undefined || key === '') throw new Error('TOKEN_ENCRYPTION_KEY is required');
+
+// Not a real refresh token and not shaped like one. It is never sent anywhere:
+// PUBLIC_BASE_URL is an unresolvable .invalid host and MAIL_FROM is a reserved
+// domain, so nothing in this stack can reach Google or a mailbox.
+const cipher = encryptToken('ci-smoke-not-a-real-refresh-token', key);
+
+// One workspace, one connection. email_address is on a reserved domain, which
+// guards/standing-rules.test.ts also requires of anything in tracked YAML.
+process.stdout.write(`BEGIN;
+INSERT INTO workspaces (name) VALUES ('CI smoke') RETURNING id \\gset ws_
+INSERT INTO gmail_connections (workspace_id, email_address, refresh_token_cipher, history_id)
+VALUES (:'ws_id', 'smoke@example.com', '${cipher}', '1');
+COMMIT;
+`);
+```
+
+- [ ] **Step 4: Resequence the workflow steps**
+
+Replace the single `up` step. The order matters and the reason is `api`: it
+starts with the stack, fails its startup query, and `restart: unless-stopped`
+keeps restarting it, so once the row exists it comes up on its own.
+
+```yaml
+      # No --wait here. api fails its startup query until the row below exists,
+      # so waiting for health now would time out on a container that is about to
+      # be fine. restart: unless-stopped brings it back once the seed lands.
+      - run: docker compose -f template/compose.yml up -d --build --scale paperclip=0
+      - name: Wait for postgres, which the migrations need
+        run: docker compose -f template/compose.yml up -d --wait postgres redis
+      - name: Apply every migration, oldest first
+        run: |
+          for dir in db/prisma/migrations/*/; do
+            name=$(basename "$dir")
+            echo "applying $name"
+            docker compose -f template/compose.yml exec -T postgres \
+              psql -v ON_ERROR_STOP=1 -U orbit_app -d orbit < "$dir/migration.sql"
+          done
+      - name: Seed the one GmailConnection row api requires
+        run: |
+          node --import tsx scripts/ci-seed-instance.ts \
+            | docker compose -f template/compose.yml exec -T postgres \
+                psql -v ON_ERROR_STOP=1 -U orbit_app -d orbit
+      - name: Now every service can be healthy
+        run: docker compose -f template/compose.yml up -d --wait --scale paperclip=0
+      # Whatever happens next, say what the containers did. The first two runs of
+      # this job reported only "container X is unhealthy", which named the
+      # service and not the reason, and both reasons were in a container log.
+      - if: failure()
+        run: docker compose -f template/compose.yml logs --tail 50
+```
+
+- [ ] **Step 5: Run the guard to verify it passes**
+
+Run: `pnpm vitest run --project unit guards/compose-smoke-env.test.ts`
+Expected: PASS, 6 tests.
+
+- [ ] **Step 6: Probe**
+
+```bash
+cp .github/workflows/ci.yml /tmp/ci.bak
+sed -i 's/ci-seed-instance/ci-seed-absent/' .github/workflows/ci.yml
+pnpm vitest run --project unit guards/compose-smoke-env.test.ts
+cp /tmp/ci.bak .github/workflows/ci.yml
+sed -i 's/20261001000200_lead_issue_attempts/x/' .github/workflows/ci.yml
+pnpm vitest run --project unit guards/compose-smoke-env.test.ts
+cp /tmp/ci.bak .github/workflows/ci.yml
+```
+
+Expected: the first fails with `compose-smoke never runs the seed`. The second
+is a no-op, because the migration loop globs the directory rather than naming
+each one, so instead delete the whole `Apply every migration` step and expect the
+unapplied list to name all five.
+
+- [ ] **Step 7: Run every suite**
+
+```bash
+pnpm vitest run --project unit guards/
+pnpm typecheck
+pnpm lint
+git status --porcelain template/
+```
+Expected: all pass, and `template/` shows no change.
+
+- [ ] **Step 8: Commit, push, and read the run**
+
+```bash
+git add scripts/ci-seed-instance.ts guards/compose-smoke-env.test.ts .github/workflows/ci.yml
+git commit -F - <<'EOF'
+fix(ci): compose-smoke migrates the schema and seeds the row api needs
+EOF
+git push
+gh run watch --exit-status
+```
+
+Expected: `compose-smoke` passes, or the new `if: failure()` step prints the
+container log that says why. Record whichever happens in Task 3's entry.
