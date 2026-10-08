@@ -34,6 +34,20 @@ type RoleRoutesProps = {
  */
 const shellState = (row: ScreenRow) => ({ kind: 'empty', appears: row.appears, fills: row.fills }) as const;
 
+/**
+ * Screens that render without the shell.
+ *
+ * Sign in is the only one. Section 15.5 puts it before anyone is signed in, so
+ * there is no office to show a nav for, nothing to mark as the current page and
+ * nobody whose paused office could need a banner. A nav rendered here would
+ * also be a set of links that cannot be followed yet.
+ *
+ * A set, not a field on the row, because this is a fact about one screen rather
+ * than a column the PRD states. If a second screen ever belongs here it is
+ * added here, on purpose.
+ */
+const OUTSIDE_THE_SHELL: ReadonlySet<string> = new Set(['/signin']);
+
 /** An address that matches no screen. Says which, and offers one way out. */
 function NotFound({ back }: { back: ScreenRow | undefined }) {
   return (
@@ -64,14 +78,31 @@ export function RoleScreens({ appName, nav, flags, paused }: RoleRoutesProps) {
   // fleet console never points an operator at a customer screen.
   const [back] = sidebarOf(nav, flags);
 
+  // Checked against the address rather than routed, because every screen that
+  // belongs here has a fixed path with no parameter in it. The shell renders
+  // the rest, and no screen is in both halves.
+  const bare = nav.find((row) => row.route === pathname && OUTSIDE_THE_SHELL.has(row.route));
+  if (bare !== undefined) {
+    // Its own main landmark, so the page a person meets first is still one a
+    // screen reader can navigate. No nav, no menu, no banner.
+    return (
+      <main className="min-h-screen bg-canvas px-4 py-6 text-ink" id="main">
+        <Screen row={bare} state={shellState(bare)} />
+      </main>
+    );
+  }
+
   return (
     <AppShell activeRoute={pathname} appName={appName} flags={flags} nav={nav} paused={paused}>
       <Routes>
-        {/* Every row, linked or not. A screen reached by id has no nav entry
-            and still needs a route, or the link from its list leads nowhere. */}
-        {nav.map((row) => (
-          <Route element={<Screen row={row} state={shellState(row)} />} key={row.route} path={row.route} />
-        ))}
+        {/* Every row the shell owns, linked or not. A screen reached by id has
+            no nav entry and still needs a route, or the link from its list
+            leads nowhere. */}
+        {nav
+          .filter((row) => !OUTSIDE_THE_SHELL.has(row.route))
+          .map((row) => (
+            <Route element={<Screen row={row} state={shellState(row)} />} key={row.route} path={row.route} />
+          ))}
         <Route element={<NotFound back={back} />} path="*" />
       </Routes>
     </AppShell>

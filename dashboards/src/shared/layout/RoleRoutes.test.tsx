@@ -53,6 +53,46 @@ test('every fleet screen has a route that renders it, all 17', () => {
   }
 });
 
+// Section 15.5 puts sign-in before anyone is signed in, so there is no office
+// to show a nav for and no link on it that could be followed.
+test('sign in renders outside the shell: no nav, no menu, no banner', () => {
+  const { container } = at('/signin', USER_NAV);
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sign in');
+  expect(screen.queryByRole('navigation')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Menu' })).toBeNull();
+  expect(screen.queryAllByRole('link')).toEqual([]);
+  expect(container.querySelector('.screen-state-paused')).toBeNull();
+  // The app name belongs to the shell, so it is not here either.
+  expect(screen.queryByText('Orbitcrew')).toBeNull();
+});
+
+test('sign in is still a screen, with its title and its empty state', () => {
+  at('/signin', USER_NAV);
+  expect(screen.getByText('A way into your office')).toBeVisible();
+  expect(screen.getByText('Enter your work email and we send you a link.')).toBeVisible();
+});
+
+test('sign in keeps a main landmark, so the first page a person meets has one', () => {
+  const { container } = at('/signin', USER_NAV);
+  const main = container.querySelector('main');
+  expect(main?.id).toBe('main');
+  expect(container.querySelectorAll('main')).toHaveLength(1);
+});
+
+test('the Org Admin app treats sign in the same way, since it reaches every User screen', () => {
+  at('/signin', ORG_ADMIN_NAV);
+  expect(screen.queryByRole('navigation')).toBeNull();
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sign in');
+});
+
+test('every other screen still has the shell, so only sign in is outside it', () => {
+  const view = at('/receipts', USER_NAV);
+  expect(screen.getByRole('navigation')).toBeVisible();
+  view.unmount();
+  at('/tasks/7', USER_NAV);
+  expect(screen.getByRole('navigation')).toBeVisible();
+});
+
 test('a static route wins over the dynamic one beside it', () => {
   // /teammates/request is a User screen, /teammates/:id an Org Admin one. Both
   // live in the Org Admin list, so the ranking has to settle it.
