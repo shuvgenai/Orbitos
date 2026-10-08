@@ -1076,3 +1076,40 @@ and both logins exist, that the schema applies, that exactly one
 `api` and `frontdesk` start and answer their healthchecks. It proves nothing
 about the engine, which is excluded with `--scale paperclip=0`, and nothing
 about behaviour beyond boot.
+
+---
+
+## Next session
+
+A pointer, not a plan. Written 2026-10-08 at the end of the session that fixed
+cause 8.
+
+**Where things stand.** Branch `stream-0/seam-and-contract`, last commit
+`a407e8e`. On run `37854063625`, as the API reports it: `test` success, `e2e`
+success, `secrets` success, `compose-smoke` **failure**. Causes 1 to 8 are
+fixed. Cause 9 is open and was deliberately not fixed.
+
+**Cause 9, in two sentences.** `frontdesk` crash-loops because
+`scripts/ci-seed-instance.ts` seeds `workspaces` and `gmail_connections` but no
+`users` row. `frontdesk/src/main.ts:69-70` requires an owner user and calls
+`fail()` when it finds none.
+
+**Two questions waiting on the founder.** Do not write the seed before these are
+answered.
+
+1. Which columns `users` requires and whether any of them is a credential.
+2. Whether the owner address must equal the `gmail_connections` address, given
+   `assertOwnerAddress` at `frontdesk/src/main.ts:64`.
+
+**The first command to run.**
+
+```bash
+gh run view 37854063625 --json jobs
+```
+
+**One thing not to rely on.** `gh run watch --exit-status` exited 0 on run
+`37853259700`, which the API reports as failed. Read the conclusion from the
+API. Recorded in the 2026-10-08 entry
+"`gh run watch --exit-status` cannot be used as a CI gate" in
+`docs/decisions.md`. Two blocks in this plan, at Task 3 Step 1 and Task 4 Step 8,
+still instruct a reader to use it. They are left as they are.

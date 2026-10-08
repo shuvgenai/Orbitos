@@ -2432,3 +2432,57 @@ first unhealthy service and nothing else. A pre-flight check that asserted every
 startup requirement of every service before the health wait would have found
 causes 5, 8 and 9 in one run. That is the change worth making after this job is
 green, and it is not made here.
+
+## 2026-10-08 - `gh run watch --exit-status` cannot be used as a CI gate
+
+**Result:** `gh run watch 37853259700 --exit-status --interval 20` exited **0**.
+The API reports that run as `"conclusion":"failure"`, with `compose-smoke`
+failed and `test`, `e2e` and `secrets` passed. The watch command and the API
+disagreed about the same finished run, and the watch was the one that was
+wrong. Read the conclusion from the API:
+
+```
+gh run view <run-id> --json status,conclusion
+gh run view <run-id> --json jobs
+```
+
+**Why this matters more than a wrong number.** An exit code is what a script
+believes. Anything that chains work after `gh run watch --exit-status` on the
+assumption that a zero means green will proceed on a red run and report success,
+which is the same defect as cause 8 above: a check that passes while the thing
+it is supposed to verify has not happened. That is now three instances of this
+one shape in two days, found in a guard, in a workflow step, and in a tool this
+repository's own plans tell a reader to trust.
+
+**What was not established.** Why it exited 0. The run was already `completed`
+and `failure` when the watch was started, and `gh` version 2.102.0 was in use,
+but no cause was investigated and none is claimed here. The observation stands
+on its own: the exit code did not match the conclusion once, so it cannot be
+relied on for a gate. A single counterexample is enough for that conclusion and
+not enough for a bug report.
+
+**Everything in this repository that relies on it, found and left alone.** The
+search covered the whole tree except `node_modules` and `.git`, for
+`gh run watch`, `run watch` and `--exit-status`, and then separately for any `gh`
+invocation under `.github/`, `scripts/`, `ops/` and `package.json`.
+
+| Where | What it says | State |
+| --- | --- | --- |
+| `docs/superpowers/plans/2026-10-08-compose-smoke.md:490` | Task 3 Step 1, `git push` then `gh run watch --exit-status` | left as written |
+| `docs/superpowers/plans/2026-10-08-compose-smoke.md:709` | Task 4 Step 8, a commit, `git push`, then `gh run watch --exit-status` | left as written |
+
+Two occurrences, both in one plan document, both instructions to a future
+session rather than running code. **No script, no workflow, no `package.json`
+entry and no agent instruction file uses it.** `.github/workflows/ci.yml` does
+not call `gh` at all, and there is no repository-local `.claude` directory.
+
+Neither block was changed, per the founder's instruction of 2026-10-08. Both
+also chain `git push` into the watch in a single block, which is separately
+against the command discipline those same plans are run under. Recorded, not
+corrected.
+
+**Cost if wrong:** low to record and high to leave unrecorded. If the exit code
+is in fact reliable and this was a one-off, the cost is two lines of caution in
+a plan nobody is forced to follow. If it is not reliable and this had gone
+unwritten, the next session reads `gh run watch --exit-status` in the very plan
+it is executing, sees a zero, and reports a red branch as green.
