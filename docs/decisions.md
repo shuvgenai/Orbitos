@@ -2018,3 +2018,59 @@ file and removed again, as every guard added today was.
 enforcing most of it, and they will be read as enforcing all of it until this
 task runs. That is the position M7 and M8 are already in. The only thing this
 entry changes is that it is now written down with a place in the order.
+
+## 2026-10-08 - M14, M12 and M15 accepted: the repository is private and stays private
+
+**Result:** three medium findings from the 2026-10-08 security review are
+accepted as they stand. Nothing is redacted, nothing is narrowed. The reason is
+one fact the review could not read from a diff and named as its second largest
+caveat: `github.com/shuvgenai/Orbitos` is private and is intended to stay
+private. The founder confirmed that on 2026-10-08.
+
+**Reason this is recorded rather than left implied.** The review wrote that M12,
+M14 and M15 each move by about a severity level depending on visibility, and
+that the diff could not tell it which. A later reader finding three accepted
+medium findings and no reasoning would reasonably assume nobody looked. The
+reasoning is the visibility, so the visibility belongs in the log.
+
+**M14, the key inventory as an operational map.** `docs/security/keys.md` names
+every key, what each one actually is, which program holds it, who rotates it,
+and the facts around them: that `PUBLIC_BASE_URL` is a Cloudflare tunnel
+hostname, that Redis runs with no password inside the compose network, that
+`TRUST_CF_CONNECTING_IP` is an IP-trust assumption, that rotating
+`TOKEN_ENCRYPTION_KEY` needs a re-encryption step which does not exist, and two
+named credential deviations. On a private repository that is what a key
+inventory is for, and the aggregation the review flagged is the point of the
+document rather than a flaw in it. It holds no values, and
+`guards/rules.test.ts` fails if one appears.
+
+**M12, the Playwright artifact upload.** `playwright-report/` and
+`test-results/` upload as whole directories with a seven-day retention, and
+traces embed request and response bodies, cookies and local storage. Today that
+captures nothing: the dashboards are data-free shells, there is no
+`HttpApiClient` and no sign-in. Accepted on that basis, with a condition rather
+than a date. **The condition: this is revisited in the same change that adds
+`HttpApiClient` or a real sign-in flow,** because from that commit onward a
+failed end-to-end run publishes session material. Whoever writes that change
+reads this paragraph.
+
+**M15, the orphaned commit.** `92a8694` stays reachable by SHA until GitHub's
+own garbage collection runs, and this log quotes the SHA. Accepted, because the
+string it holds was a randomised probe value with no account behind it, which
+the 2026-10-08 rewrite entry already establishes, and because a private
+repository's objects are not reachable without access to the repository. No
+request to GitHub Support, and the SHA table stays, because a reader of the old
+commits needs it.
+
+**What a change of visibility would mean.** If this repository ever becomes
+public, all three reopen at a higher severity, in this order: narrow the artifact
+upload to named files, redact the topology from `keys.md` while keeping the key
+names and rotation owners, and decide about `92a8694` with GitHub Support. The
+log also names an account and a port on the founder's own machine, which is a
+fourth item for that day. Flipping visibility is therefore not a settings change
+on its own. It is a settings change plus this paragraph.
+
+**Cost if wrong:** this entry accepts three findings on one fact, so if that fact
+changes and nobody rereads this entry, the acceptance becomes wrong in three
+places at once. That is the risk of reasoning from a single premise. The
+mitigation is that the premise is in the heading rather than buried.
