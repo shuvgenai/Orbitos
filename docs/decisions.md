@@ -1272,3 +1272,65 @@ read as a pointer.
 **Cost if wrong:** a four-opener shape rule is a rule somebody satisfies with a
 bold word and an empty sentence. The guard cannot catch that and does not claim
 to; a reader still has to read.
+
+## 2026-10-08 - The leaking commit was rewritten, not allowlisted
+
+**Result:** `92a8694` no longer exists on this branch. Its replacement,
+`f848368`, carries the same two files with the key-shaped literal on
+`docs/decisions.md:1002` already redacted, and the three commits that followed
+were rebuilt on top: `fbf0ac9` became `126c502`, `f8f18c4` became `f018651`,
+`ea8b308` became `257cf5f`. The content did not change. `git diff` between the
+old tip and the new one is empty, so the rewrite moved the redaction earlier in
+history and nothing else.
+
+**Cause:** the probe that proved the `secrets` job works wrote its own output
+verbatim into this log, and that output quoted the randomised AWS-shaped string
+the probe had just fed to gitleaks. The entry above records the habit this
+breaks. No credential was involved at any point: the string was generated to be
+scanned, no account stands behind it, and nothing was rotated.
+
+**Reason a rewrite rather than an allowlist:** `fetch-depth: 0` means gitleaks
+reads history, so the original blob fails the gate on every future run until the
+commit holding it is gone. The alternative was a `.gitleaks.toml` allowlist,
+which is a line that says "ignore this one finding" and reads to the next person
+as permission to add a second. No `.gitleaks.toml` exists in this repository and
+the founder's decision is that none is added for this.
+
+**The mechanism is an amend, not a fixup.** The plan said fixup plus autosquash.
+That was not available: the redaction had already landed in `ea8b308`, so a
+fixup commit against `92a8694` would have been empty. What ran instead was a
+detached amend of `92a8694` and `git rebase --onto` for the three commits above
+it. The result is the one the plan asked for, and the deviation is recorded here
+rather than described as the plan.
+
+**What the rewrite does not undo:** `92a8694` reached
+`origin/stream-0/seam-and-contract` before the gate caught it. A force-push
+moves a branch; it does not delete an object. GitHub keeps an unreferenced
+commit reachable by its SHA until its own garbage collection runs, and the SHA
+is quoted in this log twice. Anyone holding it can still read the old blob
+through the web UI. That is accepted here because the string is not a
+credential. It would not be accepted for a real key: that case starts with
+rotation, then GitHub Support, and the history rewrite is the smaller half of
+the work.
+
+**Verification before the force-push.** The `zricethezav/gitleaks` image scanned
+the full rewritten history, and the pre-rewrite tip as a control. Both read 162
+commits:
+
+```
+--log-opts=stream-0/seam-and-contract     no leaks found
+--log-opts=backup/pre-redaction-rewrite   leaks found: 1
+```
+
+The control matters more than the pass: a clean scan of a repository nothing is
+scanning looks identical to a clean scan of a repository that was cleaned, and
+the control is what tells them apart. `git branch -a --contains` on the old SHA
+named two refs, the local branch and its remote. `git worktree list` holds one
+entry, so no second worktree carries it, and no stream-b worktree exists on this
+machine. The `backup/pre-redaction-rewrite` branch held the old tip across the
+rewrite, was never pushed, and is deleted once the remote is confirmed.
+
+**Cost if wrong:** a force-push to a branch someone else has checked out gives
+them a divergence they resolve by guessing, and the usual guess is a merge that
+restores the old commit along with its blob. This branch has one worktree and
+one author, which is the only reason this was the cheap option.
