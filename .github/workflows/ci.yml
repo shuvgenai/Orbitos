@@ -136,7 +136,13 @@ jobs:
       RESEND_API_KEY: smoke
       GMAIL_CLIENT_ID: smoke
       GMAIL_CLIENT_SECRET: smoke
-      TOKEN_ENCRYPTION_KEY: smoke
+      # Sixty-four zeros, which is what hex32Check asks for and nothing more.
+      # `smoke` satisfied Compose and failed that check at startup, so this job
+      # would have gone red one layer later with a different message. Zero
+      # entropy on purpose: anything encrypted with it is readable by anyone, so
+      # it cannot be mistaken for a production key, and the secret scan has no
+      # entropy to match.
+      TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       ANTHROPIC_API_KEY: smoke
       # The engine service is scaled to zero below, but Compose still interpolates its variables
       # while parsing the file, so they have to be set.
@@ -146,8 +152,42 @@ jobs:
       PAPERCLIP_AUTH_SECRET: smoke
       PAPERCLIP_SIGNING_SECRET: smoke
       ENGINE_ANTHROPIC_API_KEY: smoke
+      # Compose marks these required and this job did not set them, so it failed
+      # during interpolation before any container started. Compose names only
+      # what it reached, which is why the log recorded two of the four.
+      #
+      # At least 32 characters, per secretCheck, and it says what it is.
+      APPROVAL_LINK_SECRET: ci-smoke-not-a-real-secret-000000
+      # .invalid is reserved by RFC 2606 and cannot resolve, so a confirm link
+      # built on this base cannot be followed from anywhere.
+      PUBLIC_BASE_URL: https://ci-smoke.invalid
+      # example.com is reserved and cannot receive mail.
+      # guards/standing-rules.test.ts requires a reserved-domain address here.
+      MAIL_FROM: smoke@example.com
+      # The source of the read-only /setup mount, created by the first step
+      # below. Under the runner workspace, because template/ is frozen and
+      # nothing may be written there.
+      SETUP_HOST_DIR: ${{ github.workspace }}/ci-smoke-setup
+      # frontdesk reads these four from template/.env.frontdesk, which Compose
+      # declares `required: false`, so CI does not have them.
+      # loadFrontdeskConfig would throw and `restart: unless-stopped` would
+      # crash-loop the container, which the four missing variables above were
+      # hiding. readEnv checks presence only for these four, so they need to be
+      # non-empty and nothing more.
+      PAPERCLIP_API_KEY: ci-smoke-not-a-real-key-000000
+      PAPERCLIP_COMPANY_ID: ci-smoke-company
+      PAPERCLIP_SCOUT_AGENT_ID: ci-smoke-scout-agent
+      PAPERCLIP_ORBI_AGENT_ID: ci-smoke-orbi-agent
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      # Compose mounts SETUP_HOST_DIR at /setup read-only, so the directory has
+      # to exist before the stack comes up. frontdesk reads tone-samples.md and
+      # facts.md from there; empty files are enough to start.
+      - name: The /setup mount, which compose mounts read-only
+        run: |
+          mkdir -p "$SETUP_HOST_DIR"
+          : > "$SETUP_HOST_DIR/tone-samples.md"
+          : > "$SETUP_HOST_DIR/facts.md"
       # --scale paperclip=0 keeps the engine out of this job on purpose. The built engine image is
       # 8.82 GB, which does not fit a hosted runner's disk alongside the rest of the stack. Its
       # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
