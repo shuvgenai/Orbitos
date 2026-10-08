@@ -1656,3 +1656,55 @@ record that holds three high findings and no fixes. A reader who sees that the
 row has a record and stops there gets the opposite of what the row is for. The
 row is satisfied by a review existing, not by its result, and that distinction is
 why this paragraph is here.
+
+## 2026-10-08 - H1 closed: the dev server cannot reach the repository root, and a guard says so
+
+**Result:** `guards/vite-fs-allow.test.ts` exists, and the two plan lines that
+told an implementer to open the dev server to the parent directory now carry a
+supersession note pointing at what shipped. The notes are at
+`docs/superpowers/plans/2026-10-07-appshell-and-nav.md:157` and `:267`, directly
+under each instruction, so a session working through that task reads the
+correction in the same breath as the thing it corrects.
+
+**Reason the guard resolves the list rather than grepping it.** A text scan for
+the parent form passes on `allow: [join(ROOT, '..')]` and on an identifier
+defined three lines higher, which is the shape this config already uses: it
+names `DASHBOARDS` and `FROZEN_DESIGN`, both computed from `import.meta.url`.
+The guard imports each tracked `vite.config.*`, reads `server.fs.allow`,
+resolves every relative entry against the directory holding the config, and
+requires each resolved path to be strictly inside the repository. Strictly,
+because the repository root itself is the finding: `relative()` returns an empty
+string for it, and a `startsWith` check on the parent marker alone reads that as
+inside.
+
+**What the guard does not require.** It does not require `fs.allow` to be set. A
+config that leaves it unset gets Vite's own behaviour, which confines the server
+to its root. Setting the list is what switches that off, so the rule is about
+what a set list may contain, not about whether one exists.
+
+**Probe.** The guard passed the moment it was written, which proves nothing on
+its own, so the config was set to the exact value the plan prescribed and the
+guard was run again:
+
+```
+dashboards/vite.config.ts patched to the parent form
+
+  x no vite config lets its dev server reach the repository root or anything outside it
+  +   "dashboards/vite.config.ts: <the repository root>"
+      Tests  1 failed | 1 passed (2)
+
+restored
+      Tests  2 passed (2)
+```
+
+The failure names the resolved destination rather than the source text. From
+`dashboards/`, the parent resolves to the repository root, and the message says
+so in words rather than printing a path a reader would have to resolve for
+themselves.
+
+**Cost if wrong:** this guard reads a config by importing it, so a config that
+throws on import fails here with a stack trace rather than a clear message. That
+is the right direction to fail, and it does couple the guard to the config being
+importable in a Node test environment. If a future Vite config needs a
+browser-only import at module scope, this guard breaks before the config does,
+and the fix is to read it another way rather than to delete the check.

@@ -154,6 +154,14 @@ One stylesheet per entry, imported once, restating nothing.
 
 `design/tokens.css` sits outside the Vite root, which is `dashboards/`. The production build resolves the relative path without help. The dev server will not serve a file outside its root unless told, so `vite.config.ts` gains `server: { fs: { allow: ['..'] } }` with a comment saying why.
 
+**Superseded, 2026-10-08.** Do not set `allow: ['..']`. Naming the parent
+reaches the repository root, which holds `.env.local` and `db/`, so the dev
+server would serve a credential file to anything that can reach the port.
+What shipped is `dashboards/vite.config.ts:34`, which names the two
+directories explicitly, and `guards/vite-fs-allow.test.ts` now fails on the
+parent form. This was finding H1 of the security review recorded in
+`docs/decisions.md` for 2026-10-08.
+
 `theme.css`'s header comment currently says the entry HTML loads `design/tokens.css`. After this task `app.css` does, so the comment is corrected in the same commit. Comment only; no rule changes.
 
 ---
@@ -255,6 +263,14 @@ Expected: FAIL, `ENOENT` on `dashboards/src/shared/styles/app.css`.
 
 In each `main.tsx`, directly under the React imports: `import '../../shared/styles/app.css';`
 In `vite.config.ts`, with a comment: `server: { fs: { allow: ['..'] } }`, because `design/` is outside the Vite root and the dev server refuses to serve it otherwise.
+
+**Superseded, 2026-10-08.** Do not set `allow: ['..']`. Naming the parent
+reaches the repository root, which holds `.env.local` and `db/`, so the dev
+server would serve a credential file to anything that can reach the port.
+What shipped is `dashboards/vite.config.ts:34`, which names the two
+directories explicitly, and `guards/vite-fs-allow.test.ts` now fails on the
+parent form. This was finding H1 of the security review recorded in
+`docs/decisions.md` for 2026-10-08.
 
 - [ ] **Step 5: Correct the `theme.css` header comment**
 
