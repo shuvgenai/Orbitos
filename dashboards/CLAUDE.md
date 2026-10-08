@@ -105,10 +105,12 @@ dashboards/
   user/index.html  org-admin/index.html  fleet/index.html   # three Vite entries
   src/
     assets.d.ts                 # asset-import declarations
+    dev/                        # dev-only, never shipped: MockApiClient and the demo office
+      seeds/                    # the demo office seed only
     shared/
-      api/                      # ApiClient interface, MockApiClient, queryKeys, hooks
+      api/                      # ApiClient interface, queryKeys, hooks. No implementation
       schemas/                  # Zod schemas and inferred types
-      seeds/                    # jobs, connectors, org templates, demo office, fleet registry
+      seeds/                    # jobs, connectors, org templates, fleet registry
       ui/                       # Button, Pill, Chip, Field, Select, Textarea, Table,
                                 # Drawer, Modal, Toast, Tabs, Stepper, ProgressBar,
                                 # OrgTree, EmptyState, Banner
@@ -128,6 +130,14 @@ words, so writing the test first is safe.
 
 Keep dashboard source under `src`. A source file outside it trips
 `guards/contract-boundary.test.ts`.
+
+`src/dev` is the only place the mock and the demo office may be reached from,
+besides a test file. `guards/mock-boundary.test.ts` enforces it and names the
+offending path. This split corrects an earlier version of the tree above, which
+put `MockApiClient` under `shared/api/` and the demo office under
+`shared/seeds/`: both are shipped packages, and a mock holding a demo office
+cannot sit in one. The four other seeds are PRD Appendix A product data, are
+meant to ship, and stay under `shared/seeds/`.
 
 ## Commands
 | Command | State |

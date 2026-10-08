@@ -580,3 +580,525 @@ one rule for that reason.
 **Cost if wrong:** an injection site reaches frozen code through a path this
 rule does not match, most likely string-built HTML. The fix then is a rule that
 reads the string path, not a wider version of this one.
+
+## 2026-10-08 - Route reconciliation: the 66 axe routes are the 52 PRD screens, with the 14 User screens tested twice
+
+**Decision:** No route is added, removed or renamed. The axe project's 66 test
+cases reconcile exactly against PRD v9.0 sections 15.5 to 15.7. There are no
+extra routes, so Appendix C item 9 has nothing to report as a difference.
+
+**Reason:** 66 is a count of test cases, not of screens. `e2e/routes.spec.ts`
+iterates three role lists from `dashboards/src/shared/nav/roles.ts`: `USER_NAV`
+(14), `ORG_ADMIN_NAV` (35) and `FLEET_NAV` (17). `ORG_ADMIN_NAV` is
+`[...USER_SCREENS, ...ORG_ADMIN_SCREENS]`, because section 15.6 opens with "The
+Org Admin reaches every User screen plus these". So the 14 User screens are
+tested a second time, mounted under the `org-admin` entry, and 14 + 35 + 17 = 66
+covers 14 + 21 + 17 = 52 distinct screens. Every name and route in
+`screens.ts` is the PRD's own, and `guards/screen-inventory.test.ts` parses the
+three PRD tables and fails on drift; it passes today, six tests.
+
+**The one route the apps serve that axe does not cover:** the catch-all
+`<Route path="*">` in `dashboards/src/shared/layout/RoleRoutes.tsx`, which
+renders the not-found shell. It is not a PRD screen and carries no screen name,
+so it is not in any role list and not in the 66. `routes.spec.ts` asserts the
+`<h1>` equals the expected screen name precisely so a broken route falls through
+to that shell and fails loudly instead of passing.
+
+**Why the duplicate coverage stays:** the two mounts are not the same page. The
+`user` and `org-admin` entries are separate Vite HTML entries with their own nav
+list, so a User screen rendered inside the Org Admin shell has a different
+sidebar, a different `<title>` and a different set of landmarks. An axe finding
+can live in that difference. Collapsing the 66 to 52 would stop testing 14
+screens in one of the two shells they ship in.
+
+**Cost if wrong:** 14 test cases of the 66 duplicate a screen body and cost
+runtime without finding a new body-level defect. The saving if they were cut is
+a fraction of one Playwright run; the exposure if a shell-level finding is
+missed is an accessibility defect on a shipped screen.
+
+## 2026-10-08 - Founder decision: the 14 duplicated User routes stay in the axe project
+
+**Decision:** The axe project keeps all 66 cases. The 14 User screens are tested
+twice, once under the `user` entry and once under `org-admin`. They are not cut
+to 52 (founder decision, 2026-10-08).
+
+**Reason:** the two mounts are not the same page. `user` and `org-admin` are
+separate Vite HTML entries, each with its own `<title>`, its own nav list and so
+its own set of landmarks around the same screen body. An axe finding can live in
+that difference and be invisible in the other mount. Testing a screen in one of
+the two shells it ships in is not testing it.
+
+**Cost if wrong:** 14 of the 66 cases re-walk a screen body and find nothing new,
+for a fraction of one Playwright run.
+
+## 2026-10-08 - The not-found shell is axe case 67 to 69, and is not a screen
+
+**Decision:** `e2e/routes.spec.ts` runs three more cases, one per app entry, on
+an address that matches no route: `#/not-a-screen`. The axe project is now 69
+cases. `guards/screen-inventory.test.ts` is untouched and still asserts 52 at
+three places, because the not-found shell is not a PRD screen and must never be
+added to `screens.ts`.
+
+**Reason:** `RoleScreens` ends its route list with `path="*"`, which renders a
+page with a heading, a sentence and a link out. A person reaches it by following
+a stale link or editing the address, so it is a real page with a real
+accessibility surface. It carries no screen name, so the loop over the three
+role lists cannot produce it; without these three cases nothing reads it.
+
+**Why the two counts differ, stated once:** 69 cases cover 52 screens. 14 User
+screens are tested in two mounts (the entry above), and one shared not-found
+shell is tested in three. 52 + 14 + 3 = 69.
+
+**Probe:** an `<img>` with no `alt` was added to the `NotFound` component in
+`dashboards/src/shared/layout/RoleRoutes.tsx`. All three new cases failed, each
+naming `image-alt: 1 node(s)`, and none of the 66 screen cases changed, which is
+what proves the new cases and not an existing one are reading that page. The
+probe was then removed and the three went green again.
+
+**The address is not a near-miss on purpose:** `/not-a-screen` shares no prefix
+with a real route. A typo of a real screen could start matching the day that
+screen takes a parameter, and the case would then pass while reading the wrong
+page.
+
+**Cost if wrong:** the not-found shell is one component, so three cases read the
+same markup three times and differ only in the surrounding app shell, which is
+the same reason the 14 duplicates stay.
+
+## 2026-10-08 - Census before the mock-boundary guard: MockApiClient does not exist yet
+
+**Result:** no file imports `MockApiClient`, because no file defines it. A
+repo-wide search over `.ts`, `.tsx`, `.js` and `.json` finds the name in eight
+files, all of them prose: this log, `dashboards/CLAUDE.md`,
+`docs/prd/ORBIT_OS_PRD_v9_0.md`, two plans, one spec, one task brief and
+`ORBIT-OS_Claude_Code_Build_Prompts.md`. `dashboards/src/dev/` does not exist,
+`dashboards/src/shared/api/` does not exist, and `ApiClient` appears in no
+TypeScript file.
+
+**Why this is recorded rather than assumed:** Task 6 says the guard is written
+before the thing it guards, so "zero importers" is the state the guard must pass
+in, and it is also the state in which a guard can pass by finding nothing. The
+probe step is what separates the two, and it is not optional here.
+
+**Cost if wrong:** an importer outside the search set, most likely a `.mjs`
+script or a path not in the guard's `SEARCHED` list, is missed. The search above
+covered the whole repo rather than that list, which is why the census is wider
+than the guard.
+
+## 2026-10-08 - The MockApiClient import-boundary guard, and the demo office moves under dev/
+
+**Decision:** `guards/mock-boundary.test.ts` holds four tests. The rule is that
+the name `MockApiClient`, and the demo office seed, are reachable only from
+`dashboards/src/dev/**` or from a file ending `.test.ts` or `.test.tsx`. It
+scans the working tree of `dashboards`, `contract`, `web`, `worker`, `api`,
+`frontdesk` and `shared`, skipping `node_modules`, `.git`, `dist` and
+`generated`. It is in the `unit` project already, through the existing
+`guards/**/*.test.ts` include, so no config changed.
+
+**Reason:** the mock holds a demo office for the whole project, and the moment
+it can be imported from a screen is the moment it can reach a build. A guard
+written before the thing it guards means the first import from a real path fails
+on the commit that adds it, which is the only moment the fix is cheap.
+
+**Five corrections to the Task 6 code in the plan, each with its reason:**
+
+1. **The seed check pins its sentinels.** The plan matched the one literal
+   `BrightPath Advisors`. Rename the demo office and that test keeps passing
+   while watching a string nothing writes. A third test asserts every sentinel
+   still matches something under `dashboards/`, so the rename fails here instead
+   of going quiet.
+
+2. **Three sentinels, not one:** `/BrightPath Advisors/i`, `/Maria Santos/` and
+   `/brightpath\.example/i`. One office name is one commit away from being
+   renamed. Two of the three are case-insensitive because the prototype itself
+   varies the case, writing the address as `Maria@BrightPath.example`.
+
+3. **The scan reads file text, not the import graph**, and that is deliberate
+   rather than a shortcut. A text scan cannot be routed around by a dynamic
+   `import()`, a re-export, a name reached through an index barrel, or a string
+   built from two halves. The cost is that a code comment naming
+   `MockApiClient` in a screen file fails this guard. The file says so, and says
+   to reword the comment rather than widen the rule.
+
+4. **`guards/` and `e2e/` are outside the searched list**, which is why this
+   guard may name the sentinels in full. Stated in the file, because it reads
+   like an omission.
+
+5. **A tripwire keeps the skip from outliving the seed (founder, 2026-10-08).**
+   The pin is skipped while the seed package is absent. A fourth test runs
+   always: when the package is absent, no file under `dashboards/` may hold a
+   sentinel. So demo data landing anywhere else fails rather than sitting under
+   a skipped pin. The skip condition reads the directory and the assertion reads
+   the file contents, on purpose: a skip condition that reads the same scan as
+   its assertion is a skip that can never end.
+
+**The demo office seed moves to `dashboards/src/dev/seeds/`, not
+`dashboards/src/shared/seeds/`.** The `dashboards/CLAUDE.md` layout lists five
+things under `shared/seeds/`: jobs, connectors, org templates, the demo office
+and the fleet registry. Four are product data from PRD Appendix A and are meant
+to ship. The demo office is not. A rule that reaches the mock only from dev code
+cannot also allow the mock's data to sit in a shipped shared package, so the
+demo office splits off under `dev/` and the other four stay where the layout
+puts them. This is a correction to that layout line, found by probing the guard,
+and `SEED_PACKAGE` in the guard is the one place the path is written.
+
+**Probe output, both sides.**
+
+Allowed side, both PASS. `dashboards/src/dev/probe.ts` and `shared/src/x.test.ts`
+each holding `MockApiClient`:
+
+```
+Tests  3 passed | 1 skipped (4)
+```
+
+Denied side, FAIL naming the path. `dashboards/src/scratch.ts` holding
+`MockApiClient`:
+
+```
+× MockApiClient is named only by dev-only code and tests
+AssertionError: expected [ 'dashboards/src/scratch.ts' ] to deeply equal []
+```
+
+Denied side, sentinels on a real path. The same file holding all three:
+
+```
+× the demo office seed is not reachable from a non-dev path
+× no demo data exists outside dashboards/src/dev/seeds while the pin is skipped
+AssertionError: BrightPath Advisors is reachable from a real path:
+  expected [ 'dashboards/src/scratch.ts' ] to deeply equal []
+```
+
+Tripwire, a sentinel on an ALLOWED path with no seed package. The boundary test
+passes, correctly, and the tripwire still fails:
+
+```
+× no demo data exists outside dashboards/src/dev/seeds while the pin is skipped
+AssertionError: BrightPath Advisors exists but dashboards/src/dev/seeds does not,
+  so the pin cannot run: expected [ 'dashboards/src/dev/probe.ts' ] to deeply equal []
+```
+
+The pin itself, proven both ways. With `dashboards/src/dev/seeds/office.ts`
+holding all three sentinels, `Tests 4 passed (4)`: the pin ran rather than
+skipping. Renaming the office in that file to `Northwind Partners`:
+
+```
+× every sentinel still names real demo data
+AssertionError: BrightPath Advisors matches nothing under dashboards:
+  rename or replace it: expected [] to not deeply equal []
+```
+
+All probe files were then deleted and the tree confirmed clean: the only changes
+are `docs/decisions.md`, `e2e/routes.spec.ts` and the new
+`guards/mock-boundary.test.ts`.
+
+**What a text scan cannot see.** It reads `.ts` and `.tsx`, plus `.json` for the
+seed sentinels. Demo data in a `.mjs` script, a `.csv`, a fixture under another
+extension, or a base64 blob is invisible to it. A comment, a dead branch and a
+live import all count the same, so the guard says where a name may appear and
+not whether it is used. And it is not the bundle scan: a mock kept out of every
+source path can still reach a bundle through a build config. The bundle scan
+needs a production build, which does not exist yet; decision 6 moves it to
+sub-project 1.
+
+**Cost if wrong:** a mock import arrives by a path this scan does not read, most
+likely a `.mjs` build script. The fix then is the bundle scan, which reads the
+output rather than the sources, and which is already owned.
+
+## 2026-10-08 - dashboards/CLAUDE.md: the mock and the demo office move to src/dev
+
+**Decision:** the layout tree in `dashboards/CLAUDE.md` gains a `src/dev/`
+entry, holding `MockApiClient` and `src/dev/seeds/` for the demo office. Two
+existing lines change with it: `shared/api/` now reads "ApiClient interface,
+queryKeys, hooks. No implementation", and `shared/seeds/` now lists four things
+rather than five, the demo office having left it.
+
+**Reason:** the founder asked for the seeds line. The `shared/api/` line had the
+identical fault and was not mentioned, so it is called out here rather than left
+for the guard to find: the tree put `MockApiClient` itself in a shipped shared
+package, which `guards/mock-boundary.test.ts` would fail on the first commit
+that followed the layout as written. Amending one line and not the other would
+have left a document that cannot be obeyed.
+
+The four remaining seeds — jobs, connectors, org templates, fleet registry — are
+PRD Appendix A product data and are meant to ship, so they stay. Only the demo
+office moves. A paragraph under the tree states the split and names the guard,
+because a tree alone does not say which part of it is enforced.
+
+**Cost if wrong:** dev-only code sits one directory away from the shared code it
+mirrors, so a person editing the mock has further to look. The alternative is a
+mock that the boundary guard cannot let exist.
+
+## 2026-10-08 - pnpm audit: three high advisories, all transitive, NOT wired into CI
+
+**Result:** `pnpm audit --audit-level=high` exits 1 today. Seven advisories over
+695 dependencies: 3 high, 4 moderate, 0 critical. Per the founder's
+instruction the step is **not** added to `.github/workflows/ci.yml` until these
+are seen. No bypass flag was used and none is proposed.
+
+| Severity | Package | Installed | Vulnerable | Patched | Path |
+| --- | --- | --- | --- | --- | --- |
+| high | `deepmerge-ts` | 7.1.5 | `<8.0.0` | `>=8.0.0` | `db>prisma>@prisma/config>deepmerge-ts` |
+| high | `mysql2` | 3.15.3 | `<3.22.0` | `>=3.22.0` | `db>prisma>mysql2` |
+| high | `braces` | 3.0.3 | `<=3.0.3` | **none** | `dashboards>tailwindcss>chokidar>braces` |
+
+Advisories: GHSA-ggr8-5vv4-36mx (stack exhaustion merging recursive object
+graphs), GHSA-3f6p-5ww8-9rcr (auth plugin downgrade to `mysql_clear_password`
+leaking plaintext credentials), GHSA-vfj7-8cjw-p6xm (stack-exhaustion denial of
+service on deeply nested patterns).
+
+**What is worth knowing before deciding.** None is first-party code; all three
+are transitive, and two of the three arrive through `prisma` 7.10.0, which is
+pinned. `mysql2` is the one that reads worst and matters least here: this
+project runs Postgres, `db/package.json` uses `@prisma/adapter-pg`, and the
+MySQL driver is a dependency Prisma declares but this code never loads. A
+credential-leaking MySQL auth downgrade needs a MySQL connection to downgrade.
+`braces` has **no patched version at all** — the advisory's patched range reads
+`<0.0.0` — so it cannot be resolved by upgrading that package; it would need
+`tailwindcss` 3.4.19 to stop depending on `chokidar` 3.6.0, which is a
+Tailwind 4 change.
+
+**Why this is not wired yet, stated plainly:** a gate that is red on the day it
+is added is a gate somebody adds `--audit-level=critical` to within a week. The
+honest options are to upgrade what can be upgraded and accept the rest with a
+recorded reason, or to leave the row unmet and say so. Both are the founder's
+call. There is no third option where the step goes in and the branch stays
+green.
+
+**Cost if wrong:** the dependency row of section 8 stays unmet, so a new
+high-severity advisory in a package this code does load arrives with nothing
+watching for it.
+
+## 2026-10-08 - Decisions-log guard: one existing heading would fail, and it should not
+
+**Result:** the census ran before the guard was written, per the founder's
+instruction. `docs/decisions.md` holds 36 `## ` headings. One lacks a
+`**Reason:**`, `**Why**` or `**Result:**` line:
+
+- `## 2026-10-05 - The real-data gate, three conditions (superseded)`
+
+No history was rewritten. One other heading failed the census when it was first
+run — this session's own mock-boundary entry — and it was given the
+`**Reason:**` line it should have had when it was written. That is a correction
+to a new entry, not a rewrite of the record.
+
+**Why the one remaining heading should not be made to pass.** It is four lines
+long and says only that the 2026-10-06 entry supersedes it, kept because commit
+`afc0beb` recorded the three-condition version of the real-data gate and a
+reader of that commit needs the correction. It is a pointer, not a decision. A
+`**Reason:**` line added to it would be filler written to satisfy a check, which
+is the exact failure mode a shape guard invites.
+
+**So the guard is not written yet.** The rule it would enforce needs one of two
+answers from the founder: accept `**Superseded`** as a fourth acceptable opener
+alongside Reason, Why and Result, or exempt headings that end in `(superseded)`.
+The first is better, because it is a rule about what the entry says rather than
+about how its title is punctuated. Neither is mine to choose.
+
+**Cost if wrong:** the decisions row of section 8 stays unenforced, so an entry
+landing with no reason is caught only by a reader.
+
+## 2026-10-08 - Task 10: the section 8 rows that are now real CI steps, and the three that are not
+
+**Decision:** `.github/workflows/ci.yml` gains `pnpm lint` in the existing
+`test` job, plus two new jobs, `e2e` and `secrets`. Two new guards,
+`guards/version-pinning.test.ts` and
+`dashboards/src/shared/layout/screens.axe.test.tsx`, need no CI step of their
+own: they run inside the `pnpm test` the job already calls.
+
+**Reason:** before this entry, 4 of the 13 checks section 8 names were real CI
+steps, 3 existed as scripts nobody ran in CI, and 6 did not exist at all. A
+table in a spec that describes an intention is the gap this closes.
+
+**`pnpm lint` goes before `pnpm test`, not after.** Lint is the cheapest failure
+in that job and should not wait behind a database and 380 tests. It ignores the
+seven frozen directories; the two `lint:frozen` steps below it are unchanged.
+
+**`pnpm e2e` is its own job.** It needs a Chromium and the apt packages behind
+it, and it needs no Postgres. As a step in `test`, every unit run would pay for
+a browser install. As a job, the two run at once and the wall clock falls.
+`playwright install --with-deps chromium` and not the default: both Playwright
+projects name Desktop Chrome, so the other two browsers are about 300 MB this
+job never opens.
+
+**Failure artifacts, and a reporter change to make them exist.**
+`playwright.config.ts` used the `github` reporter alone in CI, which writes
+annotations and no files, so there would have been nothing to upload. It now
+uses `github` plus `html` with `open` set to never. The `e2e` job uploads
+`playwright-report/` and `test-results/` with `if: failure()` and a 7-day
+retention. An axe failure names a rule and a node count; without the report
+nobody can see which node, and a serious finding nobody can locate is a red
+build that gets switched off.
+
+**`secrets` is its own job with `fetch-depth: 0`**, because a secret committed
+earlier and deleted later is still in the pack, and a shallow clone cannot see
+it.
+
+**gitleaks is pinned to a commit, with the provenance recorded.** The step is
+`gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7`. That SHA
+came from resolving the `v2` tag through the GitHub API on 2026-10-08. The call
+`GET /repos/gitleaks/gitleaks-action/git/ref/tags/v2` returns an annotated tag
+object, `dcedce43c6f43de0b836d1fe38946645c9c638dc`, and dereferencing that with
+`GET /repos/gitleaks/gitleaks-action/git/tags/dcedce43c6f43de0b836d1fe38946645c9c638dc`
+gives commit `ff98106e4c7b2bc287b24eaf42907196329070c7`. The tag object SHA is
+not the commit SHA, and pinning to it would not resolve, which is why both calls
+are recorded here. A tag is mutable: whoever can push to that repository can
+move `v2` onto different code, and this step runs with the repository's token.
+
+`v3.0.0` exists, published 2026-05-30, commit
+`e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`. It is not used here. Upstream
+states no change to inputs, outputs or behaviour, and it requires runner
+2.327.1 or later; `v2` is the version this was reviewed against. Moving to v3 is
+a one-line change whenever wanted.
+
+`GITLEAKS_LICENSE` is required for organization-owned repositories and not for
+personal accounts. `origin` is `github.com/shuvgenai/Orbitos`, a personal
+account, so the secret is absent and the step runs without it. The env line
+stays, so that moving this repository into an organization fails on a missing
+licence rather than quietly stopping the scan.
+
+**Probe output, every new gate.**
+
+`pnpm lint`, with a dangerous-HTML property in a temporary
+`dashboards/src/shared/layout/ProbeDanger.tsx` and an unused variable in
+`scripts/probe-lint.mjs`:
+
+```
+dashboards\src\shared\layout\ProbeDanger.tsx
+  2:15  error  Dangerous property 'dangerouslySetInnerHTML' found  react/no-danger
+scripts\probe-lint.mjs
+  1:7  error  'unused' is assigned a value but never used  no-unused-vars
+```
+
+Worth recording from that probe: an unused **import** in a `.ts` file does not
+fail `pnpm lint`. `eslint.config.js` turns `no-unused-vars` off for `.ts` and
+`.tsx` on purpose, because the parser strips types and the rule then reads every
+type-only import as dead. `noUnusedLocals` in both tsconfig projects reports it
+instead, under `pnpm typecheck`. The first probe tried was an unused import and
+it passed; that is a fact about which gate owns the rule, not a hole in the
+gate.
+
+`pnpm e2e`, with an alt-less image in `Screen.tsx`, which renders on all 52
+screens. The route case fails and the harness still passes, which is the
+distinction that matters: the harness is what would catch axe going silent.
+
+```
+OK   [harness] a browser really loads a page in this environment
+OK   [harness] axe really runs and really reports a known defect
+FAIL [routes] user /receipts has no serious or critical accessibility finding
++   "image-alt: 1 node(s)",
+```
+
+`guards/version-pinning.test.ts`, with the `axe-core` pin loosened to a caret
+range:
+
+```
+AssertionError: expected [ Array(1) ] to deeply equal []
++   "dashboards/package.json devDependencies.axe-core = ^4.13.0",
+```
+
+The secret scan, probed through the `zricethezav/gitleaks` image rather than by
+committing a fake key, because a canary written into history stays there:
+
+```
+Finding:     aws_access_key_id = AKIA<20-char key, redacted>
+RuleID:      aws-access-token
+Entropy:     4.121928
+leaks found: 1
+```
+
+**A limit of the secret scan, found while probing it.** The first probe used
+`AKIAIOSFODNN7EXAMPLE`, which is AWS's own documented example key, and gitleaks
+reported `no leaks found`. Vendor example credentials are allowlisted, so a real
+credential that happens to match a published example passes this gate. The scan
+over the actual repository is clean today, 154 commits and 2.76 MB with no
+leaks, so the job goes in green rather than red.
+
+**After the changes, with no probe files left:** `pnpm lint` exit 0,
+`pnpm typecheck` exit 0, vitest over the unit and dashboards projects 46 files
+and 513 passed with 1 skipped, `playwright test` 72 passed.
+
+**Cost if wrong:** two more jobs on every push, so a queue on a busy runner. The
+`e2e` job is the slow one, and it is slow because it installs a browser. If that
+becomes the complaint the fix is a cached browser, not a dropped gate.
+
+## 2026-10-08 - axe per screen runs in jsdom, and states what jsdom cannot see
+
+**Decision:** `dashboards/src/shared/layout/screens.axe.test.tsx` runs axe over
+all 52 screens, each inside its own role's shell, filtering to serious and
+critical and reporting a rule with its node count exactly as `e2e/axe.ts` does.
+`axe-core` is pinned to 4.13.0, and nothing else was installed, per the
+founder's choice of option A. 52 tests, 9.4 seconds.
+
+**Reason:** it fails in the `pnpm test:unit` a person already runs before
+committing, rather than waiting for a browser job. 4.13.0 and not the current
+4.14.0, because `@axe-core/playwright` 4.13.0 carries axe-core 4.13.0, and the
+two halves of this row must agree on what a rule is. Otherwise one half can pass
+a screen the other fails and neither is wrong.
+
+**What jsdom cannot see, which is why the Playwright half is not redundant.**
+jsdom computes no layout, so every rule needing geometry or painted pixels
+cannot run: `target-size`, the scroll and overflow rules, and above all
+`color-contrast`. This file would pass a screen whose text is grey on grey.
+`color-contrast` is disabled explicitly rather than left to return incomplete,
+because axe reaches for a canvas to sample pixels, fails, and prints a
+not-implemented warning about `getContext` once per screen. Fifty-two lines of
+that is noise a reader learns to scroll past, and the rule could not have
+produced a finding either way. Naming it makes the gap a declaration in code
+instead of a sentence in a comment. Contrast belongs to `e2e/routes.spec.ts`, in
+a browser that has pixels.
+
+**The list is 52, not the Playwright half's 69.** The second mount of the 14
+User screens under `org-admin`, and the not-found shell in each of the three
+apps, differ from these only in the shell around them, and the shell is the part
+jsdom renders without layout. Those belong to the browser half. Duplicating
+them here would cost 17 more axe runs to read the same markup with less of it
+resolved.
+
+**Probe:** an alt-less image in `Screen.tsx` failed all 52 with
+`expected [ 'image-alt: 1 node(s)' ] to deeply equal []`, and the probe was then
+removed.
+
+**Cost if wrong:** a contrast or hit-target defect reaches a screen and only the
+Playwright job catches it, which is the job that runs last. That is the
+arrangement, not a surprise.
+
+## 2026-10-08 - Task 2 is not scheduled, and Task 10 cannot be called done without it
+
+**Result:** Task 2 of `docs/superpowers/plans/2026-10-05-v8-seam-and-contract.md`
+names eight artifacts. Seven do not exist:
+
+| Artifact | State |
+| --- | --- |
+| `docs/decisions.md` | exists, and every later task appends to it |
+| root `CLAUDE.md` | missing |
+| `docs/rules/engine.md` | missing |
+| `docs/security/threat-model-engine.md` | missing |
+| `docs/security/threat-model-gateway.md` | missing |
+| `docs/security/keys.md` | missing |
+| `guards/rules.test.ts` | missing |
+| `guards/standing-rules.test.ts` | missing |
+
+**Reason this is recorded rather than quietly worked around:** Tasks 3, 4, 5, 6
+and now 10 were all built while Task 2 sat unstarted, so the plan's order is not
+the order the work happened in. Nothing scheduled Task 2 and nothing is
+currently blocked on it, which is exactly how it stayed invisible. The founder
+has said Task 10 is not done until those two guards exist, so the dependency is
+now written down where the next session will read it.
+
+**What the two missing guards are for, since the plan's own text is spread over
+four places.** `guards/standing-rules.test.ts` holds the real-data gate and the
+secrets policy: it asserts that the real-data gate entry in this log still says
+`open-pending`, so the gate cannot be closed by a code change alone, and it
+enforces the rule that keys stay scoped to this project and are never read from
+a shared env file. `guards/rules.test.ts` checks the structure of the rules file
+and the two threat models, which also do not exist yet. So Task 2 is not two
+test files; it is five documents and the two guards that check their shape.
+
+**Consequence for the section 8 table:** the Decisions row depends on the guard
+discussed in the entry above, which is waiting on a founder answer. The Security
+review row is a human step that CI can only gate on the record of, and there is
+no record of one yet: this log contains zero security-review entries. Both rows
+stay open, and neither is closed by this task.
+
+**Cost if wrong:** Task 10 is reported as done while two of section 8's rows have
+no enforcement and five governance documents do not exist, which is the kind of
+gap a later reader finds by trusting the table.
