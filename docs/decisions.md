@@ -2189,7 +2189,7 @@ because it is a step that lies about having worked.
 
 ## 2026-10-08 - Correction: the staging instance never covered api
 
-**Superseded by this entry:** the claim at `.github/workflows/ci.yml:217` that
+**Corrects:** the claim at `.github/workflows/ci.yml:217` that
 the engine's "boot is verified on the staging instance instead". The comment is
 about the engine and that part stands. What a reader takes from it does not.
 
