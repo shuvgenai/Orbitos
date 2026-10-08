@@ -246,6 +246,27 @@ test('compose-smoke applies every migration and seeds, before it waits for healt
   );
 });
 
+/** The two files frontdesk reads from SETUP_DIR. Both must be non-empty. */
+const SETUP_FILES = ['tone-samples.md', 'facts.md'] as const;
+
+test('the setup files are created with content, because an empty one stops frontdesk', () => {
+  // frontdesk/src/main.ts:31 reads each file, trims it, and calls fail() when
+  // the result is empty. The first version of this step created them with `: >`,
+  // and frontdesk reported `tone-samples.md is missing or empty in SETUP_DIR`
+  // and never became healthy. A touched file is not a created file here.
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  const emptied = SETUP_FILES.filter(
+    (name) =>
+      !new RegExp(
+        String.raw`echo\s+\S[^\n]*>\s*"?\$\{?SETUP_HOST_DIR\}?/${name.replace('.', String.raw`\.`)}`,
+      ).test(job),
+  );
+
+  expect(emptied, 'write a line of placeholder text into each, not an empty file').toEqual([]);
+});
+
 test('the guard is reading both files, not an empty list', () => {
   // Either parse returning nothing makes every assertion above pass vacuously.
   // compose.yml marked eighteen variables required when this was written, and

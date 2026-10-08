@@ -181,13 +181,19 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       # Compose mounts SETUP_HOST_DIR at /setup read-only, so the directory has
-      # to exist before the stack comes up. frontdesk reads tone-samples.md and
-      # facts.md from there; empty files are enough to start.
+      # to exist before the stack comes up.
+      #
+      # The content is not optional. frontdesk/src/main.ts:31 reads each file,
+      # trims it, and calls fail() when the result is empty. An earlier version
+      # of this step created them with `: >`, on the assumption that empty files
+      # were enough, and frontdesk reported
+      # `tone-samples.md is missing or empty in SETUP_DIR` and never became
+      # healthy. guards/compose-smoke-env.test.ts now fails on an empty one.
       - name: The /setup mount, which compose mounts read-only
         run: |
           mkdir -p "$SETUP_HOST_DIR"
-          : > "$SETUP_HOST_DIR/tone-samples.md"
-          : > "$SETUP_HOST_DIR/facts.md"
+          echo 'CI smoke placeholder. Not real tone samples.' > "$SETUP_HOST_DIR/tone-samples.md"
+          echo 'CI smoke placeholder. Not real facts.' > "$SETUP_HOST_DIR/facts.md"
       # The per-instance env file, with CI values only.
       #
       # These four names are NOT in frontdesk's `environment:` block, so a
