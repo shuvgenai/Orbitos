@@ -1853,3 +1853,55 @@ reach this workflow until somebody resolves the tag again. Five actions now need
 that, where one did. The trailing tag comments and the calls recorded above are
 what make it a ten-minute job rather than an archaeology exercise, and nothing
 automates it.
+
+## 2026-10-08 - M4 closed: the standing-rules guard stops going quiet on an unreadable file
+
+**Result:** `readTracked` in `guards/standing-rules.test.ts` tolerates ENOENT and
+rethrows everything else, which is the rule `guards/lib/walk.ts` already states
+for its own walk: a swallowed EACCES or ENOTDIR is a guard that quietly stopped
+checking and still reports green.
+
+**Reason ENOENT stays tolerated.** Git can track a path that was deleted without
+the deletion being staged. `walk.ts` documents that case and tells callers to
+expect it, so a missing file is a normal state rather than a fault. Every other
+error means the file is there and this guard could not read it, which is not a
+state to continue from.
+
+**Probe, three runs.** `.env.example` was moved aside and a directory put in its
+place, so `readFileSync` raises EISDIR rather than ENOENT. The same case was then
+run against the old swallow-all version for comparison:
+
+```
+ENOENT, the tolerated case: .env.example deleted, deletion unstaged
+  x .env.example is tracked, so a fresh clone knows which keys it needs
+      Tests  1 failed | 7 passed (8)
+
+EISDIR, with the fix
+  x no mail variable in a tracked env example or workflow holds a non-placeholder value
+      Error: EISDIR: illegal operation on a directory, read
+  x no tracked configuration names a mailbox that is not an allowed test mailbox
+      Error: EISDIR: illegal operation on a directory, read
+      Tests  2 failed | 6 passed (8)
+
+EISDIR, with the OLD swallow-all readTracked
+      Tests  8 passed (8)
+```
+
+The third run is the finding. The same unreadable file, and the guard was
+entirely green: both scans skipped it and said nothing. The first run is worth
+keeping too, because it shows the tolerated case behaving as intended. The scans
+skip the missing file, and a different test fails on its absence, which is the
+right division of labour.
+
+**The anti-vacuity floor did not catch this, and the reason is worth writing
+down.** The mail-variable check requires at least one assignment examined. With
+`.env.example` unreadable that floor was still met, because
+`template/.env.example` also sets `MAIL_FROM` and supplied the one hit. A floor
+counts what it managed to read, so it cannot tell a file that was skipped from a
+file that does not exist. A floor is not a substitute for failing loudly on an
+error, and this is the case that shows why.
+
+**Cost if wrong:** this guard now fails on a file it cannot read, including for
+reasons that have nothing to do with the rules it enforces, such as a file lock
+or a permissions change on somebody's machine. That is the intended trade, and it
+will occasionally be inconvenient. The alternative is the third run above.

@@ -145,12 +145,27 @@ function mailValueAllowed(raw: string): boolean {
   return ALLOWED_TEST_ADDRESSES.includes(value.toLowerCase()) || ALLOWED_TEST_DOMAINS.includes(domain);
 }
 
-/** Read a tracked file, skipping one deleted without the deletion staged. walk.ts documents that case. */
+/**
+ * Read a tracked file, tolerating exactly one failure and no others.
+ *
+ * ENOENT is tolerated, because git can track a path that was deleted without
+ * the deletion being staged, and `guards/lib/walk.ts` documents that case.
+ * Everything else rethrows, for the reason that file gives for its own walk: a
+ * swallowed EACCES or ENOTDIR is a guard that quietly stopped checking and
+ * still reports green.
+ *
+ * This was finding M4 of the 2026-10-08 security review. The first version
+ * caught every error and returned undefined, and both callers skip on
+ * undefined, so an unreadable file left the env-climb and mailbox scans
+ * silently while the vacuity floor passed on the files that remained. The one
+ * guard where failing open matters most was the one that failed open.
+ */
 function readTracked(file: string): string | undefined {
   try {
     return readRepoFile(file);
-  } catch {
-    return undefined;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw err;
   }
 }
 
