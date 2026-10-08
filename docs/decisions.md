@@ -67,7 +67,7 @@ and a new package adds no compose service.
 
 ## 2026-10-05 - The real-data gate, three conditions (superseded)
 
-Superseded by the 2026-10-06 entry below, which states four. Kept because commit
+**Superseded by:** the 2026-10-06 entry below, which states four. Kept because commit
 afc0beb recorded the three-condition version, and a reader of that commit needs
 the correction.
 
@@ -1005,6 +1005,10 @@ Entropy:     4.121928
 leaks found: 1
 ```
 
+The key is redacted above, and the reason is the entry further down this log
+dated the same day: the literal was committed here and the `secrets` job
+promptly found it.
+
 **A limit of the secret scan, found while probing it.** The first probe used
 `AKIAIOSFODNN7EXAMPLE`, which is AWS's own documented example key, and gitleaks
 reported `no leaks found`. Vendor example credentials are allowlisted, so a real
@@ -1102,3 +1106,169 @@ stay open, and neither is closed by this task.
 **Cost if wrong:** Task 10 is reported as done while two of section 8's rows have
 no enforcement and five governance documents do not exist, which is the kind of
 gap a later reader finds by trusting the table.
+
+## 2026-10-08 - The secret scan caught a key in this log, written by the probe that proved the scan works
+
+**Result:** the first CI run on `stream-0/seam-and-contract` failed the `secrets`
+job. The finding was real and it was ours:
+
+```
+Fingerprint: 92a86942af704f5ae0d95bfd25cd83663f90f182:docs/decisions.md:aws-access-token:1002
+RuleID:      aws-access-token
+leaks found: 1
+```
+
+Line 1002 was the recorded output of the probe that proved the secret scan
+works. The probe used a randomised AWS-shaped key, precisely because AWS's own
+published example is allowlisted and produced `no leaks found`. Recording that
+output verbatim committed a key-shaped string into a document, and the gate did
+exactly what it was added to do.
+
+**Reason this is written down rather than quietly patched:** the string was
+never a credential and no account exists behind it, so nothing has to be
+rotated. What has to change is the habit. Probe output that proves a secret
+scanner works cannot be pasted verbatim into a committed file, because the
+scanner is right about it. Every future probe of that gate records the rule id,
+the entropy and the count, and redacts the matched value.
+
+**The literal is now redacted in the entry above.** Redaction alone does not fix
+the gate: `fetch-depth: 0` means gitleaks reads the history, so the original
+blob keeps failing until the commit that holds it is rewritten or the finding is
+allowlisted. The two options were put to the founder rather than chosen here,
+because one of them is a force-push and the other weakens the gate.
+
+**Cost if wrong:** a `.gitleaks.toml` allowlist entry, if that is the route
+chosen, is a line that says "ignore this one finding" and will be read by the
+next person as permission to add a second. An allowlist with one entry and a
+reason beside it is defensible; the risk is entirely in what gets added to it
+later.
+
+## 2026-10-08 - Prisma cannot be upgraded past the two advisories yet
+
+**Result:** there is no stable Prisma release that clears GHSA-ggr8-5vv4-36mx
+(`deepmerge-ts`) or GHSA-3f6p-5ww8-9rcr (`mysql2`). The project is on 7.10.0,
+and **7.10.0 is the newest stable release there is**: the versions after it are
+`8.0.0-rc.x`, and the registry's `latest` tag currently points at
+`8.0.0-rc.21`, a release candidate.
+
+`prisma@7.10.0` declares `mysql2` 3.15.3 and `@prisma/config` 7.10.0, and
+`@prisma/config@7.10.0` declares `deepmerge-ts` 7.1.5. Both are exact pins
+inside Prisma, so no resolution of the current major can move them.
+
+`prisma@8.0.0-rc.21` declares neither: it drops `mysql2`, `postgres` and
+`@prisma/config` as direct dependencies in favour of `@prisma/orm-toolchain`,
+`@prisma/cli-engine` and `@prisma/compute-sdk`, and a spot check of those three
+found no `mysql2`, `deepmerge-ts` or `@prisma/config` among their own
+dependencies. That is a direct-dependency reading, not a resolved tree; proving
+it would mean installing the release candidate.
+
+**So the answer to "the lowest Prisma version that clears both" is 8.0.0-rc.21,
+and it is not being taken.** It is a major bump and a pre-release at once, in
+the package that owns this project's database access. Nothing was upgraded, per
+the founder's instruction to report rather than move on a major bump.
+
+**Reason this is recorded and not left as a note:** the next person to read the
+accepted-advisory list below will ask whether an upgrade was considered. The
+answer is that it was, and the only version that fixes it is a release
+candidate. That changes when Prisma 8 ships stable, which is the review
+condition on two of the three entries.
+
+**Cost if wrong:** the two advisories stay open for as long as Prisma 8 takes to
+ship. Both are stack-exhaustion or driver-path issues in code this project does
+not call, which is the reason they are acceptable to hold; see the list below.
+
+## 2026-10-08 - Accepted advisories, ignored by GHSA id and reviewed on a condition
+
+**Decision:** `pnpm audit --audit-level=high` is now a CI step in the `test`
+job. Three advisories are ignored, each by id, in the
+`pnpm.auditConfig.ignoreGhsas` block of the root `package.json`. The level stays
+at `high`.
+
+| Advisory | Package | Path | Why accepted | Review on |
+| --- | --- | --- | --- | --- |
+| GHSA-3f6p-5ww8-9rcr | `mysql2` <3.22.0 | `db>prisma>mysql2` | This project is Postgres. `db/package.json` uses `@prisma/adapter-pg`, and the MySQL driver is a dependency Prisma declares but this code never loads. The advisory is an auth-plugin downgrade leaking plaintext credentials over a MySQL connection, and there is no MySQL connection to downgrade. | When Prisma 8 ships stable |
+| GHSA-ggr8-5vv4-36mx | `deepmerge-ts` <8.0.0 | `db>prisma>@prisma/config>deepmerge-ts` | Stack exhaustion when merging recursive object graphs. Reached only by Prisma's own config loader, over config this repository writes, which no attacker supplies. | When Prisma 8 ships stable |
+| GHSA-vfj7-8cjw-p6xm | `braces` <=3.0.3 | `dashboards>tailwindcss>chokidar>braces` | Stack-exhaustion denial of service on deeply nested glob patterns. **The advisory has no patched version**: its patched range reads `<0.0.0`. Reached through the Tailwind file watcher at build and dev time, over glob patterns written in this repository's own config, never at runtime in a browser. | When the dashboards move to Tailwind 4 |
+
+**Reason the ignore is by id and never by severity.** Dropping the gate to
+`--audit-level=critical` would make it pass today and hide the next *high*
+advisory in a package this code does load, which is the only thing the row
+exists to catch. An id is a statement about one known finding; a severity is a
+statement that a whole class stops mattering.
+
+**Reason the list lives in `package.json` and not in the CI command.** A local
+`pnpm audit` then answers the same as CI, so nobody discovers the difference by
+pushing. It also keeps the list one `git log -p package.json` away from the
+commit that explains it.
+
+**What is not ignored:** the four moderate advisories. They sit below the gate's
+level, so they are reported and fail nothing, and no id of theirs is on the
+list. If the level ever drops to `moderate` they have to be read, not inherited.
+
+**No `--ignore-registry-errors`.** A registry that cannot be reached fails the
+step. Noisy and correct: the alternative is a check that reports clean because
+it asked nobody.
+
+**Probe:** `GHSA-3f6p-5ww8-9rcr` was removed from the list and
+`pnpm audit --audit-level=high` exited 1, printing the `mysql2` advisory with
+its path `db>prisma>mysql2` and `Severity: 4 moderate | 3 high (2 ignored)`. The
+id was restored and the command returned to `3 high (3 ignored)` and exit 0.
+
+**Cost if wrong:** three high advisories are carried, documented, with a review
+condition each. The failure mode is nobody reading the review column, which is
+why both conditions are events — Prisma 8 stable, Tailwind 4 — and not dates
+that pass unnoticed.
+
+## 2026-10-08 - The decisions-log guard, with Superseded as a fourth opener
+
+**Decision:** `guards/decisions-log.test.ts` checks that every `## ` entry in
+this log carries one of four openers — `**Reason`, `**Why`, `**Result` or
+`**Superseded` — and that a superseded entry names the date of the entry
+replacing it, and that this log holds a heading with that date (founder
+decision, 2026-10-08).
+
+**Reason:** the log is 42 entries long, so "somebody will notice a missing
+reason" had already stopped being true. The guard checks shape and never
+content: it cannot tell a reason from a sentence that looks like one, and it is
+not trying to. What it prevents is an entry landing with no reason at all,
+which is what happens when a task is being finished in a hurry.
+
+**Why four openers and not one.** Reason, Why and Result cover a decision, an
+explanation and a measurement. Superseded covers the fourth kind of entry this
+log holds: a pointer left so that a reader of an older commit finds the
+correction. A pointer has no reason of its own, and a Reason line added to one
+would be filler written to satisfy the guard.
+
+**Why a superseded entry owes a date.** A pointer that points nowhere is worse
+than no pointer. The guard reads every ISO date in the body other than the
+entry's own, and fails if any of them has no matching heading, so a typo in the
+date is caught and not only an absent one.
+
+**One existing entry changed, and only its punctuation.**
+`## 2026-10-05 - The real-data gate, three conditions (superseded)` already said
+"Superseded by the 2026-10-06 entry below". That sentence now reads
+`**Superseded by:**` in bold. No wording was altered and no history was
+rewritten; the entry said the right thing in the wrong shape.
+
+**The third test exists because the other two pass over an empty file.** A
+heading-style change, or a move of this file, would silence both. It asserts at
+least 40 entries, which 42 clears and no accident reaches.
+
+**Probes, each reverted:** removing the bold from the one superseded opener
+failed with `add one of **Reason, **Why, **Result, **Superseded to each of
+these`, naming that heading; pointing it at `2027-01-01` failed with
+`points at 2027-01-01, which has no heading in this log`.
+
+**The guard failed on this very entry, in its first version, and that is why it
+reads prose rather than raw text.** This entry quotes the four opener names and
+quotes a probe output naming 2027-01-01. A raw scan of the body therefore read
+it as a superseded entry pointing at a date with no heading. The guard now
+strips fenced blocks and inline code spans before scanning, which is what the
+rule always meant: an entry's own words explain it, and a quoted log, command or
+opener name is evidence inside it. The same change stops an entry satisfying the
+opener rule by quoting an opener, and stops a timestamp in pasted output being
+read as a pointer.
+
+**Cost if wrong:** a four-opener shape rule is a rule somebody satisfies with a
+bold word and an empty sentence. The guard cannot catch that and does not claim
+to; a reader still has to read.
