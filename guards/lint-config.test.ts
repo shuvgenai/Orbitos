@@ -75,6 +75,7 @@ test('the code the Done checklist depends on is linted', async () => {
     'dashboards/src/shared/nav/screens.ts',
     'guards/lint-config.test.ts',
     'e2e/harness.spec.ts',
+    'e2e/routes.spec.ts',
     'playwright.config.ts',
     'contract/src/index.ts',
     'scripts/dev-db.mjs',

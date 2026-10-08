@@ -137,8 +137,10 @@ Keep dashboard source under `src`. A source file outside it trips
 | `pnpm test` | the whole suite |
 | `pnpm test:unit` | the unit project only, which is where the guards live |
 | `pnpm check:screens` | the S-43 and Appendix A guards on their own |
-| `pnpm lint` | **does not exist yet.** Task 3 of the plan adds it |
-| `pnpm e2e` | **does not exist yet.** Task 4 of the plan adds it |
+| `pnpm lint` | ESLint over the repo. Zero errors, and `react/no-danger` is an error |
+| `pnpm lint:frozen` | the findings in the seven frozen directories, reported. Always exits 0 |
+| `pnpm lint:frozen:danger` | the same scan, failing on `react/no-danger` and nothing else |
+| `pnpm e2e` | Playwright. Two projects: the self-proving axe harness, and axe on all 66 routes |
 
 Do not invent a script. Where the table says a command does not exist, say so
 rather than working around it.
@@ -148,6 +150,13 @@ The dev server serves one page per dashboard, so there are three addresses:
 `/fleet/index.html`. The port is strict so a second instance fails loudly
 instead of moving to another port and serving a stale build at the address you
 had open.
+
+`pnpm e2e` starts its own dev server on **5200**, not 5199, and stops it again.
+That is deliberate: a dev server left open on 5199 can hold a dependency cache
+from before the last install, answer `504 Outdated Optimize Dep` for react, and
+mount nothing, at which point every route test fails on a missing `<h1>` and
+says nothing about why. Leave your own dev server running; the two do not
+collide.
 
 ## Working agreement
 - Work in the order the plan gives. Finish one piece, run `pnpm typecheck` and

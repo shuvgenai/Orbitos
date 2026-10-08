@@ -3,7 +3,12 @@
 // Section 15.6 opens with "The Org Admin reaches every User screen plus these",
 // so the Org Admin list is the User list followed by its own, and is never
 // retyped. Retyping it would be a second place a screen could go missing.
-import { FLEET_SCREENS, ORG_ADMIN_SCREENS, type ScreenRow, USER_SCREENS } from './screens';
+// The extension is explicit here, unlike the rest of this folder.
+// e2e/routes.spec.ts reads the three lists below to run axe on every route, and
+// that file sits in the root tsconfig project, which is nodenext and rejects an
+// extensionless relative import with TS2835. Naming the extension satisfies
+// both projects, and dashboards/tsconfig.json allows it because noEmit is on.
+import { FLEET_SCREENS, ORG_ADMIN_SCREENS, type ScreenRow, USER_SCREENS } from './screens.ts';
 
 // Re-exported so a consumer of a role list gets the row type from the same
 // module, rather than reaching past it into the data file.
