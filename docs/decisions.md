@@ -1778,3 +1778,78 @@ wanted reassurance now gets a paragraph headed "What nothing checks". That is th
 intended effect. The risk is that somebody reads it as permission rather than as
 a warning, and the mitigation is the sentence saying the gate is a rule people
 keep, not a mechanism that stops them.
+
+## 2026-10-08 - H3 closed: every action pinned to a commit, and the token scoped
+
+**Result:** `.github/workflows/ci.yml` now has `permissions: contents: read` at
+workflow level, the `secrets` job states the same scope again on itself, and
+every `uses:` in the file is a 40-character commit SHA with the tag it came from
+in a trailing comment. `guards/workflow-pins.test.ts` fails on anything that is
+not.
+
+**Reason the permissions block matters as much as the pins.** Without it a job
+inherits the repository default, which on a personal account can still be read
+and write. The `secrets` job is the worst place for that: it checks out the
+entire history with `fetch-depth: 0` and hands `GITHUB_TOKEN` to a third-party
+action. Pinning that action to a commit stops the code changing under us; the
+permissions block limits what the code can do if a pin is ever wrong. They are
+two halves of one control, and only one half was present.
+
+The scope is written twice on purpose. The workflow-level block is the default
+for every job, and the `secrets` job repeats it so the scope is readable beside
+the risky step rather than forty lines above it.
+
+**The four tags, resolved.** Both calls recorded for each, the same procedure the
+`v2` resolution used. Three are lightweight tags, where the ref points straight
+at a commit and the second call has nothing to dereference. One,
+`pnpm/action-setup`, is annotated, so it needed the dereference, and it is also
+the only third-party action of the four:
+
+```
+actions/checkout         git/ref/tags/v5 -> commit fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+                         second call not needed, lightweight tag
+pnpm/action-setup        git/ref/tags/v4 -> tag    f40ffcd9367d9f12939873eb1018b921a783ffaa
+                         git/tags/f40ffcd...       -> commit b906affcce14559ad1aafd4ab0e942779e9f58b1
+actions/setup-node       git/ref/tags/v5 -> commit a0853c24544627f65ddf259abe73b1d18a591444
+                         second call not needed, lightweight tag
+actions/upload-artifact  git/ref/tags/v4 -> commit ea165f8d65b6e75b540449e92b4886f43607fa02
+                         second call not needed, lightweight tag
+```
+
+`actions/checkout` is pinned at four sites, `pnpm/action-setup` and
+`actions/setup-node` at two each, `actions/upload-artifact` at one.
+
+**The guard found a gap in the gitleaks pin from earlier today.** Its provenance
+was written in a comment above the line rather than beside it, so it was the one
+bare SHA in the file and the third test failed on it. That line now carries
+`# v3.0.0` as well. The test is a readability rule rather than a security one,
+and it earns its place: a SHA with no visible provenance is what makes a
+dependency update get skipped, because nobody can tell which version they are on
+without an API call.
+
+**Probe.** Two cases, each restored immediately:
+
+```
+actions/checkout back on its tag
+  x every action in every workflow is pinned to a full commit SHA
+  +   ".github/workflows/ci.yml:16 actions/checkout@v5"
+      Tests  1 failed | 2 passed (3)
+
+actions/setup-node on a short SHA, which git itself would resolve
+  x every action in every workflow is pinned to a full commit SHA
+  +   ".github/workflows/ci.yml:18 actions/setup-node@a0853c2"
+      Tests  1 failed | 2 passed (3)
+
+restored
+      Tests  3 passed (3)
+```
+
+The second case is the one worth having. A seven-character prefix looks pinned,
+git resolves it, and a prefix can collide, so the rule is forty characters rather
+than "looks like a SHA".
+
+**Cost if wrong:** a pinned SHA never moves, so an upstream security fix does not
+reach this workflow until somebody resolves the tag again. Five actions now need
+that, where one did. The trailing tag comments and the calls recorded above are
+what make it a ten-minute job rather than an archaeology exercise, and nothing
+automates it.

@@ -1,15 +1,21 @@
 name: CI
 on: [push, pull_request]
 
+# The least this workflow needs. Without this block a job inherits the
+# repository default, which on a personal account can still be read and write,
+# and every third-party action in it would run with a token that can push.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbit_test
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -65,9 +71,9 @@ jobs:
   e2e:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -84,7 +90,7 @@ jobs:
       # red build somebody disables. if: failure() so a green run uploads
       # nothing.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: playwright-report
           path: |
@@ -97,15 +103,21 @@ jobs:
   # in the pack, and a shallow clone cannot see it.
   secrets:
     runs-on: ubuntu-24.04
+    # Stated again on this job rather than left to the workflow default. This is
+    # the one job that hands a token and the whole commit history to a
+    # third-party action, so the scope it runs with is written where that step
+    # is read. gitleaks needs to read the checkout and nothing else.
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           fetch-depth: 0
       # Pinned to the commit the v3.0.0 tag points at, not to the tag. A tag
       # is mutable: whoever can push to that repository can move v3.0.0 onto
       # different code, and this step runs with the repository's token. The
       # provenance of this SHA is recorded in docs/decisions.md.
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Required for organization-owned repositories, not for personal
@@ -135,7 +147,7 @@ jobs:
       PAPERCLIP_SIGNING_SECRET: smoke
       ENGINE_ANTHROPIC_API_KEY: smoke
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       # --scale paperclip=0 keeps the engine out of this job on purpose. The built engine image is
       # 8.82 GB, which does not fit a hosted runner's disk alongside the rest of the stack. Its
       # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
