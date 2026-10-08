@@ -2100,7 +2100,7 @@ invisible until the one in front of it cleared.
 | 5 | No `GmailConnection` row, and api requires exactly one | fixed, `591b2a1` |
 | 6 | The Dockerfile never copied `db/`, so api could not load its own code | fixed, `e7af736` |
 | 7 | The `/setup` files were created empty, and frontdesk rejects an empty one | fixed, `2d89d8e` |
-| 8 | The seed step reports success while inserting nothing | **open** |
+| 8 | The seed step reports success while inserting nothing | fixed, `1377817` |
 
 **Cause 3, the one worth remembering.** A job-level `env:` entry feeds Compose's
 `${...}` interpolation. It does not reach a container. A service receives only
@@ -2211,3 +2211,150 @@ offered as cover for a check another environment does not run. The only way to
 know such a claim holds is for something to fail when it stops holding, which is
 what `guards/image-build.test.ts` now does for this case and nothing does in
 general.
+
+## 2026-10-08 - Cause 8 fixed in three parts, and pnpm was missing rather than its packages
+
+**Result:** cause 8 is fixed in `1377817`. The `compose-smoke` seed step now
+installs what it needs, fails when its generator fails, and is followed by a
+step that counts the row it was supposed to insert. Eleven tests in
+`guards/compose-smoke-env.test.ts` pass, up from seven. Whether the job itself
+is green is recorded by the run on that commit, not by this entry.
+
+**Corrects:** the diagnosis of cause 8 in the 2026-10-08 entry "compose-smoke:
+eight causes", which reads "there are no `node_modules`, the generator fails".
+The job log is more specific:
+
+```
+/home/runner/work/_temp/e4c866b2-4e9a-467d-b851-7401ee72ad65.sh: line 1: pnpm: command not found
+```
+
+`pnpm` was not on the runner at all. The `compose-smoke` job had no
+`pnpm/action-setup` and no `actions/setup-node`, so the generator never started
+rather than starting and failing part way. The practical difference is the fix:
+a missing `node_modules` would be answered by `pnpm install` alone, and this
+needed the toolchain first. The rest of that entry's account of cause 8, and its
+three-part fix, stand.
+
+**The three parts, and which one matters.** In
+`.github/workflows/ci.yml`, in the `compose-smoke` job:
+
+1. `pnpm/action-setup` and `actions/setup-node` at the SHAs the `test` job
+   already pins, with `node-version-file: .nvmrc`, then
+   `pnpm install --frozen-lockfile`. Placed immediately before the seed rather
+   than after the checkout, so the Docker build still runs first and the install
+   sits beside the one step that needs it.
+2. `set -o pipefail` on the seed step. A GitHub Actions `run:` block is
+   `bash -e` and not `bash -eo pipefail`, so the pipeline's exit status was
+   `psql`'s, and `psql` with empty stdin exits 0.
+3. A new step, `Exactly one GmailConnection row, or the seed did nothing`, which
+   reads `select count(*) from gmail_connections` with `-tAc` and fails unless
+   the answer is exactly `1`.
+
+The first two make this job work. The third changes the class of error. A step
+that inserts nothing can no longer report success, which is the defect the H2
+entry above describes and which was found twice in one day.
+
+**Three details in part 3 that are not arbitrary.** `-tAc`, because `psql` pads
+tuple output otherwise and a correct seed would fail the comparison. A string
+comparison `test "$rows" = 1` and not `-eq`, because a failed `psql` call leaves
+the variable empty and `test "" -eq 1` errors with `integer expression
+expected` instead of failing on the value. And the step sits before the final
+`--wait`, because after it api fails first and the log says `container
+orbit-instance-api-1 is unhealthy`, which names the service and not the reason.
+That message is what hid this cause for a day.
+
+**The four guard tests, by name.** In `guards/compose-smoke-env.test.ts`:
+`every compose-smoke step that pipes sets pipefail`;
+`compose-smoke installs its dependencies before the seed generator runs`;
+`the seed is followed by a count that fails on anything but one row`;
+`the count assertion runs between the seed and the final wait`.
+
+**The first version of the first test was wrong, and watching it fail is what
+caught it.** It matched a pipe at end of line and reported five offenders when
+one step pipes, because `run: |` ends with a pipe too: it was matching the YAML
+block scalar indicator and not shell pipes at all. The second candidate, any
+pipe anywhere, catches `git status --porcelain template/ | grep .` in the
+frozen-check step, where `|| true` swallows every exit code and `pipefail` would
+buy nothing and would mean editing a step that belongs to cause 7. The test is
+scoped to a pipe into `psql`, which is where the exit code is the point. This is
+the fourth time on this job that a test was wrong and the code was right.
+
+**The alternative, considered and not taken.** Node 24 strips TypeScript types
+natively, and `scripts/ci-seed-instance.ts` with the one file it imports,
+`shared/src/token-crypto.ts`, import nothing outside `node:crypto`. So
+`node scripts/ci-seed-instance.ts` after `actions/setup-node` alone would work
+with no install, saving about a minute and 315 MB on the runner. Not taken,
+because it adds a second way of running TypeScript in this repository for a
+one-line saving, and its precondition is invisible at the call site: the day
+somebody adds a third-party import to either file, the job breaks for a reason
+nothing in either file explains. `packageManager` pins `pnpm@10.33.0` and the
+`test` job proves that install every run, so the pnpm path is the one already
+under test. Founder chose pnpm, 2026-10-08.
+
+**Lockfile drift is cause 9, not something to fix here.** If
+`pnpm install --frozen-lockfile` fails in `compose-smoke` on drift, that is
+recorded as cause 9 and the lockfile is not edited. Locally the same command
+reports `Already up to date` and exits 0, and the `test` job runs it every push,
+so the risk is low and it is named here rather than assumed away.
+
+**What a green compose-smoke will still not prove.** Unchanged. It proves the
+compose file parses with real values, that both databases and both logins exist,
+that the schema applies, that exactly one `GmailConnection` row is seeded, and
+that `postgres`, `redis`, `web`, `worker`, `api` and `frontdesk` start and
+answer their healthchecks. It proves nothing about the engine, which is excluded
+with `--scale paperclip=0`, and nothing about behaviour beyond boot.
+
+**Cost if wrong:** the count assertion is one `psql` call, so the cost of it
+being wrong is a job that fails when it should pass, which is loud and cheap to
+correct. The cost of it being absent is the eight-cause week this entry sits at
+the end of.
+
+## 2026-10-08 - Open question: a healthy api container contradicts the ERR_MODULE_NOT_FOUND claim
+
+**Why this is an entry and not a fix.** It contradicts a claim this log already
+makes, and the founder's instruction of 2026-10-08 was to record it and not
+chase it. Recording it costs nothing. Leaving a contradicted sentence unmarked
+costs the next reader their trust in the entries around it.
+
+**The claim.** The 2026-10-08 entry "compose-smoke: eight causes" says of cause
+6 that api "died on `ERR_MODULE_NOT_FOUND` before it listened, in every
+environment built from this image". The 2026-10-08 entry "Correction: the
+staging instance never covered api" rests on the same claim.
+
+**The evidence against it.**
+
+| Fact | Value |
+| --- | --- |
+| `orbit-instance-api` image created | 2026-09-30T17:47:35-05:00 |
+| `e7af736`, which added the `db/` copy, committed | 2026-10-08T16:13:31-05:00 |
+| `orbit-instance-api-1` status, read 2026-10-08 | Up 16 hours (healthy) |
+
+The running container was built from an image made eight days before the
+Dockerfile copied `db/`, and it is healthy. If api could not load
+`@orbit/db/client` in every environment built from this image, that container
+should not be passing its healthcheck.
+
+**The two candidate explanations, neither checked.**
+
+1. The Dockerfile on 2026-09-30 did copy `db/`, and the copy was lost in a later
+   change rather than never having existed. Then cause 6 is a regression with a
+   date, not a defect that was always there, and the sentence "in every
+   environment built from this image" is wrong about the past.
+2. That container reaches the code another way, for example a bind mount in the
+   compose file used locally, so its image never needed `db/`. Then the claim
+   holds for the image and is wrong only about the environment, and the local
+   stack proves nothing about the image either way.
+
+**Status of the earlier claim: unverified, pending one check.** The check is
+`git log -- Dockerfile` across 2026-09-30 to 2026-10-08, plus
+`docker image inspect` and the local compose file for a `db/` mount. One
+sitting. Until it is done, read "in every environment built from this image" as
+an inference from one failing CI run and not as something observed across
+environments.
+
+**Cost if wrong:** low if explanation 2 holds, because only one sentence
+overstates its reach. Higher if explanation 1 holds, because then this
+repository lost a working Dockerfile line at a date nobody has identified, and
+`guards/image-build.test.ts` was written to catch the symptom rather than the
+cause. Either way the eight-cause entry is read by whoever fixes compose-smoke
+next, and it should not read as more certain than it is.
