@@ -1497,3 +1497,162 @@ because this entry is not a security review. A reader who sees two new guards
 and assumes both rows are closed gets the same false green the "Task 2 is not
 scheduled" entry above was written to prevent.
 
+## 2026-10-08 - The security review of this branch, three high findings, none fixed here
+
+**Result:** section 8's Security review row had no record behind it. It has one
+now. A fresh session reviewed the diff of `stream-0/seam-and-contract` against
+`main` and reported 3 high, 14 medium, 10 low and 11 informational findings, and
+zero critical. Nothing was fixed in this change. The findings are recorded first
+so that fixing them is a decision with a record, rather than a tidy-up that
+erases what was found.
+
+**How it was run.** A session with no repository access, handed two files and
+told it could open nothing else: the full diff of 69 commits, 73 files and about
+13,400 added lines, and the same diff with `pnpm-lock.yaml` excluded. No `git`
+command, no network. The instruction was the one `CLAUDE.md` section 7 and the
+streams runbook specify: review this diff alone, assume nothing about the rest
+of the repo, and report findings by severity without fixing them.
+
+**What it covered, and what it did not.** It read the 10,512-line non-lockfile
+diff in full, except comment-only lines in one 400-line range of
+`guards/design-naming.test.ts` probe fixtures, and roughly 40 per cent of the
+2026-10-05 plan's prose, which it reached by keyword grep instead. It did not
+read the lockfile line by line. It extracted all 334 added package identifiers,
+every non-registry resolution specifier, every deprecation notice, and the
+install-script and override markers. That self-declared coverage is recorded
+because a review's gaps matter as much as its findings.
+
+**What was checked.** Thirty-three checks, grouped:
+
+- Credential shapes in every added line, including documentation, fixtures,
+  comments and CI: AWS, OpenAI, Resend, GitHub, Slack, Google, JWT, PEM headers,
+  password and secret assignments, bearer tokens. Every opaque run of 32 or more
+  characters enumerated and classified.
+- Private IP ranges, internal hostname suffixes, tunnel and onion hostnames.
+- Every `uses:` line classified tag against commit SHA. The workflow searched
+  for `permissions`, `pull_request_target`, `workflow_run`, `id-token`,
+  `concurrency` and secret consumption. Script-injection surface checked for
+  untrusted interpolation in `run:` blocks. Artifact upload paths cross-checked
+  against the Playwright trace settings.
+- All 334 added packages for typosquats and fitness for purpose, with parents
+  resolved for seven unfamiliar names. The lockfile for non-registry
+  resolutions, install scripts, overrides, patches and deprecations. Every
+  dependency specifier for exactness, and the pinning guard's own regex for
+  bypasses. The three accepted advisories traced to whether this branch
+  introduces them.
+- Injection and unsafe evaluation: `dangerouslySetInnerHTML`, `innerHTML` and
+  its siblings, `eval`, `new Function`, `document.write`, `srcdoc`, and the
+  javascript URL scheme.
+- Every `child_process` call site for argument injection and shell
+  interposition. Path traversal in `normaliseDir`, `existsExact`, `readFileIn`,
+  `readRepoFile` and the `git show` call in `guards/paths.test.ts`.
+  Catastrophic backtracking in every hand-written regex.
+- Vite dev-server filesystem exposure, in the shipped config and in every
+  document that tells an implementer how to set it.
+- All 16 guard files for vacuous pass, swallowed error, author-controlled skip
+  and widenable allowlist. Every skip condition and early return traced to
+  whether a paired tripwire still runs. Every anti-vacuity floor judged against
+  the list it protects. The freeze guard's three weakening regexes tested
+  against five evasions.
+- The lint configuration, its frozen variant, the report script and its guard,
+  read as one system.
+- Authorization and data-boundary claims in the governance documents against
+  what the added code does. The real-data gate traced end to end. Standing
+  Authority traced from PRD claim to route mounting. The role split traced from
+  three Vite entries to one output tree.
+- `docs/security/keys.md` assessed as public-repository disclosure. The orphaned
+  pre-rewrite commit and the published account identifier assessed for residual
+  exposure. Both committed plans checked for instructions weaker than what
+  shipped.
+
+**Findings, high.**
+
+| Id | Finding |
+| --- | --- |
+| H1 | `docs/superpowers/plans/2026-10-07-appshell-and-nav.md` lines 155 and 257 instruct an implementer to set the Vite dev server to allow the parent directory. The shipped `dashboards/vite.config.ts:34` names two explicit directories instead, and its comment says why. The plan carries no supersession note, its Task 1 checkbox is unticked, and no guard pins the narrow value. A session resuming that task opens the dev server to `.env.local`. |
+| H2 | `CLAUDE.md` section 6a says the real-data gate is enforced by `guards/standing-rules.test.ts` and fails closed. What that guard enforces is the wording of two Markdown files and the absence of email addresses from tracked YAML. Live values live in `.env.local`, which is untracked by design, so pointing `MAIL_FROM` and the Gmail credentials at a real mailbox leaves every gate assertion green. The overclaim is in the document, not in the guard. |
+| H3 | Four GitHub Actions pinned to mutable tags, one of them third party, in the same workflow whose comment argues at length that tags are unsafe. No `permissions:` block anywhere, so both new jobs inherit the repository default. The `secrets` job hands `GITHUB_TOKEN` and a full-history checkout to a third-party action. |
+
+**Findings, medium.** M4 `readTracked` in `guards/standing-rules.test.ts`
+swallows every error where `guards/lib/walk.ts` rethrows anything that is not
+ENOENT. M5 guard exemption is self-service by filename across four guards, and
+covers colour and palette leaks as well as naming. M6 symlinks are invisible to
+every text-scanning guard. M7 `guards/freeze.test.ts` misses the conditional
+skip form and cannot see a test removed from a surviving file. M8 the
+exact-version guard misses `1.x`, dist-tags, and `npm:` aliases. M9 nothing pins
+the audit level, which is the weakening this log itself predicted. M10 the
+end-to-end fixture server pulls about twenty packages to serve two static files,
+against a pnpm-only rule. M11 the pinned ESLint release carries an upstream
+deprecation notice, and it is the binary enforcing the one security-named lint
+rule. M12 Playwright traces and reports are uploaded wholesale with no
+permission scoping. M13 `reuseExistingServer` is left enabled on the harness
+whose job is to verify the harness. M14 `docs/security/keys.md` aggregates a
+complete operational map of the system's secrets. M15 the orphaned pre-rewrite
+commit is still addressable and this log publishes its coordinates. M16 the role
+split is build-time only, while `dashboards/vite.config.ts` states it as a
+boundary. M17 the Standing Authority flag gates the nav link, not the route.
+
+**Findings, low.** L1 case-sensitivity inconsistency in the banned-word lists.
+L2 the tracked-env check misses `.envrc`. L3 the mailbox scan reads only
+`.env.example` and YAML. L4 the attestation check is trivially satisfiable. L5
+the frozen lint config discards any block carrying both ignores and rules. L6
+the named-colour regex degrades to a near-no-op if its parse fails. L7 the
+fixture server is not bound to loopback. L8 a dashboards-root config file is
+exempt from the stray-source tripwire. L9 the credential-shape scan covers one
+file. L10 internal paths and personal-machine detail in committed documentation.
+
+**Findings, informational.** No credential, private key or live token anywhere
+in the diff. No dangerous sink in added code. `child_process` usage safe on both
+call sites. No path traversal. No catastrophic backtracking. No non-registry
+resolution, install script, override or patch in the lockfile. No typosquats
+among 334 added packages, with seven traced to their parents. This branch
+introduces one of the three advisories it accepts, through Tailwind to `braces`
+and `chokidar`. The ignore-list block in `package.json` has mangled indentation.
+The deferred-work tripwires are correct. The guard suite's anti-vacuity
+discipline is strong, and several findings above are inconsistencies against its
+own stated standards rather than absent thinking.
+
+**Four claims verified rather than taken on report**, because a review session
+reasons from a diff and can be wrong about what the repository holds:
+
+```
+H1  the plan says the parent form; vite.config.ts:34 is the narrow form        confirmed
+H3  no permissions block in ci.yml; 4 tag pins, 1 third party, gitleaks by SHA confirmed
+M7  the skip regex requires a word boundary the conditional form does not give confirmed
+D1  the 13 unseen ci.yml lines are the push and pull_request triggers          confirmed
+```
+
+The last one resolves the review's own largest caveat in the project's favour.
+It flagged that it could not see the first 13 lines of
+`.github/workflows/ci.yml`, and that a `pull_request_target` trigger there would
+make H3 critical. The triggers are push and pull_request, so H3 stays high.
+
+**Reason the findings are recorded and not fixed in the same change.** Two of
+the three high findings are against work committed earlier today, and one of
+them, H2, says a sentence written this morning overclaims what its own guard
+does. Fixing that in the commit that records it would leave an entry describing
+a problem no reader can find. Each fix is also its own decision with its own
+cost: H3 needs four tag resolutions and a permissions block, H1 needs a
+supersession note on a plan whose task is unfinished, and H2 needs either a
+weaker claim in `CLAUDE.md` or a stronger guard, which is a founder choice about
+what the gate is for.
+
+**Out of scope, as the review stated it.** The seven frozen directories, which
+hold roughly 44 commits and 347 tests of security-relevant behaviour that the
+added code asserts against but the diff does not contain. Repository visibility,
+which moves M12, M14 and M15 by about a severity level each. Whether any guard
+actually passes: the session read assertions, not results, so every count quoted
+in this branch's documents was unverified by it. Upstream verification of the
+gitleaks commit, the four tagged actions, the published existence of the pinned
+versions, and all lockfile integrity hashes. Live remote state, including
+whether the orphaned commit is still fetchable. Runtime behaviour: no server, no
+browser, no accessibility run. And the unwritten halves of both threat models,
+where every test that proves a control is owned but not done, so the controls for
+prompt injection, ungranted tool use, gateway bypass, error-path secret leakage
+and cross-office reads are all still documentation.
+
+**Cost if wrong:** this entry closes section 8's Security review row with a
+record that holds three high findings and no fixes. A reader who sees that the
+row has a record and stops there gets the opposite of what the row is for. The
+row is satisfied by a review existing, not by its result, and that distinction is
+why this paragraph is here.
