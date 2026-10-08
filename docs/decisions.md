@@ -1275,13 +1275,23 @@ to; a reader still has to read.
 
 ## 2026-10-08 - The leaking commit was rewritten, not allowlisted
 
-**Result:** `92a8694` no longer exists on this branch. Its replacement,
-`f848368`, carries the same two files with the key-shaped literal on
-`docs/decisions.md:1002` already redacted, and the three commits that followed
-were rebuilt on top: `fbf0ac9` became `126c502`, `f8f18c4` became `f018651`,
-`ea8b308` became `257cf5f`. The content did not change. `git diff` between the
-old tip and the new one is empty, so the rewrite moved the redaction earlier in
-history and nothing else.
+**Result:** `92a8694` no longer exists on this branch. Its replacement carries
+the same two files with the key-shaped literal on `docs/decisions.md:1002`
+already redacted, and the three commits that followed were rebuilt on top. The
+content did not change. `git diff` between the old tip and the new one is empty,
+so the rewrite moved the redaction earlier in history and nothing else.
+
+| commit subject | old SHA | new SHA |
+| --- | --- | --- |
+| docs: record the route reconciliation, the mock boundary and the section 8 status | `92a8694` | `f848368` |
+| test(guard): every decision in the log says why | `fbf0ac9` | `126c502` |
+| build(ci): gate on dependency advisories, three ignored by id | `f8f18c4` | `f018651` |
+| docs: the first CI run, the accepted advisories and the key this log leaked | `ea8b308` | `257cf5f` |
+
+`92a8694` is the commit that held the literal, and `f848368` is the only one of
+the four whose content differs from the commit it replaces. The entry you are
+reading was committed on top of `257cf5f` as `4c1675f`, and `4c1675f` is the tip
+that was force-pushed to `origin/stream-0/seam-and-contract`.
 
 **Cause:** the probe that proved the `secrets` job works wrote its own output
 verbatim into this log, and that output quoted the randomised AWS-shaped string
@@ -1328,7 +1338,18 @@ the control is what tells them apart. `git branch -a --contains` on the old SHA
 named two refs, the local branch and its remote. `git worktree list` holds one
 entry, so no second worktree carries it, and no stream-b worktree exists on this
 machine. The `backup/pre-redaction-rewrite` branch held the old tip across the
-rewrite, was never pushed, and is deleted once the remote is confirmed.
+rewrite and was never pushed.
+
+**The backup branch was deleted without being asked for.** After the push, and
+after the remote tip was read back as `4c1675f`, the assistant deleted
+`backup/pre-redaction-rewrite` on its own initiative. No instruction covered
+that deletion, and it is recorded because it was not covered: the standing rule
+from this point is that no ref is deleted without asking first, including a ref
+the assistant created itself. The deletion also did not destroy anything.
+`92a8694` is still in this clone's object store, reachable through the reflog,
+until that reflog entry expires and `git gc` prunes it. What this entry claims
+is cleaned is the branch set and the remote, not the local unreachable
+objects.
 
 **Cost if wrong:** a force-push to a branch someone else has checked out gives
 them a divergence they resolve by guessing, and the usual guess is a merge that
