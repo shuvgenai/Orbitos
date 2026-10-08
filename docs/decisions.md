@@ -944,7 +944,9 @@ are recorded here. A tag is mutable: whoever can push to that repository can
 move `v2` onto different code, and this step runs with the repository's token.
 
 `v3.0.0` exists, published 2026-05-30, commit
-`e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`. It is not used here. Upstream
+`e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`. It is not used as of this entry; the
+later 2026-10-08 entry titled "gitleaks moved to v3.0.0" records the move to it
+and the calls that resolved the tag a second time. Upstream
 states no change to inputs, outputs or behaviour, and it requires runner
 2.327.1 or later; `v2` is the version this was reviewed against. Moving to v3 is
 a one-line change whenever wanted.
@@ -1355,3 +1357,51 @@ objects.
 them a divergence they resolve by guessing, and the usual guess is a merge that
 restores the old commit along with its blob. This branch has one worktree and
 one author, which is the only reason this was the cheap option.
+
+## 2026-10-08 - gitleaks moved to v3.0.0, pinned to its commit
+
+**Result:** the `secrets` step is now
+`gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`, which is
+the commit the `v3.0.0` tag points at. The previous pin was
+`ff98106e4c7b2bc287b24eaf42907196329070c7`, the commit behind `v2`. One line in
+`.github/workflows/ci.yml` changed, plus the comment above it, which named `v2`
+and would otherwise have described a pin that no longer exists.
+
+**Reason:** founder decision. The earlier entry above had left v3 resolved but
+unused, on the grounds that `v2` was the version the gate had been reviewed
+against. Upstream states no change to inputs, outputs or behaviour between them.
+
+**The tag resolved in one call, not two, and that difference is the point.**
+`v2` is an annotated tag, so resolving it took two calls: the ref gave a tag
+object and the tag object had to be dereferenced to reach a commit. `v3.0.0` is
+a lightweight tag, so the ref points straight at the commit and the second call
+has nothing to dereference. The calls, run on 2026-10-08:
+
+```
+GET /repos/gitleaks/gitleaks-action/git/ref/tags/v3.0.0
+  {"ref":"refs/tags/v3.0.0","type":"commit","sha":"e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e"}
+
+GET /repos/gitleaks/gitleaks-action/git/tags/e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+  404 Not Found
+
+GET /repos/gitleaks/gitleaks-action/git/commits/e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+  "chore: migrate to Node 24 runtime (v3)", committed 2026-05-30T21:39:34Z
+```
+
+The 404 is recorded rather than dropped. It is the evidence that the `type`
+field in the first response was read correctly: on a lightweight tag the
+annotated-tag endpoint has no object to return, and a reader who sees only the
+first and third calls cannot tell that the v2 procedure was followed and found
+to be the wrong one here. The third call confirms the SHA names a commit that
+exists, rather than a string copied from a release page.
+
+**What this does not verify.** v3 runs on Node 24 and upstream requires runner
+2.327.1 or later. The `secrets` job runs on `ubuntu-24.04`, a GitHub-hosted
+runner that updates itself, so the requirement is met there and would need
+checking on a self-hosted runner. Whether the gate still fails on a real finding
+under v3 is proven by a CI run, not by this entry.
+
+**Cost if wrong:** a pinned SHA never moves, so an upstream fix to a v3 bug does
+not reach this step until somebody edits the line. That is the trade accepted
+for a pin, and the three calls above are what tell the next person which tag
+this SHA came from and how to resolve the next one.

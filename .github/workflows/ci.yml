@@ -101,10 +101,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      # Pinned to the commit the v2 tag points at, not to the tag. A tag is
-      # mutable: whoever can push to that repository can move v2 onto different
-      # code, and this step runs with the repository's token.
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+      # Pinned to the commit the v3.0.0 tag points at, not to the tag. A tag
+      # is mutable: whoever can push to that repository can move v3.0.0 onto
+      # different code, and this step runs with the repository's token. The
+      # provenance of this SHA is recorded in docs/decisions.md.
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Required for organization-owned repositories, not for personal
