@@ -15,6 +15,23 @@ import { REPO_ROOT, readRepoFile } from './lib/walk.ts';
 const eslint = new ESLint({ cwd: REPO_ROOT });
 
 /**
+ * The same config with the seven frozen directories lifted back out of the
+ * ignore list, which is what `pnpm lint:frozen` reports against.
+ */
+const frozenEslint = new ESLint({ cwd: REPO_ROOT, overrideConfigFile: 'eslint.frozen.config.js' });
+
+/** A linted file inside each of the seven frozen directories. */
+const FROZEN_FILES = [
+  'frontdesk/src/classify.ts',
+  'api/src/auth.ts',
+  'db/src/client.ts',
+  'shared/src/body.ts',
+  'template/test/compose.test.ts',
+  'ops/src/posture-check.ts',
+  'design/tokens.test.ts',
+];
+
+/**
  * Load the config once, before the clock on any individual test starts.
  *
  * The first call that needs the config loads eslint.config.js, and that pulls
@@ -24,6 +41,7 @@ const eslint = new ESLint({ cwd: REPO_ROOT });
  */
 beforeAll(async () => {
   await eslint.isPathIgnored('eslint.config.js');
+  await frozenEslint.isPathIgnored('eslint.config.js');
 }, 60_000);
 
 /**
@@ -96,6 +114,65 @@ test('the seven frozen directories are not linted, and the reason is written dow
 
   const decisions = readRepoFile('docs/decisions.md');
   expect(decisions).toContain('Lint findings in the frozen packages are recorded, not fixed');
+});
+
+test('the frozen list has one definition, and the other two files read it', () => {
+  // Checked as text rather than by importing the module: eslint.config.js is a
+  // .js file, the root tsconfig project includes **/*.ts and does not set
+  // allowJs, so importing it from here is an implicit any and fails
+  // `pnpm typecheck` with TS7016. What matters is that there is one list, and
+  // that is what the three assertions below say.
+  //
+  // A second copy of the seven names is a copy that goes out of date on the
+  // day an eighth directory is frozen, and the directory it forgot is then
+  // linted by nothing and reported by nothing.
+  expect(readRepoFile('eslint.config.js'), 'FROZEN is not exported').toContain('export const FROZEN');
+
+  for (const file of ['eslint.frozen.config.js', 'scripts/lint-frozen.mjs']) {
+    const text = readRepoFile(file);
+    expect(text, `${file} does not import FROZEN`).toMatch(/import[^;]*FROZEN[^;]*from/);
+    expect(text, `${file} carries its own copy of the frozen list`).not.toContain("'frontdesk/'");
+  }
+});
+
+test('pnpm lint:frozen reads the frozen directories and nothing else new', async () => {
+  // The reporting half of the freeze. eslint.frozen.config.js lifts exactly
+  // the seven, and leaves the prototype and the vendored trees ignored: an
+  // ignore list that widens here is a report nobody can read.
+  for (const path of FROZEN_FILES) {
+    expect(await frozenEslint.isPathIgnored(path), `${path} is still ignored, so lint:frozen reports nothing for it`).toBe(false);
+  }
+  for (const path of [
+    'reference/src/App.tsx',
+    'landing/src/main.ts',
+    'archive/old.ts',
+    'node_modules/pkg/index.js',
+    'db/src/generated/prisma/index.js',
+    'dashboards/dist/assets/main.js',
+    'test-results/trace.js',
+  ]) {
+    expect(await frozenEslint.isPathIgnored(path), `${path} is reported by lint:frozen, and it is not ours`).toBe(true);
+  }
+
+  const scripts = (JSON.parse(readRepoFile('package.json')) as Record<string, any>)['scripts'];
+  expect(scripts['lint:frozen']).toBe('node scripts/lint-frozen.mjs');
+});
+
+test('lint:frozen cannot fix frozen code, and CI runs it as a report', () => {
+  // The whole point of the freeze: findings there are reported and never
+  // fixed. A --fix reaching that script would rewrite 44 merged commits'
+  // worth of code on a run nobody read as a write.
+  const script = readRepoFile('scripts/lint-frozen.mjs');
+  expect(script, 'lint-frozen.mjs does not state fix: false').toContain('fix: false');
+  // A call, not a mention: the script's own comment names outputFixes to say
+  // it is never called, and a guard that cannot tell those apart is a guard
+  // that bans its own documentation.
+  expect(script, 'lint-frozen.mjs calls outputFixes, which writes to disk').not.toMatch(
+    /\boutputFixes\s*\(/,
+  );
+
+  // In CI it is a report step, so the counts cannot go stale unnoticed.
+  expect(readRepoFile('.github/workflows/ci.yml')).toContain('pnpm lint:frozen');
 });
 
 test('react/no-danger is an error on every file that can render markup', async () => {

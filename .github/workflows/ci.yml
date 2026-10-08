@@ -19,6 +19,13 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm check:screens
       - run: pnpm test
+      # A report, not a gate. The frozen directories are ignored by `pnpm lint`
+      # because their findings are reported and never fixed, so this step
+      # prints the per-directory counts into the job log and always exits 0.
+      # It exists so the counts in docs/decisions.md cannot go stale without
+      # anyone seeing it.
+      - name: Lint findings in the frozen directories, reported not fixed
+        run: pnpm lint:frozen
       - name: Posture check, engine section (FLT-7, SEC-6)
         run: pnpm posture:check
 

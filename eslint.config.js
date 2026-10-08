@@ -26,12 +26,17 @@ import globals from 'globals';
  * Findings inside them are reported and never fixed, and a fix needs the
  * founder's explicit approval case by case. So they are not linted by
  * `pnpm lint`: a gate that cannot go green is a gate somebody switches off.
- * Their counts are recorded in docs/decisions.md. They are collected by
- * running ESLint against a throwaway config that imports this one and filters
- * FROZEN back out of the ignore list: `--no-ignore` cannot be used, because it
- * lifts the node_modules and generated ignores at the same time.
+ * `pnpm lint:frozen` reports their findings. It runs ESLint against
+ * eslint.frozen.config.js, which imports this file and filters this list back
+ * out of the ignore list. `--no-ignore` cannot do that job, because it lifts
+ * the node_modules and generated ignores at the same time and reports on
+ * vendored code.
+ *
+ * Exported so eslint.frozen.config.js and scripts/lint-frozen.mjs read the
+ * same seven names this file ignores. A second copy of the list is a copy that
+ * goes out of date on the day an eighth directory is frozen.
  */
-const FROZEN = ['frontdesk/', 'api/', 'db/', 'shared/', 'template/', 'ops/', 'design/'];
+export const FROZEN = ['frontdesk/', 'api/', 'db/', 'shared/', 'template/', 'ops/', 'design/'];
 
 /** Not ours to lint, or not source at all. */
 const NOT_OURS = [

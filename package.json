@@ -22,7 +22,8 @@
     "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts",
     "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts",
     "lint": "eslint .",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "lint:frozen": "node scripts/lint-frozen.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
