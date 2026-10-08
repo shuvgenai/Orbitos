@@ -14,6 +14,21 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Section 8's dependency row. Right after install, because an advisory
+      # does not depend on anything being built, and it costs a couple of
+      # seconds.
+      #
+      # Three high advisories are ignored by GHSA id in the auditConfig block of
+      # package.json, each with a reason and a review date in
+      # docs/decisions.md. By id and never by severity: lowering the level to
+      # critical would hide the next high advisory in a package this code
+      # actually loads, which is the whole point of the row.
+      #
+      # No --ignore-registry-errors. A registry that cannot be reached fails
+      # this step, which is noisy and correct: the alternative is a step that
+      # reports clean because it asked nobody.
+      - name: Dependency advisories, with three ignored by id
+        run: pnpm audit --audit-level=high
       - run: pnpm db:up
       - run: pnpm db:generate
       - run: pnpm typecheck
