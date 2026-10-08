@@ -7,7 +7,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, test } from 'vitest';
-import { FLEET_NAV, ORG_ADMIN_NAV, type ScreenRow, USER_NAV } from '../nav/roles';
+import { FLEET_NAV, type NavFlags, ORG_ADMIN_NAV, type ScreenRow, USER_NAV } from '../nav/roles';
 import { RoleRoutes, RoleScreens } from './RoleRoutes';
 
 /** A route with a parameter needs a value before it can be visited. */
@@ -19,6 +19,17 @@ const at = (path: string, nav: readonly ScreenRow[], appName = 'Orbitcrew') =>
       <RoleScreens appName={appName} nav={nav} />
     </MemoryRouter>,
   );
+
+/** The same, with the flags a role's shell would be given. */
+const atWithFlags = (path: string, nav: readonly ScreenRow[], flags: NavFlags) =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <RoleScreens appName="Orbitcrew" flags={flags} nav={nav} />
+    </MemoryRouter>,
+  );
+
+/** The one flagged screen, found by its flag rather than by its address. */
+const FLAGGED = ORG_ADMIN_NAV.find((row) => row.inSidebar === 'flag');
 
 const heading = () => screen.getByRole('heading', { level: 1 }).textContent;
 
@@ -141,4 +152,51 @@ test('the app mounts a HashRouter, so the fragment picks the screen', () => {
   window.location.hash = '#/waiting';
   render(<RoleRoutes appName="Orbitcrew" nav={USER_NAV} />);
   expect(heading()).toBe('Waiting for you');
+});
+
+// Finding M17 of the 2026-10-08 security review. The flag used to filter the nav
+// list only, so the link disappeared and the address still worked. These three
+// tests are the difference between a hidden link and an off switch.
+
+test('there is exactly one flagged screen, and it is Standing Authority', () => {
+  // The tests below are about a flag, not about an address, so they find the row
+  // by its flag. If a second flagged screen is added they should cover it, and
+  // this assertion is what makes that a decision rather than an oversight.
+  const flagged = ORG_ADMIN_NAV.filter((row) => row.inSidebar === 'flag');
+  expect(flagged.map((row) => row.route)).toEqual(['/authority']);
+});
+
+test('with the flag off the flagged route renders the flagged-off state, not the screen', () => {
+  expect(FLAGGED).toBeDefined();
+  const row = FLAGGED!;
+  const view = atWithFlags(row.route, ORG_ADMIN_NAV, {});
+
+  // Still a real page with the screen's own heading, because the screen exists
+  // and the office may switch it on. A 404 here would be false.
+  expect(heading()).toBe(row.screen);
+  expect(screen.getByText('Standing approvals are not switched on for this office')).toBeInTheDocument();
+  // And not the shell's own line, which is what it rendered before the gate.
+  expect(screen.queryByText(row.appears)).toBeNull();
+  view.unmount();
+});
+
+test('with the flag on the flagged route renders the screen as any other', () => {
+  expect(FLAGGED).toBeDefined();
+  const row = FLAGGED!;
+  const view = atWithFlags(row.route, ORG_ADMIN_NAV, { standingAuthority: true });
+
+  expect(heading()).toBe(row.screen);
+  expect(screen.getByText(row.appears)).toBeInTheDocument();
+  expect(screen.queryByText('Standing approvals are not switched on for this office')).toBeNull();
+  view.unmount();
+});
+
+test('the default flags gate it, so a shell mounted without flags is gated too', () => {
+  // `at` passes no flags at all, which is how every app mounts today.
+  expect(FLAGGED).toBeDefined();
+  const row = FLAGGED!;
+  const view = at(row.route, ORG_ADMIN_NAV);
+
+  expect(screen.getByText('Standing approvals are not switched on for this office')).toBeInTheDocument();
+  view.unmount();
 });

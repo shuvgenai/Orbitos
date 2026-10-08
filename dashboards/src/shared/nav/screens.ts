@@ -9,8 +9,14 @@
 // and not links, because a route with an id has nothing to link to, a step
 // inside another screen is reached from that screen, and sign-in sits outside
 // the shell. `/authority` is 'flag': section 15.6 makes it read-only behind a
-// flag that defaults to off, so it is routed always and linked only when the
-// flag is on (founder decision, 2026-10-07).
+// flag that defaults to off, so it is linked only when the flag is on.
+//
+// The route is gated too, as of 2026-10-08. The 2026-10-07 decision was that a
+// flagged screen is routed either way and only its link is hidden. Finding M17
+// of that day's security review pointed out that this makes the flag not an off
+// switch: `/authority` was reachable by typing it. The founder superseded the
+// earlier decision the same day. With the flag off the route now renders the
+// flagged-off state, which lives in layout/RoleRoutes.tsx.
 //
 // `appears` and `fills` are the section 15.4 empty state: what will appear here,
 // and the one action or condition that fills it. `appears` is the PRD's "What it

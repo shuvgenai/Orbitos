@@ -35,6 +35,43 @@ type RoleRoutesProps = {
 const shellState = (row: ScreenRow) => ({ kind: 'empty', appears: row.appears, fills: row.fills }) as const;
 
 /**
+ * Whether a flagged screen's flag is off.
+ *
+ * Only a row marked 'flag' can be gated. Every other row is reached by being in
+ * the role's list, which is the thing the list means.
+ */
+const isFlaggedOff = (row: ScreenRow, flags: NavFlags | undefined) =>
+  row.inSidebar === 'flag' && flags?.standingAuthority !== true;
+
+/**
+ * What a flagged screen shows while its flag is off.
+ *
+ * The route stays mounted and renders this instead of the screen. Finding M17
+ * of the 2026-10-08 security review: the flag used to filter the nav list only,
+ * so `sidebarOf` dropped the link and `/authority` stayed reachable by typing
+ * it. That was harmless while the screen was an empty shell and would stop
+ * being harmless the moment it had content, because the natural reading of a
+ * flag is that it is an off switch. This makes it one. It supersedes the
+ * 2026-10-07 decision recorded in nav/screens.ts, which said a flagged screen is
+ * routed either way.
+ *
+ * Not a seventh state. PRD section 15.4 names six and
+ * guards/screen-states.test.ts keeps them to one component, so this reuses the
+ * empty state with its own words. The row's own `fills` line already says the
+ * screen stays read only until the office turns standing approvals on, which is
+ * the sentence a person needs, so it is reused rather than rewritten.
+ *
+ * Not a 404 either. The screen exists and the office may switch it on, so
+ * saying the address does not match a screen would be false.
+ */
+const flaggedOffState = (row: ScreenRow) =>
+  ({
+    kind: 'empty',
+    appears: 'Standing approvals are not switched on for this office',
+    fills: row.fills,
+  }) as const;
+
+/**
  * Screens that render without the shell.
  *
  * Sign in is the only one. Section 15.5 puts it before anyone is signed in, so
@@ -101,7 +138,15 @@ export function RoleScreens({ appName, nav, flags, paused }: RoleRoutesProps) {
         {nav
           .filter((row) => !OUTSIDE_THE_SHELL.has(row.route))
           .map((row) => (
-            <Route element={<Screen row={row} state={shellState(row)} />} key={row.route} path={row.route} />
+            <Route
+              // The gate is here, on the element, so a flagged screen that
+              // grows real content cannot render it without passing this line.
+              element={
+                <Screen row={row} state={isFlaggedOff(row, flags) ? flaggedOffState(row) : shellState(row)} />
+              }
+              key={row.route}
+              path={row.route}
+            />
           ))}
         <Route element={<NotFound back={back} />} path="*" />
       </Routes>

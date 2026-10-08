@@ -1905,3 +1905,70 @@ error, and this is the case that shows why.
 reasons that have nothing to do with the rules it enforces, such as a file lock
 or a permissions change on somebody's machine. That is the intended trade, and it
 will occasionally be inconvenient. The alternative is the third run above.
+
+## 2026-10-08 - M17 closed: the Standing Authority flag is now an off switch, superseding 2026-10-07
+
+**Superseded by this entry:** the 2026-10-07 decision recorded in
+`dashboards/src/shared/nav/screens.ts`, which said a flagged screen is routed
+either way and only its nav link is hidden. That comment now points here.
+
+**Result:** with the flag off, `/authority` renders a flagged-off state instead
+of the screen. The gate sits on the route element in
+`dashboards/src/shared/layout/RoleRoutes.tsx`, so a flagged screen that grows
+real content cannot render it without passing that line. `sidebarOf` still drops
+the link, which was never the problem.
+
+**Reason the earlier decision was changed rather than defended.** Finding M17 of
+the 2026-10-08 security review: the flag filtered the nav list only, so the link
+disappeared and the address still worked. Typing `/authority` reached the screen
+with the flag off. That was harmless while the screen was an empty shell, and it
+would stop being harmless the moment it had content, because the natural reading
+of a flag is that it is an off switch. A later implementer adding the Standing
+Authority logic would have had no reason to check.
+
+**Three choices, and why this one.** A seventh screen state was rejected: PRD
+section 15.4 names six, `guards/screen-states.test.ts` keeps them to one
+component, and adding a seventh is a product decision rather than a fix. A 404
+was rejected: the screen exists and the office may switch it on, so saying the
+address does not match a screen would be false. What ships is the existing empty
+state with its own words, reusing the row's own `fills` line, which already says
+the screen stays read only until the office turns standing approvals on.
+
+**Four tests.** One pins that there is exactly one flagged screen and that it is
+Standing Authority, so a second flagged screen becomes a decision rather than an
+oversight. One asserts the flagged-off state with the flag off, and asserts the
+shell's own line is absent. One asserts the screen renders normally with the flag
+on. One asserts the default, no flags passed at all, which is how all three apps
+mount today, is gated. They find the row by its flag rather than by its address.
+
+**Probe.** The gate was removed, putting the file back to its pre-M17 behaviour:
+
+```
+the ungated form, state={shellState(row)}
+
+  x with the flag off the flagged route renders the flagged-off state, not the screen
+      Unable to find an element with the text:
+      Standing approvals are not switched on for this office
+  x the default flags gate it, so a shell mounted without flags is gated too
+      Unable to find an element with the text:
+      Standing approvals are not switched on for this office
+      Tests  2 failed | 18 passed (20)
+
+restored
+      Tests  20 passed (20)
+```
+
+The two new tests that survive the probe are the ones that would have passed
+before the change as well, which is why the other two exist.
+
+Full suite after the change: typecheck clean, lint clean, 404 unit tests passing
+with 1 skipped, 137 dashboards tests passing. The 52-route and axe runs were
+unaffected, because the gated state keeps the screen's own heading and only its
+body copy changes.
+
+**Cost if wrong:** this is still user interface only and it is still not
+enforcement. Nothing server-side knows about the flag, so when Standing
+Authority gets a contract surface the authority check has to be made there too.
+`docs/rules/engine.md` already says a client-side check is a convenience and
+never the control, and this change does not alter that. What it buys is that the
+flag now does what its name says, on the one surface it governs.
