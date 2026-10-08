@@ -23,7 +23,8 @@
     "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts",
     "lint": "eslint .",
     "e2e": "playwright test",
-    "lint:frozen": "node scripts/lint-frozen.mjs"
+    "lint:frozen": "node scripts/lint-frozen.mjs",
+    "lint:frozen:danger": "node scripts/lint-frozen.mjs --fail-on-danger"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

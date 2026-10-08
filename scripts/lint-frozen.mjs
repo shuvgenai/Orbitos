@@ -9,13 +9,36 @@
 // It reports and exits 0. It never fixes anything: ESLint is constructed
 // without `fix`, and outputFixes is never called, so there is no path through
 // this file that writes to a frozen directory.
+//
+// --fail-on-danger makes it exit 1 on react/no-danger and on nothing else.
+// That rule is the one hard check the freeze does not buy out, because
+// dangerouslySetInnerHTML renders whatever a job, an email or a connector
+// produced with no escaping, and a frozen directory is not a safer place to do
+// that than any other. Every other finding there stays a report.
+//
+// What that mode can and cannot see, stated plainly rather than implied:
+// react/no-danger matches a JSX attribute. There are no .tsx or .jsx files in
+// the seven frozen directories today and no dangerouslySetInnerHTML anywhere
+// in them, so the check currently passes by having nothing to look at. It is a
+// tripwire that arms on the commit that puts JSX in frozen code. It does not
+// see React.createElement('div', { dangerouslySetInnerHTML }), and it does not
+// see HTML built by string concatenation, which is what shared/src/body.ts
+// handles.
+import { relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import { FROZEN } from '../eslint.config.js';
 
-const REPO_ROOT = new URL('../', import.meta.url);
+// fileURLToPath rather than URL.pathname: pathname keeps the leading slash
+// before a Windows drive letter and leaves %20 in place of a space.
+const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
+
+/** The one rule a frozen finding is not allowed to stay a report. */
+const HARD_RULE = 'react/no-danger';
+const failOnDanger = process.argv.slice(2).includes('--fail-on-danger');
 
 const eslint = new ESLint({
-  cwd: new URL('.', REPO_ROOT).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+  cwd: REPO_ROOT,
   overrideConfigFile: 'eslint.frozen.config.js',
   // Said out loud rather than left to the default, because it is the one
   // property of this script that matters most.
@@ -74,3 +97,29 @@ const errors = reports.reduce((sum, r) => sum + r.errors, 0);
 const warnings = reports.reduce((sum, r) => sum + r.warnings, 0);
 console.log('');
 console.log(`${pad('total')}  ${String(errors).padStart(6)}  ${String(warnings).padStart(8)}`);
+
+if (!failOnDanger) process.exit(0);
+
+const danger = [];
+for (const report of reports) {
+  for (const result of report.results) {
+    for (const message of result.messages) {
+      if (message.ruleId !== HARD_RULE) continue;
+      const file = relative(REPO_ROOT, result.filePath).split(sep).join('/');
+      danger.push(`${file}:${message.line}:${message.column}  ${message.message}`);
+    }
+  }
+}
+
+console.log('');
+if (danger.length === 0) {
+  console.log(`${HARD_RULE}: none. The freeze does not buy this rule out.`);
+  process.exit(0);
+}
+
+console.error(`${HARD_RULE} in frozen code, which is not reported and left alone:`);
+for (const line of danger) console.error(`  ${line}`);
+console.error('');
+console.error('dangerouslySetInnerHTML renders text from outside the office as markup.');
+console.error('Fix it, or take it to the founder. Do not add it to the report.');
+process.exit(1);

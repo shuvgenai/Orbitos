@@ -26,6 +26,11 @@ jobs:
       # anyone seeing it.
       - name: Lint findings in the frozen directories, reported not fixed
         run: pnpm lint:frozen
+      # A gate, not a report. The freeze buys out every rule except this one:
+      # dangerouslySetInnerHTML renders text from outside the office as markup,
+      # and frozen code is not a safer place to do that than any other.
+      - name: react/no-danger is an error in frozen code too
+        run: pnpm lint:frozen:danger
       - name: Posture check, engine section (FLT-7, SEC-6)
         run: pnpm posture:check
 

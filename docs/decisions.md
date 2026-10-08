@@ -543,3 +543,40 @@ side of the gate would blame every imported component as dead.
 unreported in a `.ts` file. `no-undef` and `no-unused-vars` are not that class of
 rule, so the exposure is small; the fix if it bites is to adopt
 `typescript-eslint` and give every linted file a tsconfig project.
+
+## 2026-10-07 - react/no-danger is the one rule the freeze does not buy out
+
+**Decision:** `pnpm lint:frozen` reports findings in the seven frozen
+directories and exits 0, as the entry above describes. `pnpm lint:frozen:danger`
+runs the same scan and exits 1 on `react/no-danger` and on nothing else. CI runs
+both: the first as a report step, the second as a gate.
+
+**Reason:** every other finding in frozen code is a style finding, and a
+reformat there is still a diff nobody asked for. This one is not. A
+`dangerouslySetInnerHTML` renders whatever a job, an email or a connector
+produced as markup, with no escaping, and a frozen directory is not a safer
+place to do that than any other. The freeze protects 44 merged commits of
+behaviour; it was never meant to protect a new injection site added later.
+
+**What the check can and cannot see, because a tripwire described as a guard is
+worse than no tripwire:** `react/no-danger` matches a JSX attribute. There are
+no `.tsx` or `.jsx` files in the seven frozen directories today, and no
+`dangerouslySetInnerHTML` anywhere in them, so the gate currently passes by
+having nothing to look at. It arms on the commit that puts JSX into frozen code,
+which was verified by putting a `dangerouslySetInnerHTML` in a temporary
+`shared/src/Probe.tsx` and watching the gate exit 1 while the report mode stayed
+at 0. It does **not** see
+`React.createElement('div', { dangerouslySetInnerHTML })`, and it does **not**
+see HTML assembled by string concatenation. `shared/src/body.ts` is the frozen
+code that handles HTML today, and it strips inbound markup to text rather than
+rendering any, so nothing there is in this rule's reach either way.
+
+**Consequence worth stating:** the single existing frozen finding,
+`no-control-regex` in `api/src/auth.ts`, stays a report. If the gate failed on
+it, it could not go green, and a gate that cannot go green is a gate somebody
+switches off. A test in `guards/lint-config.test.ts` pins the fail list to the
+one rule for that reason.
+
+**Cost if wrong:** an injection site reaches frozen code through a path this
+rule does not match, most likely string-built HTML. The fix then is a rule that
+reads the string path, not a wider version of this one.

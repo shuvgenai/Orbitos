@@ -53,13 +53,19 @@ beforeAll(async () => {
  */
 const NAMES = ['off', 'warn', 'error'] as const;
 
-async function severity(path: string, rule: string) {
-  const config = await eslint.calculateConfigForFile(path);
-  const entry = config.rules?.[rule];
+async function severityUnder(instance: ESLint, path: string, rule: string) {
+  // calculateConfigForFile returns undefined for a file the instance ignores,
+  // which is why the frozen instance exists: asking the main one about
+  // api/src/auth.ts gets no config at all, not a config with the rule off.
+  const config = await instance.calculateConfigForFile(path);
+  const entry = config?.rules?.[rule];
   if (entry === undefined) return 'unconfigured';
   const level = Array.isArray(entry) ? entry[0] : entry;
   return typeof level === 'number' ? (NAMES[level] ?? String(level)) : level;
 }
+
+const severity = (path: string, rule: string) => severityUnder(eslint, path, rule);
+const frozenSeverity = (path: string, rule: string) => severityUnder(frozenEslint, path, rule);
 
 test('the code the Done checklist depends on is linted', async () => {
   // contract/ does not exist yet. The assertion is on the config, not on the
@@ -156,6 +162,40 @@ test('pnpm lint:frozen reads the frozen directories and nothing else new', async
 
   const scripts = (JSON.parse(readRepoFile('package.json')) as Record<string, any>)['scripts'];
   expect(scripts['lint:frozen']).toBe('node scripts/lint-frozen.mjs');
+});
+
+test('react/no-danger is an error in the frozen directories too', async () => {
+  // The one rule the freeze does not buy out. Every other finding in frozen
+  // code is reported and left alone, because a reformat is still a diff nobody
+  // asked for. This one is not a style finding: dangerouslySetInnerHTML renders
+  // whatever a job, an email or a connector produced as markup, with no
+  // escaping, and a frozen directory is not a safer place to do that.
+  //
+  // Today it has nothing to look at. The rule matches a JSX attribute and
+  // there are no .tsx or .jsx files in the seven directories, so this is a
+  // tripwire that arms on the commit that puts JSX in frozen code. The .tsx
+  // path below is in the list for exactly that day.
+  for (const path of [...FROZEN_FILES, 'frontdesk/src/Mail.tsx', 'shared/src/Receipt.tsx']) {
+    expect(await frozenSeverity(path, 'react/no-danger'), path).toBe('error');
+  }
+});
+
+test('pnpm lint:frozen:danger is the hard check, and CI runs it as a gate', () => {
+  const scripts = (JSON.parse(readRepoFile('package.json')) as Record<string, any>)['scripts'];
+  expect(scripts['lint:frozen:danger']).toBe('node scripts/lint-frozen.mjs --fail-on-danger');
+
+  // Fails on that one rule and on nothing else: the no-control-regex finding
+  // in api/src/auth.ts must stay a report, or the gate cannot go green and
+  // somebody switches it off.
+  const script = readRepoFile('scripts/lint-frozen.mjs');
+  expect(script, 'lint-frozen.mjs does not name the hard rule').toContain(
+    "const HARD_RULE = 'react/no-danger'",
+  );
+  expect(script, 'lint-frozen.mjs does not filter the fail list to the hard rule').toContain(
+    'message.ruleId !== HARD_RULE',
+  );
+
+  expect(readRepoFile('.github/workflows/ci.yml')).toContain('pnpm lint:frozen:danger');
 });
 
 test('lint:frozen cannot fix frozen code, and CI runs it as a report', () => {
