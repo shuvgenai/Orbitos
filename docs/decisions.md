@@ -1972,3 +1972,49 @@ Authority gets a contract surface the authority check has to be made there too.
 `docs/rules/engine.md` already says a client-side check is a convenience and
 never the control, and this change does not alter that. What it buys is that the
 flag now does what its name says, on the one surface it governs.
+
+## 2026-10-08 - M7 and M8 are scheduled, not started: a guard-hardening task after compose-smoke
+
+**Result:** two review findings are accepted and deferred by founder decision, to
+one task that runs after the compose-smoke fix. No code was written for either.
+This entry exists so the deferral is a schedule rather than a silence, which is
+the failure the 2026-10-08 "Task 2 is not scheduled" entry above records.
+
+**M7, the freeze guard cannot see two of the four ways a suite is weakened.**
+`guards/freeze.test.ts` matches `test.skip`, `.only` and `.todo`. The word
+boundary after `skip` means `test.skipIf(...)` does not match, and `skipIf` is
+the idiom this branch adopted elsewhere: `guards/design-naming.test.ts` and
+`guards/mock-boundary.test.ts` both use it. Also unmatched: `runIf`,
+`concurrent.skip`, `it.fails`, and a test whose body was emptied. Separately, the
+guard cannot see a test removed from a file that survives, because it compares
+the file list and not the test count. `freeze-baseline.json` records
+`unitTestCount: 347`, and the guard says that number is kept as a record of the
+measurement and not compared. `CLAUDE.md` section 4 promises every test that runs
+today keeps running and keeps passing, so the gap is between that promise and
+what is checked.
+
+**M8, the exact-version guard has three bypasses.** `RANGE` does not match `1.x`
+or `1.2.x`; it does not match the dist-tags `latest`, `next` and `beta`; and
+`PROTOCOL` causes an unconditional skip, so `npm:react@^19` is never examined for
+a range at all. The stated rule is versions pinned exact with no caret, and
+`pnpm add react@latest` satisfies the guard today.
+
+**Reason both are deferred rather than fixed now.** Neither is reachable without
+somebody editing a guard or a manifest, so neither is a live exposure. Both are
+also the same kind of work, a regex and an allowlist read against the forms they
+are supposed to catch, so doing them together means one probe session rather than
+two. The compose-smoke fix comes first because that job is currently red, and a
+red gate teaches people to ignore gates.
+
+**What the task has to include, so it is not rediscovered.** For M7: the two
+missing skip forms, the emptied body, and a decision on whether `unitTestCount`
+becomes a compared floor rather than a record, which is the only thing that
+catches a test deleted from a surviving file. For M8: `1.x`, the dist-tags, and
+examining the version inside an `npm:` alias rather than skipping the whole
+specifier. Each form probed by being written into a manifest or a frozen test
+file and removed again, as every guard added today was.
+
+**Cost if wrong:** two guards this log describes as enforcing a rule are
+enforcing most of it, and they will be read as enforcing all of it until this
+task runs. That is the position M7 and M8 are already in. The only thing this
+entry changes is that it is now written down with a place in the order.
