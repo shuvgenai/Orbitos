@@ -223,6 +223,12 @@ jobs:
       # verified on the staging instance instead (PRD section 9, "a staging instance on the next
       # pinned versions"). Revisit if CI moves to a larger runner.
       #
+      # Corrected 2026-10-08: that sentence is about the engine and it stands, but it should not be
+      # read as coverage of anything else. The staging instance is built from this repository's
+      # Dockerfile, which never copied db/, so api had never started from this image anywhere. See
+      # the 2026-10-08 entry "Correction: the staging instance never covered api" in
+      # docs/decisions.md.
+      #
       # No --wait on this first up. api reads gmail_connections before it
       # listens (api/src/main.ts:32) and calls fail() unless it finds exactly one
       # row, and the init script creates empty databases, so api crash-loops

@@ -2074,3 +2074,140 @@ on its own. It is a settings change plus this paragraph.
 changes and nobody rereads this entry, the acceptance becomes wrong in three
 places at once. That is the risk of reasoning from a single premise. The
 mitigation is that the premise is in the heading rather than buried.
+
+## 2026-10-08 - compose-smoke: eight causes, seven fixed, still red, and what that says about the first diagnosis
+
+**Result:** `compose-smoke` is **red**. Seven of eight causes are fixed and
+pushed; the eighth is diagnosed and not fixed. `test`, `secrets` and `e2e` all
+pass. This entry records the state as it is, because the alternative is a log
+that reads as though the job were fixed.
+
+**The first diagnosis was wrong about the kind of problem, not just the count.**
+The 2026-10-08 entry above recorded this job as "a known pre-existing failure
+(missing PUBLIC_BASE_URL and APPROVAL_LINK_SECRET)". Two missing variables is a
+five-minute fix. The real list is eight causes across configuration, container
+plumbing, the database, the image build, and two mistakes made while fixing the
+others. Compose fails during interpolation and names only what it reached, and
+`up --wait` names only the first unhealthy service it sees, so every layer stayed
+invisible until the one in front of it cleared.
+
+| # | Cause | State |
+| --- | --- | --- |
+| 1 | Four variables Compose marks required were unset, so interpolation failed before any container started | fixed, `65b2dfe` |
+| 2 | `TOKEN_ENCRYPTION_KEY: smoke` passes Compose and fails `hex32Check` at startup | fixed, `65b2dfe` |
+| 3 | The four Paperclip ids were set in the job env, which never reaches a container | fixed, `33d2c32` |
+| 4 | The compose `orbit` database had no schema | fixed, `591b2a1` |
+| 5 | No `GmailConnection` row, and api requires exactly one | fixed, `591b2a1` |
+| 6 | The Dockerfile never copied `db/`, so api could not load its own code | fixed, `e7af736` |
+| 7 | The `/setup` files were created empty, and frontdesk rejects an empty one | fixed, `2d89d8e` |
+| 8 | The seed step reports success while inserting nothing | **open** |
+
+**Cause 3, the one worth remembering.** A job-level `env:` entry feeds Compose's
+`${...}` interpolation. It does not reach a container. A service receives only
+what its own `environment:` block or an `env_file` gives it, and frontdesk's
+block does not list the four Paperclip ids. Setting them in the job env turned a
+guard green and changed nothing inside the container. `docker compose config`
+settled it: thirteen names reach frontdesk and none of the four. The fix writes
+`template/.env.frontdesk`, the file Compose already declares with
+`required: false`.
+
+**Cause 6 had never worked anywhere.** api imports `@orbit/db/client`, which
+`db/package.json` maps to `./src/client.ts`, and the Dockerfile copied `shared/`
+and the app directory only. api died on `ERR_MODULE_NOT_FOUND` before it
+listened, in every environment built from this image. worker imports nothing
+from `@orbit/db` and was healthy throughout, which is why the stack looked
+three-quarters working. Four other failures hid it, because the job never got
+far enough to read api's log.
+
+**Cause 8, open, and the same failure twice in one day.** The seed step is
+
+```
+pnpm --filter @orbit/ops exec node --import tsx ../scripts/ci-seed-instance.ts | psql ...
+```
+
+The `compose-smoke` job never runs `pnpm install`: it is a checkout and Docker
+commands. So there are no `node_modules`, the generator fails, and because a
+GitHub Actions `run:` block does not set `pipefail`, the pipeline's exit status
+is `psql`'s. `psql` with empty stdin exits 0. The step went green having
+inserted nothing, and api reported `expected exactly one GmailConnection row,
+found 0`. The migrations had applied, so the table existed and was empty, which
+is why this did not look like a database problem.
+
+That is the same defect as the guard described in the H2 entry above: a check
+that passes while the thing it is supposed to do has not happened. Found twice in
+one day, in work written hours apart.
+
+**The fix, not applied here, so that it is reviewed rather than assumed.** Three
+parts, and the third matters most. Install dependencies in the job, or generate
+the SQL somewhere that already has them. Add `set -o pipefail` to that step, so a
+failing generator fails the step. And assert the row exists after seeding, with a
+`SELECT count(*)` that fails on anything but one, so a step that inserts nothing
+can never report success again. The first two make this instance work; the third
+makes the class of error visible.
+
+**Four wrong assumptions caught before CI, by tests and local checks rather than
+by a run.** Recorded because they are the argument for the order the work was
+done in.
+
+1. A comment-skip pattern in the new guard could not match a carriage return, so
+   on a CRLF checkout it read 8 of 18 variables. In a JavaScript regex `.` does
+   not match a carriage return. Caught by the first red run, which reported six
+   variables as missing that the job already set.
+2. An ordering assertion read the first `--wait` rather than the last, and failed
+   against a correct workflow. The job waits twice on purpose.
+3. A check demanded every migration be named in the workflow, when globbing the
+   directory is better, because a migration added later then needs no workflow
+   edit.
+4. The `\gset` seed SQL was run against a real Postgres first, where it worked,
+   and the image was built locally first, where `prisma generate` failed on
+   `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL`.
+   `db/prisma.config.ts` resolves `env('DATABASE_URL')` eagerly even though
+   generate never connects. Its own comment says "CI sets DATABASE_URL
+   directly", and the generate stage now does.
+
+In three of those four the test was wrong and the code was right, which is the
+opposite of the usual case and the reason watching a test fail is worth the time.
+
+**Cause 7 was mine, and the plan asserted it.** The `/setup` step created
+`tone-samples.md` and `facts.md` with `: >`, and the plan said "empty files are
+enough to start". `frontdesk/src/main.ts:31` reads each file, trims it, and calls
+`fail()` on an empty result. The assumption was written as a fact and never
+checked against that function, which is exactly what the four items above exist
+to prevent.
+
+**What a green compose-smoke will and will not prove.** It will prove that the
+compose file parses with real values, that both databases and both logins exist,
+that the schema applies, and that `postgres`, `redis`, `web`, `worker`, `api` and
+`frontdesk` all start and answer their healthchecks. It will not prove anything
+about the engine, which is excluded with `--scale paperclip=0`, and it will not
+prove any behaviour beyond boot.
+
+**Cost if wrong:** the log now says this job is red, with eight causes and seven
+commits. The risk is the opposite of the earlier one: a reader who sees seven
+fixes may assume the eighth is small. It is small in lines and not in kind,
+because it is a step that lies about having worked.
+
+## 2026-10-08 - Correction: the staging instance never covered api
+
+**Superseded by this entry:** the claim at `.github/workflows/ci.yml:217` that
+the engine's "boot is verified on the staging instance instead". The comment is
+about the engine and that part stands. What a reader takes from it does not.
+
+**Result:** api has never started from the image this repository builds. Cause 6
+of the entry above: the Dockerfile never copied `db/`, so `@orbit/db/client` was
+absent and api exited before listening. The staging instance is built from the
+same Dockerfile, so whatever it verified, it did not verify that api boots.
+Nothing else did either, because `compose-smoke` has never passed.
+
+**Reason this is recorded rather than quietly folded into cause 6.** The comment
+offers reassurance about coverage that did not exist, and `e7af736` makes it true
+going forward without making it true in the past. Anybody reading the history
+before that commit should know that "verified on the staging instance" covered
+the engine's configuration and not api's boot. A line has been added at that
+comment pointing here.
+
+**Cost if wrong:** the same sentence pattern appears wherever one environment is
+offered as cover for a check another environment does not run. The only way to
+know such a claim holds is for something to fail when it stops holding, which is
+what `guards/image-build.test.ts` now does for this case and nothing does in
+general.
