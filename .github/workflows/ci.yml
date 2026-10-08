@@ -17,7 +17,16 @@ jobs:
       - run: pnpm db:up
       - run: pnpm db:generate
       - run: pnpm typecheck
+      # Before the suite, because lint is the cheapest failure in this job and
+      # should not wait behind a database and 380 tests. The seven frozen
+      # directories are ignored here; their findings are the two steps below.
+      - run: pnpm lint
       - run: pnpm check:screens
+      # Runs all three vitest projects. That is where four section 8 rows are
+      # already covered and need no step of their own: the unit suite, the
+      # database suite, the axe-per-screen half in
+      # dashboards/src/shared/layout/screens.axe.test.tsx, and the exact-version
+      # rule in guards/version-pinning.test.ts.
       - run: pnpm test
       # A report, not a gate. The frozen directories are ignored by `pnpm lint`
       # because their findings are reported and never fixed, so this step
@@ -33,6 +42,62 @@ jobs:
         run: pnpm lint:frozen:danger
       - name: Posture check, engine section (FLT-7, SEC-6)
         run: pnpm posture:check
+
+  # Its own job, not a step in `test`. It needs a Chromium and the apt packages
+  # behind it, which is a slow install, and it needs no Postgres. Keeping it
+  # separate means a unit run does not pay for a browser, and the two jobs run at
+  # the same time, so the wall clock falls rather than rises.
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # chromium only. playwright.config.ts names Desktop Chrome for both
+      # projects, so installing the other two browsers downloads around 300 MB
+      # this job never opens.
+      - run: pnpm exec playwright install --with-deps chromium
+      # 69 cases: axe on all 66 route mounts, plus the not-found shell in each of
+      # the three apps. Playwright starts both servers itself.
+      - run: pnpm e2e
+      # An axe failure names a rule and a node count. Without the report nobody
+      # can see WHICH node, and a serious finding that cannot be located is a
+      # red build somebody disables. if: failure() so a green run uploads
+      # nothing.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # Its own job for the same reason, and because it needs the full history that
+  # the other jobs do not: a secret committed earlier and deleted later is still
+  # in the pack, and a shallow clone cannot see it.
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Pinned to the commit the v2 tag points at, not to the tag. A tag is
+      # mutable: whoever can push to that repository can move v2 onto different
+      # code, and this step runs with the repository's token.
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required for organization-owned repositories, not for personal
+          # accounts. origin is github.com/shuvgenai/Orbitos, a personal
+          # account, so the secret is absent and the step runs without it. The
+          # line stays so that moving this repository into an organization fails
+          # with a missing licence rather than silently stopping the scan.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   compose-smoke:
     runs-on: ubuntu-24.04

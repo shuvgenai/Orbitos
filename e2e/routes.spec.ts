@@ -54,3 +54,32 @@ for (const { entry, nav } of APPS) {
     });
   }
 }
+
+/**
+ * The one address every app serves that is not a screen.
+ *
+ * `RoleScreens` ends its route list with `path="*"`, which renders the
+ * not-found shell. It carries no screen name, so it is in no role list and
+ * cannot come from the loop above. It is still a page a person reaches, with a
+ * heading and a link out of it, so it is still a page axe should read.
+ *
+ * It is not a PRD screen and must never become one: guards/screen-inventory.test.ts
+ * asserts 52, and this file asserting 69 cases over those 52 screens plus three
+ * mounts of one shared shell is the whole reason the two counts differ.
+ *
+ * The address is deliberately not a near-miss of a real route. A typo of an
+ * existing screen could start matching it the day that screen takes a
+ * parameter, and the case would then pass while testing the wrong page.
+ */
+const NO_SUCH_ADDRESS = '/not-a-screen';
+
+for (const { entry } of APPS) {
+  test(`${entry} ${NO_SUCH_ADDRESS} has no serious or critical accessibility finding`, async ({ page }) => {
+    await page.goto(address(entry, NO_SUCH_ADDRESS));
+
+    // The not-found shell, and not a screen that quietly matched the address.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Page not found');
+
+    await expectNoSeriousViolations(page);
+  });
+}

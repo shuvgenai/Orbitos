@@ -40,7 +40,11 @@ export default defineConfig({
   // neighbours in CI. There it is an error instead.
   forbidOnly: !!process.env['CI'],
   retries: process.env['CI'] ? 1 : 0,
-  reporter: process.env['CI'] ? 'github' : 'list',
+  // 'github' annotates the failing line in the diff; 'html' writes
+  // playwright-report/, which the e2e job uploads on failure. Annotations alone
+  // give a rule name and a node count with no way to see which node, and a
+  // finding nobody can locate is a red build somebody switches off.
+  reporter: process.env['CI'] ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: { trace: 'on-first-retry' },
   // baseURL sits on the project rather than here, because the two projects
   // answer on different ports.
