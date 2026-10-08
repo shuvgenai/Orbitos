@@ -274,3 +274,118 @@ test('the guard is reading both files, not an empty list', () => {
   expect(requiredByCompose().length).toBeGreaterThanOrEqual(15);
   expect(Object.keys(jobEnv(JOB)).length).toBeGreaterThanOrEqual(10);
 });
+
+/**
+ * The compose-smoke job's steps, one chunk per step.
+ *
+ * Steps sit at six-space indent under `steps:`, so splitting on that boundary
+ * gives one chunk per step without a YAML parser. Each chunk keeps its own
+ * `name:` and its whole `run:` block, which is what every test below reads.
+ */
+function composeSmokeSteps(): readonly string[] {
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+  const steps = job.slice(job.indexOf('    steps:'));
+  return steps.split('\n      - ').slice(1);
+}
+
+test('every compose-smoke step that pipes sets pipefail', () => {
+  // Cause 8. A GitHub Actions `run:` block is `bash -e`, not `bash -eo
+  // pipefail`, so a pipeline's exit status is the last command's. The seed
+  // piped a generator that could not start into a psql that exits 0 on empty
+  // stdin, and the step went green having inserted nothing.
+  //
+  // Scoped to a pipe into psql, which is where the exit code is the whole
+  // point: a generator that cannot start must fail the step rather than hand
+  // psql empty stdin.
+  //
+  // The first version of this test matched a pipe at end of line and reported
+  // five offenders when one step pipes. `run: |` ends with a pipe too, so it
+  // was matching the YAML block scalar indicator and not shell pipes at all.
+  // The second candidate, any pipe anywhere, catches
+  // `git status --porcelain template/ | grep .` in the frozen-check step, where
+  // `|| true` swallows every exit code and pipefail would buy nothing.
+  //
+  // The `\r` strip is not decoration: on a CRLF checkout every line ends
+  // `\r\n`, and an earlier version of this guard read 8 of 18 variables
+  // because a regex `.` does not match a carriage return.
+  const pipesIntoPsql = (step: string): boolean => {
+    const lines = step.split('\n').map((l) => l.replace(/\r$/, ''));
+    // A leading pipe is the continuation style this job uses. ` | ` catches an
+    // inline one. Neither matches `||`, which is not a pipe.
+    const piped = lines.some((l) => /^[ \t]*\|[ \t]/.test(l) || / \| /.test(l));
+    return piped && /\bpsql\b/.test(step);
+  };
+
+  const offenders = composeSmokeSteps()
+    .filter(pipesIntoPsql)
+    .filter((s) => !s.includes('set -o pipefail'))
+    .map((s) => (s.split('\n')[0] ?? '').trim());
+
+  expect(offenders, 'a step with a pipe needs `set -o pipefail`, or it reports the wrong exit code').toEqual(
+    [],
+  );
+});
+
+test('compose-smoke installs its dependencies before the seed generator runs', () => {
+  // The job was a checkout and Docker commands only, so pnpm was not on the
+  // runner at all. The log line was `pnpm: command not found`. That is sharper
+  // than "there are no node_modules": the generator never started.
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  const installAt = job.indexOf('pnpm install --frozen-lockfile');
+  const seedAt = job.indexOf('ci-seed-instance');
+
+  expect(job, 'pin pnpm/action-setup, or pnpm is not on the runner').toContain('pnpm/action-setup@');
+  expect(job, 'pin actions/setup-node, or the node version is whatever the runner happens to have').toContain(
+    'actions/setup-node@',
+  );
+  expect(installAt, 'compose-smoke never installs dependencies').toBeGreaterThan(-1);
+  expect(seedAt, 'compose-smoke never runs the seed generator').toBeGreaterThan(-1);
+  expect(installAt, 'install before the seed, or the generator has no node_modules').toBeLessThan(seedAt);
+});
+
+test('the seed is followed by a count that fails on anything but one row', () => {
+  // The part that matters most. The first two parts make this instance work.
+  // This one makes the class of error visible: a step that inserts nothing can
+  // never report success again.
+  //
+  // api/src/main.ts refuses to start unless it finds exactly one row, so two
+  // rows are as wrong as none, and the comparison is against 1 and not a
+  // minimum.
+  const assertions = composeSmokeSteps().filter((s) => /count\(\*\)[^\n]*gmail_connections/.test(s));
+  expect(assertions.length, 'exactly one compose-smoke step counts the seeded rows').toBe(1);
+  const step = assertions[0] ?? '';
+
+  // -tAc, because psql pads tuple output otherwise and a correct seed would
+  // fail the comparison. The DEP-1 check in this job already reads values this
+  // way.
+  expect(step, 'read the count with -tAc, or psql pads it with spaces').toContain('-tAc');
+  // String comparison, not -eq. If the psql call fails, the variable is empty,
+  // and `test "" -eq 1` errors with "integer expression expected" instead of
+  // failing on the value.
+  expect(step, 'compare as a string against 1, so an empty result fails rather than errors').toMatch(
+    /test "\$[A-Za-z_][A-Za-z0-9_]*" = 1/,
+  );
+  expect(step, 'the step has to exit non-zero when the count is wrong').toContain('exit 1');
+});
+
+test('the count assertion runs between the seed and the final wait', () => {
+  // Order is the whole value of the assertion. After the final `--wait`, api
+  // fails first and the log says `container orbit-instance-api-1 is unhealthy`,
+  // which names the service and not the reason. That message hid this cause for
+  // a day.
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  const seedAt = job.indexOf('ci-seed-instance');
+  const countAt = job.search(/count\(\*\)[^\n]*gmail_connections/);
+  const finalWaitAt = job.lastIndexOf('--wait');
+
+  expect(countAt, 'no count assertion found in the compose-smoke job').toBeGreaterThan(-1);
+  expect(countAt, 'count the rows after the seed, not before it').toBeGreaterThan(seedAt);
+  expect(countAt, 'count the rows before the health wait, or api reports the failure first').toBeLessThan(
+    finalWaitAt,
+  );
+});

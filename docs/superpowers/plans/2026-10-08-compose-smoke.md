@@ -711,3 +711,368 @@ gh run watch --exit-status
 
 Expected: `compose-smoke` passes, or the new `if: failure()` step prints the
 container log that says why. Record whichever happens in Task 3's entry.
+
+---
+
+### Task 5: Cause 8, the seed step that reports success while inserting nothing
+
+**Added 2026-10-08, after the run on `b69c55a`.** Tasks 1 to 4 fixed causes 1
+to 7 and the job is still red. Run `37847150901`, job `113550751764`: step 8
+`Seed the one GmailConnection row api requires` reported **success** and step 9
+`Now every service can be healthy` failed with
+`container orbit-instance-api-1 is unhealthy`. The container log says
+`expected exactly one GmailConnection row, found 0; see the runbook`.
+
+The decisive line in step 8's own log is
+
+```
+/home/runner/work/_temp/e4c866b2-4e9a-467d-b851-7401ee72ad65.sh: line 1: pnpm: command not found
+```
+
+That is sharper than the earlier diagnosis in `docs/decisions.md`, which said
+"there are no `node_modules`". The job never ran `pnpm install`, true, but it
+also never put `pnpm` on the runner: `compose-smoke` has no
+`pnpm/action-setup` and no `actions/setup-node`. The generator did not fail
+part way, it never started. The step still went green, because a GitHub Actions
+`run:` block is `bash -e` and not `bash -eo pipefail`, so the pipeline's exit
+status was `psql`'s, and `psql` with empty stdin exits 0.
+
+**Goal of this task.** The three-part fix the 2026-10-08 decisions entry
+proposed and deliberately did not apply, plus a guard for each part.
+
+**Files:**
+- Modify: `.github/workflows/ci.yml` (the `compose-smoke` job: the seed step at
+  about line 257 and the steps around it)
+- Modify: `guards/compose-smoke-env.test.ts` (four tests appended)
+
+**Interfaces:**
+- Consumes: `readRepoFile` from `guards/lib/walk.ts` and the `WORKFLOW`
+  constant, both already present in this guard file.
+- Produces: nothing other code consumes. The four tests are static assertions
+  on the workflow text.
+
+**Constraints that apply to this task only.** Change only what cause 8
+requires. Do not touch the steps for causes 1 to 7. Do not edit the staging
+comment at `.github/workflows/ci.yml:217`, which already carries its own
+correction. Reuse the action SHAs the `test` job pins, because
+`guards/workflow-pins.test.ts` requires a full commit SHA with a version
+comment: `pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1` (v4) and
+`actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444` (v5).
+
+**Note on line endings.** `readRepoFile` returns the file as checked out, so on
+Windows every line ends `\r\n`, and a regex `.` does not match `\r`. That
+mistake made an earlier version of this guard read 8 of 18 variables. Use
+`includes` on plain substrings, and bound any regex with `[^\n]*` rather than
+`.*`.
+
+**Review focus for this task.** Five ways the fix could still pass while the
+thing it checks has not happened. Each is pinned by one of the four tests in
+Step 1.
+
+1. `psql` exits 0 on empty stdin. That is cause 8 itself. Pinned by
+   "every compose-smoke step that pipes sets pipefail".
+2. The count query returns an empty string, because the `psql` call in the
+   assertion failed. `test "$rows" -eq 1` would error with "integer expression
+   expected" instead of failing on the value, so the comparison is a string
+   one. Pinned by "the seed is followed by a count that fails on anything but
+   one row".
+3. `psql` pads tuple output unless `-tA` is given, so a correct seed would fail
+   the string comparison. The DEP-1 step in this job already uses `-tAc` for
+   that reason. Pinned by the same test.
+4. Two rows instead of zero. api requires exactly one, so a double seed is as
+   wrong as none, and the comparison is against `1` and not a minimum. Pinned
+   by the same test.
+5. The assertion placed after the final `--wait`. Then api fails first and the
+   log says `container orbit-instance-api-1 is unhealthy`, the message that hid
+   this cause for a day. Pinned by "the count assertion runs between the seed
+   and the final wait".
+
+- [ ] **Step 1: Write the four failing tests**
+
+Append to `guards/compose-smoke-env.test.ts`:
+
+```ts
+/**
+ * The compose-smoke job's steps, one chunk per step.
+ *
+ * Steps sit at six-space indent under `steps:`, so splitting on that boundary
+ * gives one chunk per step without a YAML parser. Each chunk keeps its own
+ * `name:` and its whole `run:` block, which is what every test below reads.
+ */
+function composeSmokeSteps(): readonly string[] {
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+  const steps = job.slice(job.indexOf('    steps:'));
+  return steps.split('\n      - ').slice(1);
+}
+
+test('every compose-smoke step that pipes sets pipefail', () => {
+  // Cause 8. A GitHub Actions `run:` block is `bash -e`, not `bash -eo
+  // pipefail`, so a pipeline's exit status is the last command's. The seed
+  // piped a generator that could not start into a psql that exits 0 on empty
+  // stdin, and the step went green having inserted nothing.
+  //
+  // The pipe is matched at end of line, which is how every piped step in this
+  // job is written. A pipe written inline on one line would not be caught, and
+  // adding one is a reason to extend this test rather than loosen it.
+  const offenders = composeSmokeSteps()
+    .filter((s) => /\|[ \t]*$/m.test(s))
+    .filter((s) => !s.includes('set -o pipefail'))
+    .map((s) => (s.split('\n')[0] ?? '').trim());
+
+  expect(offenders, 'a step with a pipe needs `set -o pipefail`, or it reports the wrong exit code').toEqual(
+    [],
+  );
+});
+
+test('compose-smoke installs its dependencies before the seed generator runs', () => {
+  // The job was a checkout and Docker commands only, so pnpm was not on the
+  // runner at all. The log line was `pnpm: command not found`.
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  const installAt = job.indexOf('pnpm install --frozen-lockfile');
+  const seedAt = job.indexOf('ci-seed-instance');
+
+  expect(job, 'pin pnpm/action-setup, or pnpm is not on the runner').toContain('pnpm/action-setup@');
+  expect(job, 'pin actions/setup-node, or the node version is whatever the runner happens to have').toContain(
+    'actions/setup-node@',
+  );
+  expect(installAt, 'compose-smoke never installs dependencies').toBeGreaterThan(-1);
+  expect(seedAt, 'compose-smoke never runs the seed generator').toBeGreaterThan(-1);
+  expect(installAt, 'install before the seed, or the generator has no node_modules').toBeLessThan(seedAt);
+});
+
+test('the seed is followed by a count that fails on anything but one row', () => {
+  // The part that matters most. The first two parts make this instance work.
+  // This one makes the class of error visible: a step that inserts nothing can
+  // never report success again.
+  //
+  // api/src/main.ts refuses to start unless it finds exactly one row, so two
+  // rows are as wrong as none, and the comparison is against 1 and not a
+  // minimum.
+  const assertions = composeSmokeSteps().filter((s) => /count\(\*\)[^\n]*gmail_connections/.test(s));
+  expect(assertions.length, 'exactly one compose-smoke step counts the seeded rows').toBe(1);
+  const step = assertions[0] ?? '';
+
+  // -tAc, because psql pads tuple output otherwise and a correct seed would
+  // fail the comparison. The DEP-1 check in this job already reads values this
+  // way.
+  expect(step, 'read the count with -tAc, or psql pads it with spaces').toContain('-tAc');
+  // String comparison, not -eq. If the psql call fails, the variable is empty,
+  // and `test "" -eq 1` errors with "integer expression expected" instead of
+  // failing on the value.
+  expect(step, 'compare as a string against 1, so an empty result fails rather than errors').toMatch(
+    /test "\$[A-Za-z_][A-Za-z0-9_]*" = 1/,
+  );
+  expect(step, 'the step has to exit non-zero when the count is wrong').toContain('exit 1');
+});
+
+test('the count assertion runs between the seed and the final wait', () => {
+  // Order is the whole value of the assertion. After the final `--wait`, api
+  // fails first and the log says `container orbit-instance-api-1 is unhealthy`,
+  // which names the service and not the reason. That message hid this cause for
+  // a day.
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  const seedAt = job.indexOf('ci-seed-instance');
+  const countAt = job.search(/count\(\*\)[^\n]*gmail_connections/);
+  const finalWaitAt = job.lastIndexOf('--wait');
+
+  expect(countAt, 'no count assertion found in the compose-smoke job').toBeGreaterThan(-1);
+  expect(countAt, 'count the rows after the seed, not before it').toBeGreaterThan(seedAt);
+  expect(countAt, 'count the rows before the health wait, or api reports the failure first').toBeLessThan(
+    finalWaitAt,
+  );
+});
+```
+
+- [ ] **Step 2: Run the file and watch all four fail**
+
+```bash
+pnpm vitest run guards/compose-smoke-env.test.ts
+```
+
+Expected: FAIL. Four new tests red, the seven existing ones green. The messages
+should be: a step with a pipe needs `set -o pipefail`; compose-smoke never
+installs dependencies; exactly one compose-smoke step counts the seeded rows;
+no count assertion found in the compose-smoke job.
+
+If any of the four passes now, stop. It is asserting something other than what
+it claims, which is the defect this task exists to fix.
+
+- [ ] **Step 3: Add the Node and pnpm setup to the compose-smoke job**
+
+In `.github/workflows/ci.yml`, immediately before the
+`Seed the one GmailConnection row api requires` step, insert:
+
+```yaml
+      # The seed generator is TypeScript and needs node and tsx, and this job
+      # was a checkout and Docker commands only, so pnpm was not on the runner
+      # at all. The log said `pnpm: command not found`, the step still reported
+      # success, and api started on an empty table.
+      #
+      # Placed here rather than after the checkout, so the Docker build runs
+      # first and this install sits next to the one step that needs it. The same
+      # pinned actions and the same .nvmrc the test job uses, because a second
+      # way of getting node onto a runner is a second thing to keep right.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+```
+
+- [ ] **Step 4: Add `set -o pipefail` to the seed step**
+
+Add one line to the comment above that step:
+
+```yaml
+      # A GitHub Actions run block is `bash -e`, which does not set pipefail, so
+      # the pipeline's status was psql's, and psql exits 0 on empty stdin.
+```
+
+Then make the step read:
+
+```yaml
+      - name: Seed the one GmailConnection row api requires
+        run: |
+          set -o pipefail
+          pnpm --filter @orbit/ops exec node --import tsx ../scripts/ci-seed-instance.ts \
+            | docker compose -f template/compose.yml exec -T \
+                -e PGPASSWORD="$ORBIT_DB_PASSWORD" postgres \
+                psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U orbit_app -d orbit
+```
+
+- [ ] **Step 5: Add the row-count assertion after the seed**
+
+Insert immediately after the seed step, before
+`Now every service can be healthy`:
+
+```yaml
+      # The seed step reporting success is not evidence that it inserted
+      # anything. This is. api/src/main.ts reads gmail_connections before it
+      # listens and refuses to start on anything but exactly one row, so two
+      # rows are as wrong as none and the comparison is against 1.
+      #
+      # Before the health wait on purpose. After it, api fails first and the log
+      # says `container orbit-instance-api-1 is unhealthy`, which names the
+      # service and not the reason.
+      - name: Exactly one GmailConnection row, or the seed did nothing
+        run: |
+          set -o pipefail
+          rows=$(docker compose -f template/compose.yml exec -T \
+            -e PGPASSWORD="$ORBIT_DB_PASSWORD" postgres \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U orbit_app -d orbit \
+            -tAc "select count(*) from gmail_connections")
+          test "$rows" = 1 || { echo "expected exactly one gmail_connections row, found [$rows]"; exit 1; }
+```
+
+- [ ] **Step 6: Run the guard file and watch all eleven pass**
+
+```bash
+pnpm vitest run guards/compose-smoke-env.test.ts
+```
+
+Expected: PASS, 11 tests, 0 failed.
+
+- [ ] **Step 7: Run the Done checks this diff can affect, one at a time**
+
+Run each separately and read the output of each. Never chain a commit onto any
+of them.
+
+```bash
+pnpm vitest run guards/workflow-pins.test.ts
+pnpm typecheck
+pnpm lint
+pnpm lint:frozen:danger
+pnpm test
+git status --porcelain template/
+```
+
+Expected: each exits 0 and reports 0 failed, and `template/` shows no change.
+`pnpm test` needs the database: `pnpm db:up` then `pnpm db:generate` first if it
+is not already up.
+
+`guards/workflow-pins.test.ts` is the most likely of these to fail, because the
+diff adds two third-party action references. Both reuse the SHAs the `test` job
+already pins, so it should pass unmodified.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add .github/workflows/ci.yml guards/compose-smoke-env.test.ts docs/superpowers/plans/2026-10-08-compose-smoke.md
+git commit -m "fix(ci): compose-smoke installs deps, sets pipefail and counts the seeded row"
+```
+
+- [ ] **Step 9: Update the cause table and append the record**
+
+In `docs/decisions.md`, change the cause 8 row of the
+`2026-10-08 - compose-smoke: eight causes` entry from
+
+```
+| 8 | The seed step reports success while inserting nothing | **open** |
+```
+
+to `fixed, ` and the short hash from Step 8.
+
+Then append a new entry. The heading format is `## <ISO date> - <decision>` and
+the body opens with `**Reason`, `**Why`, `**Result` or `**Superseded`. Use
+`**Corrects:**` for anything that corrects an earlier statement. Do not write
+"Superseded by" unless a dated replacement entry exists to point at, because
+`guards/decisions-log.test.ts` rejects the phrase without one. The entry says:
+
+- the three changes and where they are,
+- that the first failing line was `pnpm: command not found`, which corrects the
+  earlier entry's "there are no `node_modules`": pnpm itself was absent, not
+  only the install,
+- that the third part is the one that changes the class of error,
+- the four new guard tests by name,
+- the alternative considered and not taken, below,
+- the cost if wrong.
+
+Then run, separately:
+
+```bash
+pnpm vitest run guards/decisions-log.test.ts
+pnpm vitest run guards/rules.test.ts guards/standing-rules.test.ts
+```
+
+Expected: PASS, 0 failed. Commit with
+`docs(decisions): cause 8 fixed, and what the fix does not prove`.
+
+- [ ] **Step 10: Push and read the real run**
+
+```bash
+git push
+```
+
+Then read the per-job result from CI, not from a local run. If `compose-smoke`
+fails on something that is not cause 8, do not fix it: record it as cause 9 in
+`docs/decisions.md` with the log excerpt and a diagnosis, push that record, and
+stop.
+
+**The alternative considered and not taken.** Node 24 strips TypeScript types
+natively, and both `scripts/ci-seed-instance.ts` and the one file it imports,
+`shared/src/token-crypto.ts`, import nothing outside `node:crypto`. So
+`node scripts/ci-seed-instance.ts` after `actions/setup-node` alone would work
+with no `pnpm install` at all, saving about a minute and 315 MB of
+`node_modules` on the runner.
+
+Not taken, because it introduces a second way of running TypeScript in this
+repository for a one-line saving, and its precondition is invisible at the call
+site: the day somebody adds a third-party import to that script or to
+`shared/src/token-crypto.ts`, the job breaks for a reason nothing in either file
+explains. The pnpm path is the one the `test` job already proves every run.
+Revisit if the install becomes the slowest part of this job.
+
+**What a green compose-smoke will still not prove.** Unchanged from Task 3's
+entry, and repeated so this task is not read as closing more than it does. A
+green run proves the compose file parses with real values, that both databases
+and both logins exist, that the schema applies, that exactly one
+`GmailConnection` row is seeded, and that `postgres`, `redis`, `web`, `worker`,
+`api` and `frontdesk` start and answer their healthchecks. It proves nothing
+about the engine, which is excluded with `--scale paperclip=0`, and nothing
+about behaviour beyond boot.
