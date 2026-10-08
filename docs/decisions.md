@@ -2101,6 +2101,7 @@ invisible until the one in front of it cleared.
 | 6 | The Dockerfile never copied `db/`, so api could not load its own code | fixed, `e7af736` |
 | 7 | The `/setup` files were created empty, and frontdesk rejects an empty one | fixed, `2d89d8e` |
 | 8 | The seed step reports success while inserting nothing | fixed, `1377817` |
+| 9 | The seed creates no owner user, and frontdesk requires one | open, see the 2026-10-08 cause 9 entry |
 
 **Cause 3, the one worth remembering.** A job-level `env:` entry feeds Compose's
 `${...}` interpolation. It does not reach a container. A service receives only
@@ -2358,3 +2359,76 @@ repository lost a working Dockerfile line at a date nobody has identified, and
 `guards/image-build.test.ts` was written to catch the symptom rather than the
 cause. Either way the eight-cause entry is read by whoever fixes compose-smoke
 next, and it should not read as more certain than it is.
+
+## 2026-10-08 - Cause 9: the seed creates no owner user, and frontdesk requires one
+
+**Result:** `compose-smoke` is still red on `60befa8`, for a ninth cause, and
+this one is recorded rather than fixed. Founder instruction of 2026-10-08: a
+failure that is not cause 8 is written down and the work stops, so the next fix
+is reviewed rather than guessed. `test`, `e2e` and `secrets` all pass.
+
+**Cause 8 is closed, and two independent signals say so.** Run `37853259700`,
+job `113571257214`. Steps 8 to 12 all succeeded: `pnpm/action-setup`,
+`actions/setup-node`, `pnpm install --frozen-lockfile`,
+`Seed the one GmailConnection row api requires`, and
+`Exactly one GmailConnection row, or the seed did nothing`. That assertion
+produced no output and exited 0, which is the silent pass of
+`test "$rows" = 1`. Separately, api got past the check that stopped it before:
+
+```
+api-1 | {"level":30,"pid":1,"name":"api","port":8080,"workspaceId":"e2e145be-b722-4ba0-b692-4708a7c9c849","msg":"listening"}
+```
+
+api had never logged `listening` in this job. The row exists and the step that
+reports on it is honest.
+
+**Cause 9.** Step 13, `Now every service can be healthy`, failed:
+
+```
+container orbit-instance-frontdesk-1 is unhealthy
+##[error]Process completed with exit code 1.
+```
+
+The container log says why, six times, once per restart:
+
+```
+frontdesk-1 | {"level":60,"pid":1,"name":"frontdesk","msg":"the workspace has no owner user; see the runbook"}
+```
+
+**Diagnosis.** `frontdesk/src/main.ts:69-70` reads
+`prisma.user.findFirst({ where: { workspaceId } })` and calls `fail()` when it
+finds nothing. `scripts/ci-seed-instance.ts` inserts one `workspaces` row and
+one `gmail_connections` row and no `users` row, so the workspace has no owner.
+
+api does not make that check. `api/src/main.ts` requires exactly one
+`GmailConnection` and nothing else, which is why api is listening and frontdesk
+is crash-looping on the same database. The two services have different startup
+requirements and the seed satisfies one of them.
+
+**Why this is a ninth cause and not part of cause 8.** Cause 8 was a step that
+lied about its result. This is a seed that is honestly incomplete: the step now
+reports exactly what it did, and what it did is not everything frontdesk needs.
+The fix is a second insert, not a change to the checking.
+
+**The shape of the fix, for review and not applied.** Add a `users` row to
+`scripts/ci-seed-instance.ts` inside the existing transaction, owned by the
+workspace the `\gset` capture already names, with an address on a reserved
+domain as that file's own comment requires. Then extend the count assertion, or
+add a second one, so a missing owner fails the seed step rather than the health
+wait. Two questions belong to the founder before it is written: which columns
+`users` requires and whether any of them is a credential, and whether the owner
+address must equal the `gmail_connections` address, because
+`assertOwnerAddress` at `frontdesk/src/main.ts:64` constrains that value and the
+relationship between the two addresses is a product decision, not a seed detail.
+
+**What was not done, deliberately.** No change to the seed script, no change to
+the workflow, no change to any frozen directory. `frontdesk/` was read, which
+is always allowed.
+
+**Cost if wrong:** low for this entry, because nothing was changed on a guess.
+The real cost already paid is the shape of this job: nine causes found one at a
+time, each hidden behind the one in front of it, because `up --wait` names the
+first unhealthy service and nothing else. A pre-flight check that asserted every
+startup requirement of every service before the health wait would have found
+causes 5, 8 and 9 in one run. That is the change worth making after this job is
+green, and it is not made here.
