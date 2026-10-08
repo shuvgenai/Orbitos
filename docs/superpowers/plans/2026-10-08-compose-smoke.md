@@ -61,10 +61,17 @@ most likely to bite first:
    workflow into `.env.example` or `docs/security/keys.md`. The mail-variable
    check and the `keys.md` shape check already cover those two files. Task 2
    adds the case that the workflow's own values carry no vendor prefix.
-5. **`frontdesk` or `worker` failing with no healthcheck to report it.** Neither
-   service declares one, so `up --wait` may pass on a restarting container. No
-   static test can settle this. Task 3 reports what actually happened on the
-   first run, which is the only way to learn it.
+5. **A name a program requires reaching the job env but not the container.**
+   Compose passes a job-level `env:` entry to its own `${...}` interpolation, not
+   into a container. A service receives only what its own `environment:` block
+   or an `env_file` gives it. Pinned by Task 2's delivery-path test.
+
+**Corrected after the first CI run, 2026-10-08.** Item 5 originally read
+"`frontdesk` or `worker` failing with no healthcheck to report it. Neither
+service declares one." That was wrong. Both inherit a healthcheck from the
+`x-program` anchor at `template/compose.yml:9`, and the run proved it: `worker`
+reported Healthy and `frontdesk` reported unhealthy, which is how the real
+failure was found. The replacement above is the condition that actually bit.
 
 ---
 

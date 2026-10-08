@@ -129,11 +129,65 @@ const VENDOR_PREFIX = [
   /^eyJ/,
 ] as const;
 
-test('the compose-smoke job sets the names frontdesk needs that compose does not pass', () => {
-  const env = jobEnv(JOB);
-  const missing = FROM_INSTANCE_ENV.filter((name) => (env[name] ?? '') === '');
+/** The per-instance env file compose reads for frontdesk, with `required: false`. */
+const INSTANCE_ENV_FILE = 'template/.env.frontdesk';
 
-  expect(missing, 'frontdesk reads these from .env.frontdesk, which CI does not have').toEqual([]);
+/**
+ * The names one service's `environment:` block passes into its container.
+ *
+ * This is the distinction the first version of this guard missed. A job-level
+ * `env:` entry feeds compose's `${...}` interpolation; it does NOT reach a
+ * container unless that service's own `environment:` block or an `env_file`
+ * puts it there. Setting the four names in the job env made this guard green
+ * and changed nothing inside frontdesk, and the CI run said
+ * `container orbit-instance-frontdesk-1 is unhealthy`.
+ */
+function serviceEnvNames(service: string): readonly string[] {
+  const lines = readRepoFile(COMPOSE).split(/\r?\n/);
+  const start = lines.findIndex((line) => line === `  ${service}:`);
+  if (start === -1) throw new Error(`${COMPOSE} has no service named ${service}`);
+
+  const envAt = lines.findIndex((line, i) => i > start && /^ {4}environment:\s*$/.test(line));
+  if (envAt === -1) return [];
+
+  const out: string[] = [];
+  for (const line of lines.slice(envAt + 1)) {
+    if (/^\s*#/.test(line)) continue;
+    const entry = line.match(/^ {6}([A-Za-z_][A-Za-z0-9_]*):/);
+    if (entry === null) break;
+    out.push(entry[1] ?? '');
+  }
+  return out;
+}
+
+/**
+ * The names the workflow writes into the per-instance env file.
+ *
+ * compose declares that file `required: false`, so it is absent in CI unless a
+ * step creates it. Reading the step rather than trusting it means a step that
+ * is edited or deleted fails here.
+ */
+function instanceEnvFileNames(): readonly string[] {
+  const text = readRepoFile(WORKFLOW);
+  const at = text.indexOf(INSTANCE_ENV_FILE);
+  if (at === -1) return [];
+  // The heredoc that follows the redirect, up to its terminator.
+  const after = text.slice(at);
+  const body = after.match(/<<'?EOF'?\r?\n([\s\S]*?)\r?\n\s*EOF/);
+  if (body === null) return [];
+  return [...(body[1] ?? '').matchAll(/^\s*([A-Z_][A-Z0-9_]*)=/gm)].map((m) => m[1] ?? '');
+}
+
+test('every name frontdesk requires actually reaches its container', () => {
+  // The union of the two delivery paths, because either one works and neither
+  // is the job env on its own.
+  const delivered = new Set([...serviceEnvNames('frontdesk'), ...instanceEnvFileNames()]);
+  const missing = FROM_INSTANCE_ENV.filter((name) => !delivered.has(name));
+
+  expect(
+    missing,
+    `a job env entry does not reach a container. Put these in frontdesk's environment block or in ${INSTANCE_ENV_FILE}`,
+  ).toEqual([]);
 });
 
 test('no value the compose-smoke job sets looks like a real credential', () => {

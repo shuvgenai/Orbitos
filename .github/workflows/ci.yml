@@ -188,6 +188,29 @@ jobs:
           mkdir -p "$SETUP_HOST_DIR"
           : > "$SETUP_HOST_DIR/tone-samples.md"
           : > "$SETUP_HOST_DIR/facts.md"
+      # The per-instance env file, with CI values only.
+      #
+      # These four names are NOT in frontdesk's `environment:` block, so a
+      # job-level env entry never reaches the container: job env feeds compose's
+      # ${...} interpolation and nothing else. The first attempt set them in the
+      # job env, this guard went green, and the run still reported
+      # `container orbit-instance-frontdesk-1 is unhealthy`, because
+      # loadFrontdeskConfig throws on all four.
+      #
+      # compose already declares this file with `required: false`, so writing it
+      # uses the mechanism that is there rather than adding one. It is matched by
+      # `.env.*` in .gitignore, so it cannot be committed, and the runner is
+      # thrown away after the job. template/ is frozen: no file in it is
+      # modified and no code in it changes. Founder decision, 2026-10-08.
+      - name: The per-instance env file, CI values only
+        run: |
+          cat > template/.env.frontdesk <<'EOF'
+          PAPERCLIP_API_KEY=ci-smoke-not-a-real-key-000000
+          PAPERCLIP_COMPANY_ID=ci-smoke-company
+          PAPERCLIP_SCOUT_AGENT_ID=ci-smoke-scout-agent
+          PAPERCLIP_ORBI_AGENT_ID=ci-smoke-orbi-agent
+          EOF
+          git status --porcelain template/ | grep . && { echo "template/ is frozen and shows changes"; exit 1; } || true
       # --scale paperclip=0 keeps the engine out of this job on purpose. The built engine image is
       # 8.82 GB, which does not fit a hosted runner's disk alongside the rest of the stack. Its
       # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
