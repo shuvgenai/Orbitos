@@ -3113,3 +3113,65 @@ possible and would land on whoever next edits a compose file or a manifest. The
 probes are the mitigation: nineteen of them, including the cases that must NOT
 report. A false negative costs what the first version cost, which is a guard
 that reads green while the prototype is one line away from being served.
+
+## 2026-10-09 - The contract seam is not built yet, and the spec that places it is correct
+
+**Result:** `contract/src/v1` and `contract/src/experimental` do not exist and
+have never existed. The sub-project 0 spec is right to name them, because the
+tree it draws is a target and says so. No spec wording needs reconciling and
+none was changed. The question was asked because the guard work of 2026-10-09
+noted that `contract/` is absent while sections 3 and 5 of the spec place the
+seam there.
+
+**The evidence, four things, none of them an inference.**
+
+One. `git log --all --oneline --diff-filter=A -- 'contract/*'` returns nothing.
+No commit on any branch has ever added a file under `contract/`. This is the
+decisive one: the directory was not built and then removed, it was never built.
+
+Two. `git ls-files` matching `contract` returns exactly three paths, and all
+three describe the seam rather than being it:
+`docs/superpowers/plans/2026-10-05-v8-seam-and-contract.md`,
+`docs/superpowers/specs/2026-10-05-v8-seam-and-contract-design.md` and
+`guards/contract-boundary.test.ts`.
+
+Three. The spec's section 3 tree, at
+`docs/superpowers/specs/2026-10-05-v8-seam-and-contract-design.md:73-74`, is
+followed immediately by the sentence "Three moves make that true, each as its
+own commit", and the three moves it then lists are the `Prompts_Frontend_docs`
+relocations. Creating `contract/` is not among them. So the tree says where
+things will live, and it is not an inventory of what exists. Reading it as an
+inventory is the mistake, not the tree.
+
+Four. `guards/contract-boundary.test.ts:19-20` says so outright, in its own
+header: "This is a text grep, so it needs nothing from contract/ and can run
+before that package exists." The guard was written deliberately to be armed
+before the package it guards. It was added in commit `445e5a3`.
+
+**So the spec is not wrong and was not changed.** Sections 5.1 and 5.2 define
+the two layers and their operation lists, and section 3 places them. Nothing
+there claims the code is written. The address and env rules in
+`guards/standing-rules.test.ts`, and the guard-hardening plan of the same date,
+are written against the seven frozen directory prefixes rather than against a
+list of non-frozen ones, so a `contract/` added later falls in scope with no
+edit to either.
+
+**One thing that IS now stale, found while checking this.** The same header in
+`guards/contract-boundary.test.ts` continues: "It is vacuous while dashboards/
+holds no source, which is true today." That was true when it was written.
+`dashboards/src` now holds 21 tracked files, so that guard's real-surface test
+is live and no longer vacuous. The guard is correct and the comment is out of
+date. It is left alone here because this change is documentation only and
+because the file is outside the guard-hardening plan's scope. It is worth a
+one-line fix in whichever session next touches that file.
+
+**Corrects:** nothing in the spec. The reconciliation this entry was asked to
+consider turned out not to be needed, and recording that is the point: the next
+reader who notices `contract/` missing should find this entry rather than repeat
+the search.
+
+**Cost if wrong:** low. If the seam were in fact built somewhere else under a
+different name, the cost would be a second implementation starting beside it,
+and the evidence above rules that out, because a path that no commit ever added
+cannot hold code. The residual is the stale comment, which costs one reader one
+minute.
