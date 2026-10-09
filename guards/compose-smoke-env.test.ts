@@ -11,9 +11,11 @@
 // The required set is read from template/compose.yml rather than listed here. A
 // list in this file would go stale the moment a variable is added there, which
 // is the failure this guard exists to prevent.
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { expect, test } from 'vitest';
 import { hex32Check, secretCheck, urlCheck } from '../shared/src/config.ts';
-import { readRepoFile, trackedFiles } from './lib/walk.ts';
+import { REPO_ROOT, readRepoFile, trackedFiles } from './lib/walk.ts';
 
 const COMPOSE = 'template/compose.yml';
 const WORKFLOW = '.github/workflows/ci.yml';
@@ -386,6 +388,125 @@ test('the count assertion runs between the seed and the final wait', () => {
   expect(countAt, 'no count assertion found in the compose-smoke job').toBeGreaterThan(-1);
   expect(countAt, 'count the rows after the seed, not before it').toBeGreaterThan(seedAt);
   expect(countAt, 'count the rows before the health wait, or api reports the failure first').toBeLessThan(
+    finalWaitAt,
+  );
+});
+
+/**
+ * The SQL the seed generator writes, read by running it.
+ *
+ * Cause 9. frontdesk/src/main.ts:69 reads the first `users` row for the
+ * workspace the single GmailConnection names and calls fail() when it finds
+ * none, so the seed has to produce that row and exactly that row.
+ *
+ * Running the generator rather than grepping it, for the reason
+ * guards/vite-fs-allow.test.ts gives: a text scan passes on a statement built
+ * from an identifier defined three lines higher. The module writes its SQL on
+ * import, so the capture has to be in place before the import, and the import
+ * is cached, so the result is memoised here rather than re-run per test.
+ *
+ * Sixty-four zeros for the key, the same value the compose-smoke job sets, so
+ * nothing encrypted by this run is private to anybody.
+ */
+let seedSqlCache: string | undefined;
+async function seedSql(): Promise<string> {
+  if (seedSqlCache !== undefined) return seedSqlCache;
+
+  const previousKey = process.env['TOKEN_ENCRYPTION_KEY'];
+  process.env['TOKEN_ENCRYPTION_KEY'] = '0'.repeat(64);
+
+  const chunks: string[] = [];
+  const realWrite = process.stdout.write;
+  process.stdout.write = ((chunk: unknown) => {
+    chunks.push(typeof chunk === 'string' ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    await import(pathToFileURL(join(REPO_ROOT, 'scripts/ci-seed-instance.ts')).href);
+  } finally {
+    process.stdout.write = realWrite;
+    if (previousKey === undefined) delete process.env['TOKEN_ENCRYPTION_KEY'];
+    else process.env['TOKEN_ENCRYPTION_KEY'] = previousKey;
+  }
+
+  seedSqlCache = chunks.join('');
+  return seedSqlCache;
+}
+
+test('the seed produces exactly one users row for the seeded workspace', async () => {
+  // Founder decision, 2026-10-09: the owner address equals the
+  // gmail_connections address, as seed data. The users model requires
+  // workspace_id and email and nothing else, and neither is a credential.
+  const sql = await seedSql();
+
+  // First, that the capture read something. An empty capture makes every
+  // assertion below fail with the same message as a missing statement, and
+  // this file's history is of parses that quietly read nothing.
+  expect(sql, 'the generator wrote no SQL, so the capture is reading nothing').toContain(
+    'INSERT INTO gmail_connections',
+  );
+
+  const inserts = [...sql.matchAll(/INSERT INTO users\b[^;]*;/g)].map((m) => m[0]);
+  expect(inserts.length, 'the seed must insert exactly one users row').toBe(1);
+  const insert = inserts[0] ?? '';
+
+  // The workspace id is a database default, so it cannot be written in the
+  // script and has to come back through \gset. A literal here would insert an
+  // orphan row that frontdesk's workspace-scoped findFirst never sees.
+  expect(insert, "the users row belongs to the seeded workspace, so use :'ws_id'").toContain(":'ws_id'");
+  expect(insert, 'name the two required columns, workspace_id and email').toMatch(
+    /\(\s*workspace_id\s*,\s*email\s*\)/,
+  );
+  // Same address as the connection, by founder decision and as seed data only.
+  // No code anywhere requires the two to be equal: assertOwnerAddress at
+  // frontdesk/src/main.ts:64 constrains the connection address and never reads
+  // a user.
+  expect(insert, "the owner address is the connection address, 'smoke@example.com'").toContain(
+    "'smoke@example.com'",
+  );
+
+  // Inside the one transaction, after the connection row. A half-seeded
+  // instance is what the transaction exists to prevent.
+  const connectionAt = sql.indexOf('INSERT INTO gmail_connections');
+  const usersAt = sql.indexOf('INSERT INTO users');
+  const commitAt = sql.indexOf('COMMIT;');
+  expect(connectionAt, 'the seed no longer inserts a gmail_connections row').toBeGreaterThan(-1);
+  expect(usersAt, 'insert the users row after the connection row').toBeGreaterThan(connectionAt);
+  expect(usersAt, 'insert the users row inside the transaction, before COMMIT').toBeLessThan(commitAt);
+});
+
+test('the seed is followed by a count that fails on anything but one users row', async () => {
+  // The same shape as the gmail_connections assertion above, and for the same
+  // reason: a step that inserts nothing must never report success again.
+  // frontdesk reads the first users row for the workspace, so one row is
+  // right and the comparison is against 1.
+  const assertions = composeSmokeSteps().filter((s) => /count\(\*\)[^\n]*\busers\b/.test(s));
+  expect(assertions.length, 'exactly one compose-smoke step counts the seeded users row').toBe(1);
+  const step = assertions[0] ?? '';
+
+  expect(step, 'read the count with -tAc, or psql pads it with spaces').toContain('-tAc');
+  expect(step, 'compare as a string against 1, so an empty result fails rather than errors').toMatch(
+    /test "\$[A-Za-z_][A-Za-z0-9_]*" = 1/,
+  );
+  expect(step, 'the step has to exit non-zero when the count is wrong').toContain('exit 1');
+});
+
+test('the users count assertion runs between the seed and the final wait', () => {
+  // Order, for the reason the gmail_connections assertion gives: after the
+  // final `--wait`, frontdesk fails first and the log says
+  // `container orbit-instance-frontdesk-1 is unhealthy`, which names the
+  // service and not the reason.
+  const text = readRepoFile(WORKFLOW);
+  const job = text.slice(text.indexOf('  compose-smoke:'));
+
+  const seedAt = job.indexOf('ci-seed-instance');
+  const countAt = job.search(/count\(\*\)[^\n]*\busers\b/);
+  const finalWaitAt = job.lastIndexOf('--wait');
+
+  expect(countAt, 'no users count assertion found in the compose-smoke job').toBeGreaterThan(-1);
+  expect(countAt, 'count the users row after the seed, not before it').toBeGreaterThan(seedAt);
+  expect(countAt, 'count the users row before the health wait, or frontdesk reports the failure first').toBeLessThan(
     finalWaitAt,
   );
 });

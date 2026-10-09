@@ -34,9 +34,22 @@ const cipher = encryptToken('ci-smoke-not-a-real-refresh-token', key.trim());
 // configuration. This file is not configuration, and the rule is worth
 // following anyway: a real-looking address in a seed is a real address to
 // whoever reads the row.
+//
+// The users row is cause 9. frontdesk/src/main.ts:69 reads the first users row
+// for the workspace the connection names and calls fail() when it finds none,
+// so frontdesk crash-looped on a seed that was correct for api. The model
+// requires workspace_id and email and nothing else, and neither is a
+// credential, so there is nothing here to keep secret.
+//
+// The address matches the connection address because they are the same person
+// in the test office. Founder decision, 2026-10-09, and seed data only: no
+// schema constraint, no validation and no code requires the two to be equal.
+// assertOwnerAddress at frontdesk/src/main.ts:64 constrains the connection
+// address and never reads a user.
 process.stdout.write(`BEGIN;
 INSERT INTO workspaces (name) VALUES ('CI smoke') RETURNING id AS ws_id \\gset
 INSERT INTO gmail_connections (workspace_id, email_address, refresh_token_cipher, history_id)
 VALUES (:'ws_id', 'smoke@example.com', '${cipher}', '1');
+INSERT INTO users (workspace_id, email) VALUES (:'ws_id', 'smoke@example.com');
 COMMIT;
 `);

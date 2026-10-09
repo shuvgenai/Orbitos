@@ -304,6 +304,21 @@ jobs:
             psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U orbit_app -d orbit \
             -tAc "select count(*) from gmail_connections")
           test "$rows" = 1 || { echo "expected exactly one gmail_connections row, found [$rows]"; exit 1; }
+      # Cause 9. The seed was correct for api and frontdesk crash-looped anyway:
+      # frontdesk/src/main.ts:69 reads the first users row for the workspace the
+      # connection names and calls fail() when it finds none. Counted the same
+      # way and for the same reason as the row above, and before the health
+      # wait, because after it the log says
+      # `container orbit-instance-frontdesk-1 is unhealthy`, which names the
+      # service and not the reason.
+      - name: Exactly one users row, or frontdesk has no owner
+        run: |
+          set -o pipefail
+          rows=$(docker compose -f template/compose.yml exec -T \
+            -e PGPASSWORD="$ORBIT_DB_PASSWORD" postgres \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U orbit_app -d orbit \
+            -tAc "select count(*) from users")
+          test "$rows" = 1 || { echo "expected exactly one users row, found [$rows]"; exit 1; }
       - name: Now every service can be healthy
         run: docker compose -f template/compose.yml up -d --wait --scale paperclip=0
       - name: Both databases exist and each login reaches its own (DEP-1)
