@@ -386,3 +386,184 @@ test('a package script naming the prototype is reported', () => {
   expect(scriptOffenders('{"scripts":{"docs":"cp -r docs/reference out"}}')).toEqual([]);
   expect(scriptOffenders('{"name":"x"}')).toEqual([]);
 });
+
+test('no tracked Dockerfile copies the prototype', () => {
+  const offenders = filesOf(SURFACES[0].pattern).flatMap((file) =>
+    dockerfileOffenders(readTracked(file)).map((token) => `${file}: ${token}`),
+  );
+
+  expect(offenders, 'the image must not carry the prototype').toEqual([]);
+});
+
+test('the docker ignore file keeps the prototype out of every build context', () => {
+  const complaints = filesOf(SURFACES[1].pattern).flatMap((file) =>
+    dockerignoreComplaints(readTracked(file)).map((complaint) => `${file}: ${complaint}`),
+  );
+
+  expect(
+    complaints,
+    'template/compose.yml builds with context: .., so the whole repository goes to the daemon',
+  ).toEqual([]);
+});
+
+test('no tracked compose file or workflow names the prototype', () => {
+  const files = [...filesOf(SURFACES[2].pattern), ...filesOf(SURFACES[3].pattern)];
+  const offenders = files.flatMap((file) => {
+    const text = readTracked(file);
+    // parse() returns the FIRST document only, so a multi-document file would
+    // be half read and the rest never checked. It throws instead.
+    if (/^---\s*$/m.test(text.replace(/^---\s*\r?\n/, ''))) {
+      throw new Error(`${file}: multi-document YAML is not handled`);
+    }
+    return yamlOffenders(parse(text)).map((token) => `${file}: ${token}`);
+  });
+
+  expect(offenders, 'no served root, volume or artifact path may be the prototype').toEqual([]);
+});
+
+test('no package script names the prototype', () => {
+  const offenders = filesOf(SURFACES[4].pattern).flatMap((file) =>
+    scriptOffenders(readTracked(file)).map((token) => `${file}: ${token}`),
+  );
+
+  expect(offenders, 'no script may serve or copy the prototype').toEqual([]);
+});
+
+test('this guard examined every surface class, and enough of each', () => {
+  // Every assertion above passes vacuously over zero files. A rename, a move or
+  // a pattern that stopped matching would cause exactly that, and the guard
+  // would stay green while checking nothing.
+  const short = SURFACES.filter((surface) => filesOf(surface.pattern).length < surface.floor).map(
+    (surface) => `${surface.name}: ${filesOf(surface.pattern).length} found, ${surface.floor} expected`,
+  );
+
+  expect(short, 'a surface class stopped matching, so this guard checks less than it says').toEqual([]);
+
+  const total = SURFACES.reduce((sum, surface) => sum + filesOf(surface.pattern).length, 0);
+  expect(total, 'no surface was examined at all').toBeGreaterThanOrEqual(17);
+});
+
+test('the surface list is the seven classes that were reviewed, and no fewer', () => {
+  // Review Focus 1. A deploy config of a kind nobody anticipated is invisible
+  // to this guard, and the prototype README names Coolify, Netlify and
+  // Cloudflare Pages by name. Pinning the list means adding an eighth kind of
+  // deploy descriptor without widening the guard is a visible failure here,
+  // rather than a silent gap. Written out by hand, never looped from SURFACES,
+  // because a loop would shrink with the list it is meant to pin.
+  expect(SURFACES.map((surface) => surface.name)).toEqual([
+    'dockerfile',
+    'dockerignore',
+    'compose',
+    'workflow',
+    'manifest',
+    'vite',
+    'playwright',
+  ]);
+});
+
+/** Whether a resolved absolute path is the protected directory or anything inside it. */
+function insideProtected(target: string): boolean {
+  const rel = relative(join(REPO_ROOT, PROTECTED), target);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/**
+ * The default export of one config, settled.
+ *
+ * defineConfig passes its argument through, but the type it returns also
+ * covers a function and a promise, and a config may legitimately be either.
+ * This is the shape guards/vite-fs-allow.test.ts:51 already uses, for the
+ * reason its header gives: resolving the values is the only check that cannot
+ * be satisfied by renaming a variable.
+ */
+async function settledConfig(config: string): Promise<unknown> {
+  const absolute = join(REPO_ROOT, config);
+  const loaded: unknown = await import(pathToFileURL(absolute).href);
+  const exported = (loaded as { default?: unknown }).default;
+  return typeof exported === 'function'
+    ? await (exported as (env: { command: string; mode: string }) => unknown)({
+        command: 'build',
+        mode: 'production',
+      })
+    : await exported;
+}
+
+/** Resolve a config-relative path against the directory holding the config. */
+const against = (config: string, entry: string): string =>
+  isAbsolute(entry) ? entry : resolve(dirname(join(REPO_ROOT, config)), entry);
+
+/** Every declared build input of one settled Vite config, as written. */
+function viteInputs(settled: unknown): readonly string[] {
+  const input = (settled as { build?: { rollupOptions?: { input?: unknown } } } | undefined)?.build?.rollupOptions
+    ?.input;
+  if (input === undefined) return [];
+  if (typeof input === 'string') return [input];
+  if (Array.isArray(input)) return input.map((entry) => String(entry));
+  if (input !== null && typeof input === 'object') return Object.values(input).map((entry) => String(entry));
+  // Not skipped. A shape this cannot read is a shape it cannot judge.
+  throw new Error('build.rollupOptions.input is neither a string, an array nor an object');
+}
+
+/** The fs.allow list of one settled Vite config, or undefined when it sets none. */
+function viteAllow(settled: unknown): readonly string[] | undefined {
+  const allow = (settled as { server?: { fs?: { allow?: unknown } } } | undefined)?.server?.fs?.allow;
+  if (allow === undefined) return undefined;
+  if (!Array.isArray(allow)) throw new Error('server.fs.allow is not an array');
+  return allow.map((entry: unknown) => {
+    if (typeof entry !== 'string') throw new Error('server.fs.allow holds a non-string entry');
+    return entry;
+  });
+}
+
+test('no vite config builds from the prototype or serves it', async () => {
+  const offenders: string[] = [];
+  let checked = 0;
+
+  for (const config of filesOf(SURFACES[5].pattern)) {
+    const settled = await settledConfig(config);
+
+    for (const entry of viteInputs(settled)) {
+      checked += 1;
+      if (insideProtected(against(config, entry))) offenders.push(`${config}: input ${entry}`);
+    }
+    for (const entry of viteAllow(settled) ?? []) {
+      checked += 1;
+      if (insideProtected(against(config, entry))) offenders.push(`${config}: fs.allow ${entry}`);
+    }
+  }
+
+  expect(offenders, 'the prototype is not a build input and not a served directory').toEqual([]);
+  // Three inputs and two allow entries in dashboards/vite.config.ts today.
+  expect(checked, 'no vite input or fs.allow entry was examined').toBeGreaterThanOrEqual(5);
+});
+
+test('no playwright config serves the prototype', async () => {
+  const offenders: string[] = [];
+  let checked = 0;
+
+  for (const config of filesOf(SURFACES[6].pattern)) {
+    const settled = await settledConfig(config);
+    const typed = settled as {
+      testDir?: unknown;
+      outputDir?: unknown;
+      webServer?: readonly { command?: unknown; cwd?: unknown }[] | { command?: unknown; cwd?: unknown };
+    };
+
+    const servers = typed.webServer === undefined ? [] : [typed.webServer].flat();
+    const values: readonly unknown[] = [
+      typed.testDir,
+      typed.outputDir,
+      ...servers.flatMap((server) => [server.command, server.cwd]),
+    ];
+
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      checked += 1;
+      for (const token of commandOffenders(value)) offenders.push(`${config}: ${token}`);
+    }
+  }
+
+  expect(offenders, 'no end-to-end server may serve the prototype').toEqual([]);
+  // testDir plus two webServer commands in playwright.config.ts today.
+  expect(checked, 'no playwright server command was examined').toBeGreaterThanOrEqual(3);
+});
