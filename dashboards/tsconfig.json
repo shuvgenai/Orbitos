@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"]
+}

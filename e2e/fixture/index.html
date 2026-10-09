@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Harness fixture</title>
+  </head>
+  <body>
+    <h1>Harness fixture</h1>
+    <p id="ok">This page exists to prove the browser and axe both run.</p>
+    <!--
+      One deliberate, named defect: an image with no alt text, which axe
+      reports as a serious image-alt violation. It is the whole point of the
+      page. Without it, an axe run that silently stopped working would still
+      report green, and the accessibility row of spec section 8 would be true
+      of nothing.
+    -->
+    <img
+      id="defect"
+      src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+    />
+  </body>
+</html>

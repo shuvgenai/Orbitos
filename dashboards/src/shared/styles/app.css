@@ -1,0 +1,14 @@
+/* The one stylesheet every dashboard entry imports.
+
+   The order below is a rule, not a preference. The frozen file declares the
+   custom properties, and every rule in theme.css reads one of them through
+   @apply on a class whose value is var(--color-x). Declare the properties
+   after the rules that read them and they resolve to nothing: the page renders
+   unstyled and no test fails, which is the worst of both.
+
+   Neither import restates a value. design/ is frozen and owns all twelve
+   declarations, including the dark-mode block; theme.css owns the layers and
+   the shared state rules and names the values without repeating them. */
+
+@import '../../../../design/tokens.css';
+@import './theme.css';

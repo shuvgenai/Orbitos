@@ -3,28 +3,56 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": ">=24.11" },
+  "engines": {
+    "node": ">=24.11"
+  },
   "scripts": {
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:db": "vitest run --project db",
     "db:up": "node scripts/dev-db.mjs up -d --wait",
     "db:down": "node scripts/dev-db.mjs down -v",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p dashboards/tsconfig.json",
+    "check:screens": "vitest run --project unit guards/design-naming.test.ts guards/appendix-a.test.ts",
     "db:generate": "pnpm --filter @orbit/db exec prisma generate",
     "db:migrate": "pnpm --filter @orbit/db exec prisma migrate deploy",
     "stack:up": "docker compose -f template/compose.yml up -d --build --wait",
     "stack:down": "docker compose -f template/compose.yml down -v",
     "resend:check": "pnpm --filter @orbit/ops exec node --env-file=../.env.local --import tsx src/send-resend-check.ts",
     "posture:check": "pnpm --filter @orbit/ops exec node --import tsx src/posture-check.ts",
-    "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts"
+    "spike:run": "pnpm --filter @orbit/ops exec node --import tsx src/spike/run-spike.ts",
+    "lint": "eslint .",
+    "e2e": "playwright test",
+    "lint:frozen": "node scripts/lint-frozen.mjs",
+    "lint:frozen:danger": "node scripts/lint-frozen.mjs --fail-on-danger",
+    "audit": "pnpm audit --audit-level=high"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@babel/core": "8.0.7",
+    "@babel/eslint-parser": "8.0.7",
+    "@babel/preset-react": "8.0.1",
+    "@babel/preset-typescript": "8.0.7",
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.64.0",
     "@types/node": "24.19.0",
     "@types/pg": "8.23.1",
+    "eslint": "9.39.5",
+    "eslint-plugin-react": "7.37.5",
+    "globals": "17.13.0",
+    "http-server": "14.1.1",
     "pg": "8.23.1",
     "typescript": "7.0.2",
     "vitest": "5.0.3",
     "yaml": "2.9.1"
+  },
+  "pnpm": {
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-ggr8-5vv4-36mx",
+    "GHSA-3f6p-5ww8-9rcr",
+            "GHSA-vfj7-8cjw-p6xm"
+      ]
+    }
   }
 }
