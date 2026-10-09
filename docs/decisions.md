@@ -2565,3 +2565,36 @@ no frozen directory. The cost of the address decision being read as a rule is
 higher: a future reader who treats the two equal addresses as a constraint
 builds validation the founder has not decided on, which is why the equality is
 stated here as seed data three times over.
+
+## 2026-10-09 - compose-smoke is green, and nine causes are closed
+
+**Result:** run `37960426956` on `76dadf5`, as the API reports it: `test`
+success, `e2e` success, `secrets` success, `compose-smoke` **success**. The
+conclusion was read with `gh run view --json status,conclusion`, not from the
+exit code of `gh run watch`, for the reason recorded in the 2026-10-08 entry
+"`gh run watch --exit-status` cannot be used as a CI gate".
+
+**The evidence that the new step did the work, not that the job went quiet.**
+Step 13, `Exactly one users row, or frontdesk has no owner`, reports success,
+and step 14, `Now every service can be healthy`, reports success after it. That
+second one is the step that failed on run `37854063625` with
+`container orbit-instance-frontdesk-1 is unhealthy`, which is how cause 9 was
+found. No step in the job is
+skipped except the failure-only log dump at step 17.
+
+**What a green run proves and what it does not.** Unchanged from the Task 3 and
+Task 4 entries, and repeated because a first green run is exactly when a reader
+starts believing more than the job checks. It proves the compose file parses with
+real values, both databases and both logins exist, the schema applies, the seed
+inserts exactly one `GmailConnection` row and exactly one `users` row, and
+`postgres`, `redis`, `web`, `worker`, `api` and `frontdesk` start and answer
+their healthchecks. It proves nothing about the engine, which is excluded with
+`--scale paperclip=0`, and nothing about behaviour beyond boot.
+
+**Still outstanding on this branch.** The security review that section 7 of
+`CLAUDE.md` requires of this code diff, in a fresh session reading only the diff,
+recorded here. The branch is not merged.
+
+**Cost if wrong:** low. If the green run is a fluke the next push says so, and
+the two count assertions are the mechanism that makes a silent regression report
+itself rather than hide behind an unhealthy container.
