@@ -141,3 +141,248 @@ test('a command value is scanned loosely and a prose value is not', () => {
   expect(proseSafeOffenders('Run reference checks')).toEqual([]);
   expect(proseSafeOffenders('check the docs/reference notes')).toEqual([]);
 });
+
+/** A COPY or ADD instruction and its argument list. Docker instructions are case insensitive. */
+const COPY_LINE = /^(?:COPY|ADD)\s+(.+)$/gim;
+
+/**
+ * Offending copy arguments in one Dockerfile's text.
+ *
+ * Line continuations are joined first, so a source written on the second line
+ * of a wrapped instruction is seen. Flags are dropped. A --from source names a
+ * build stage rather than the context, so it cannot be this directory in
+ * practice; it is checked anyway, because over-reporting here costs nothing and
+ * a quiet skip is how a guard goes green while checking less than it says.
+ *
+ * The destination is checked too. A copy writing into a path called reference
+ * inside an image is not finding H1, but it is close enough that a person
+ * should look.
+ */
+export function dockerfileOffenders(text: string): readonly string[] {
+  const joined = text.replace(/\\\r?\n/g, ' ');
+  return [...joined.matchAll(COPY_LINE)].flatMap((match) =>
+    (match[1] ?? '')
+      .split(/\s+/)
+      .filter((argument) => argument !== '' && !argument.startsWith('--'))
+      .filter((argument) => namesReference(argument)),
+  );
+}
+
+/**
+ * What is wrong with one .dockerignore's text, as a list of complaints.
+ *
+ * Two rules. The file has to exclude this directory, because
+ * template/compose.yml builds with `context: ..` and the whole repository goes
+ * to the daemon on every stack:up; without the entry a later whole-context copy
+ * ships the prototype and nothing says a word. And no line may re-include it
+ * with a negation, because the last matching pattern in a Docker ignore file
+ * wins.
+ *
+ * Only a pattern whose first segment is the directory counts as excluding it. A
+ * glob form would work in Docker and does NOT satisfy this rule. That is
+ * deliberate: accepting more forms means reasoning about Docker's pattern
+ * precedence, which this guard does not do, and the plain form is the one the
+ * file already uses for landing, archive and docs.
+ */
+export function dockerignoreComplaints(text: string): readonly string[] {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+
+  const complaints: string[] = [];
+  if (!lines.some((line) => !line.startsWith('!') && namesReference(line))) {
+    complaints.push(`no line excludes ${PROTECTED}/`);
+  }
+  for (const line of lines) {
+    if (line.startsWith('!') && namesReference(line)) complaints.push(`${line} re-includes ${PROTECTED}/`);
+  }
+  return complaints;
+}
+
+test('a copy naming the prototype is reported, and a comment is not', () => {
+  expect(dockerfileOffenders('COPY reference reference\n')).toEqual(['reference', 'reference']);
+  expect(dockerfileOffenders('ADD reference/orbit-os-frontend /site\n')).toEqual([
+    'reference/orbit-os-frontend',
+  ]);
+  // A wrapped copy. The source is on the second line, and a line-by-line scan
+  // would miss it.
+  expect(dockerfileOffenders('COPY \\\n  reference /site\n')).toEqual(['reference']);
+  // A flag is not a path.
+  expect(dockerfileOffenders('COPY --from=build reference /site\n')).toEqual(['reference']);
+
+  expect(dockerfileOffenders('# COPY reference /site\n')).toEqual([]);
+  expect(dockerfileOffenders('COPY docs/reference /site\n')).toEqual([]);
+  expect(dockerfileOffenders('COPY shared shared\nCOPY db/package.json db/\n')).toEqual([]);
+});
+
+test('a docker ignore file that drops the prototype, or takes it back, is reported', () => {
+  expect(dockerignoreComplaints('landing\narchive\nreference\n')).toEqual([]);
+  expect(dockerignoreComplaints('# reference is handled elsewhere\nlanding\n')).toEqual([
+    'no line excludes reference/',
+  ]);
+  expect(dockerignoreComplaints('reference\n!reference/orbit-os-frontend\n')).toEqual([
+    '!reference/orbit-os-frontend re-includes reference/',
+  ]);
+  // Review Focus 4. A glob form would work in Docker and does not satisfy this
+  // rule, because the rule does not reason about pattern precedence. The plain
+  // form is the one the file already uses.
+  expect(dockerignoreComplaints('landing\n**/reference\n')).toEqual(['no line excludes reference/']);
+  // docs/reference/ is not this directory, so it proves nothing either way.
+  expect(dockerignoreComplaints('docs/reference\n')).toEqual(['no line excludes reference/']);
+});
+
+/**
+ * Keys whose values are paths or commands, so their tokens get the loose scan.
+ *
+ * Everything not listed here is scanned prose-safely. A key added to this list
+ * widens what is reported, never narrows it.
+ */
+const PATH_KEYS: ReadonlySet<string> = new Set([
+  'run',
+  'command',
+  'entrypoint',
+  'args',
+  'path',
+  'paths',
+  'working-directory',
+  'cwd',
+  'context',
+  'dockerfile',
+  'volumes',
+  'env_file',
+]);
+
+/**
+ * Offenders anywhere in one parsed YAML document.
+ *
+ * `key` is the mapping key the current value sits under, and it chooses the
+ * scan. An array inherits its parent's key, so each entry of a volumes list is
+ * treated as a path.
+ *
+ * Comments are already gone: parse() returns values only. That is deliberate
+ * and recorded in the probes. A comment ships nothing.
+ */
+export function yamlOffenders(node: unknown, key?: string): readonly string[] {
+  if (typeof node === 'string') {
+    const found = key !== undefined && PATH_KEYS.has(key) ? commandOffenders(node) : proseSafeOffenders(node);
+    return found.map((token) => (key === undefined ? token : `${key}: ${token}`));
+  }
+  if (Array.isArray(node)) return node.flatMap((child) => yamlOffenders(child, key));
+  if (node !== null && typeof node === 'object') {
+    return Object.entries(node).flatMap(([childKey, child]) => yamlOffenders(child, childKey));
+  }
+  return [];
+}
+
+/**
+ * Offenders in one package.json's scripts.
+ *
+ * A script value is a command, never prose, so the loose scan is right here. A
+ * scripts field that is present but not an object throws rather than being
+ * skipped: this guard cannot reason about it, and going quiet is how a guard
+ * reports green while checking nothing.
+ */
+export function scriptOffenders(json: string): readonly string[] {
+  const parsed: unknown = JSON.parse(json);
+  const scripts = (parsed as { scripts?: unknown }).scripts;
+  if (scripts === undefined) return [];
+  if (scripts === null || typeof scripts !== 'object' || Array.isArray(scripts)) {
+    throw new Error('scripts is present but is not an object');
+  }
+  return Object.entries(scripts).flatMap(([name, value]) =>
+    typeof value === 'string' ? commandOffenders(value).map((token) => `${name}: ${token}`) : [],
+  );
+}
+
+/**
+ * The classes of tracked file this guard reads, and the pattern that finds each.
+ *
+ * Discovery is through trackedFiles(), so an untracked local override is
+ * invisible here. That is the same choice guards/lib/walk.ts:46 makes, for the
+ * same reason: an untracked scratch file must not fail a guard locally while
+ * CI passes. It is Review Focus 3 of the plan, and it is stated in the
+ * decisions entry.
+ *
+ * Each floor is the count in this repository on 2026-10-09. It is a floor and
+ * not an equality, so adding a surface is not a failure and losing one is.
+ */
+const SURFACES = [
+  { name: 'dockerfile', pattern: /(^|\/)Dockerfile$/, floor: 2 },
+  { name: 'dockerignore', pattern: /(^|\/)\.dockerignore$/, floor: 1 },
+  { name: 'compose', pattern: /(^|\/)[^/]*compose[^/]*\.ya?ml$/, floor: 2 },
+  { name: 'workflow', pattern: /^\.github\/workflows\/[^/]+\.ya?ml$/, floor: 1 },
+  { name: 'manifest', pattern: /(^|\/)package\.json$/, floor: 9 },
+  { name: 'vite', pattern: /(^|\/)vite\.config\.[cm]?[jt]s$/, floor: 1 },
+  { name: 'playwright', pattern: /(^|\/)playwright\.config\.[cm]?[jt]s$/, floor: 1 },
+] as const;
+
+/** Tracked files of one class. node_modules is excluded: those manifests are not ours. */
+const filesOf = (pattern: RegExp): readonly string[] =>
+  trackedFiles().filter((file) => pattern.test(file) && !file.includes('node_modules/'));
+
+/**
+ * A tracked file's text, falling back to the index when it is gone from disk.
+ *
+ * git lists a file it still tracks after an unstaged delete, and reading the
+ * disk then throws. Without the fallback this guard crashes on somebody's
+ * half-finished delete while CI, which has a clean checkout, passes. That is
+ * the failure guards/lib/walk.ts:46 exists to avoid, and
+ * guards/paths.test.ts:43 already solves it this way. The fallback is not a
+ * silent skip: the committed content is still checked, which is what this
+ * guard is about. Any error other than a missing file propagates.
+ */
+function readTracked(rel: string): string {
+  try {
+    return readRepoFile(rel);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return execFileSync('git', ['show', `:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8' });
+  }
+}
+
+test('a YAML artifact path, served root or volume naming the prototype is reported', () => {
+  expect(yamlOffenders(parse('jobs:\n  e2e:\n    steps:\n      - with:\n          path: reference\n'))).toEqual([
+    'path: reference',
+  ]);
+  expect(
+    yamlOffenders(
+      parse('jobs:\n  e2e:\n    steps:\n      - with:\n          path: |\n            reference/orbit-os-frontend\n'),
+    ),
+  ).toEqual(['path: reference/orbit-os-frontend']);
+  expect(yamlOffenders(parse('jobs:\n  e2e:\n    steps:\n      - run: npx http-server reference -p 8080\n'))).toEqual([
+    'run: reference',
+  ]);
+  expect(yamlOffenders(parse('services:\n  web:\n    volumes:\n      - ./reference:/site:ro\n'))).toEqual([
+    'volumes: ./reference:/site:ro',
+  ]);
+
+  // A comment is not a finding. parse() drops comments, so this is structural
+  // rather than a rule, and the probe records it.
+  expect(
+    yamlOffenders(parse('jobs:\n  e2e:\n    # deploy reference/orbit-os-frontend one day\n    steps: []\n')),
+  ).toEqual([]);
+  // Prose under a key that is not a path key is left alone.
+  expect(yamlOffenders(parse('jobs:\n  e2e:\n    steps:\n      - name: Run reference checks\n'))).toEqual([]);
+  // Review Focus 2. The documented miss: a command under a key that is not a
+  // path key, with no separator on the token.
+  expect(yamlOffenders(parse('jobs:\n  e2e:\n    steps:\n      - shell: cp -r reference dist\n'))).toEqual([]);
+  // The same command under a path key IS reported.
+  expect(yamlOffenders(parse('jobs:\n  e2e:\n    steps:\n      - run: cp -r reference dist\n'))).toEqual([
+    'run: reference',
+  ]);
+
+  expect(yamlOffenders(parse('jobs:\n  e2e:\n    steps:\n      - with:\n          path: docs/reference\n'))).toEqual([]);
+});
+
+test('a package script naming the prototype is reported', () => {
+  expect(scriptOffenders('{"scripts":{"preview":"npx http-server reference -p 8080"}}')).toEqual([
+    'preview: reference',
+  ]);
+  expect(scriptOffenders('{"scripts":{"build":"cp -r reference/orbit-os-frontend dist"}}')).toEqual([
+    'build: reference/orbit-os-frontend',
+  ]);
+  expect(scriptOffenders('{"scripts":{"lint":"eslint ."}}')).toEqual([]);
+  expect(scriptOffenders('{"scripts":{"docs":"cp -r docs/reference out"}}')).toEqual([]);
+  expect(scriptOffenders('{"name":"x"}')).toEqual([]);
+});
