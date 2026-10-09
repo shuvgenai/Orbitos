@@ -2874,7 +2874,11 @@ to the daemon on every `pnpm stack:up`, and the ignore file listed `landing`,
 `archive`, `docs`, `.superpowers` and every markdown file but not `reference`.
 Nothing copies the folder today, so nothing shipped, and the entry is what
 keeps a later whole-context copy from shipping the founder's mailbox without a
-word. The build context was confirmed afterwards by building the `manifests`
+word. A second line was needed and was missed first time round. A pattern
+naming the directory excludes the directory and nothing else, so the untracked
+`orbit-os-frontend.zip` at the repository root, which is the same prototype
+zipped, was still going to the daemon on every build. It has its own line now.
+Finding F9 of the review recorded below. The build context was confirmed afterwards by building the `manifests`
 stage, which exited 0 with all eight workspace manifest copies resolving. The
 `generate` and `runtime` stages were not built and the stack was not started,
 so what is confirmed is that the context still transfers, not that the whole
@@ -2901,7 +2905,14 @@ and error text that currently exist only as working code. Then updating every
 citation: `dashboards/CLAUDE.md`, `docs/prd/ORBIT_OS_PRD_v9_0.md`,
 `docs/backlog.md` and six prompts in `ORBIT-OS_Claude_Code_Build_Prompts.md`
 that say to match a named prototype screen. Then deleting the untracked zip at
-the repository root.
+the repository root. And then this entry, which is the part the first version
+of this cost list forgot: the paragraph below names the founder's address, the
+founder's name and role, the customer-zero domain, the file and line of each,
+and the fact that the prototype has no authentication anywhere. Doing (c)
+exactly as first written removes the folder and leaves `docs/decisions.md`
+publishing the address together with a map of the weakness. Redact this entry
+to path-only references in the same change, and note that git history keeps the
+old text either way. Finding F13 of the review recorded below.
 
 What (c) would break: `guards/paths.test.ts` fails on its first assertion, that
 the prototype README exists, and again on its check that every prototype path
@@ -2915,7 +2926,7 @@ ask, and `ORBIT-OS_Claude_Code_Build_Prompts.md` tells an implementer to open
 the reference screen and compare step by step. After removal there is no screen
 to open.
 
-**What none of this removes.** Three personal identifiers stay exactly where
+**What none of this removes.** Four kinds of identifier stay exactly where
 they are. `shuv@orbitumai.com` at
 `reference/orbit-os-frontend/assets/data/fleet.js:4` and again at
 `reference/orbit-os-frontend/dist/preview.html:392`. The hardcoded
@@ -2946,9 +2957,12 @@ change makes an operator type a different command.
 **What this guard does not cover.** Three gaps, stated so a green run is not
 read as more than it is. It reads seven classes of surface, so a deploy
 descriptor of a kind nobody anticipated, such as a Netlify, Vercel, Cloudflare
-or Coolify configuration file, is invisible to it; the class list is pinned by
-hand so that adding one without widening the guard fails, but the guard cannot
-know about a kind that does not exist here yet. It discovers surfaces through
+or Coolify configuration file, is invisible to it. The class list is pinned by
+hand, and that assertion fires when an entry is removed or renamed. It does
+NOT fire when a file of an unmodelled kind appears, because nothing tells it
+what to look for. Committing a Netlify or Vercel descriptor that publishes the
+folder would leave every assertion green. This paragraph claimed otherwise in
+its first version and was wrong. Finding F5 of the review recorded below. It discovers surfaces through
 `git ls-files`, so an untracked local compose override naming the prototype
 passes, which is the same choice `guards/lib/walk.ts` makes so that an
 untracked scratch file cannot fail a guard locally while CI passes. And the
@@ -2975,8 +2989,127 @@ or domains.
 
 **Cost if wrong:** low on what was done, high on what was deferred. The guard
 and the ignore entry are reversible in one commit and neither can publish
-anything. The deferral is the exposure that stays: three personal identifiers
+anything. The deferral is the exposure that stays: the identifiers above
 sit in a committed folder whose own README says to upload it, and a published
 operator address cannot be unpublished. The trigger is an event rather than a
 date so that it fires when the risk actually changes, and the risk changes the
 moment this repository stops being private.
+
+## 2026-10-09 - The review of the H1 guard found a bypass in it, and the bypass is fixed
+
+**Result:** the guard added earlier the same day was reviewed in a fresh session
+that read only the diff, as section 7 requires. The review reported one critical
+finding, ten important and four minor. The critical one was real: the guard
+could be walked around in one line. It is fixed, together with nine of the ten
+important findings and three wording defects in the entry above. What is left is
+listed at the end.
+
+**Scope of the review, and why it was not the whole branch.** The reviewer was
+given this change alone: four files and 2,095 added lines. The branch is about
+26,000 added lines and was reviewed in full twice, on 2026-10-08 and
+2026-10-09, with both results already in this log. This change had never been
+read by anybody. The cost of the narrower scope is that an interaction between
+this change and an older unreviewed part of the branch goes unseen, which is
+bounded: the guard adds one test file and two ignore lines and imports nothing
+from the rest of the branch.
+
+**The critical finding, stated plainly.** The guard compared the first path
+segment of a token against the word `reference`. Every surface it reads is not
+at the repository root: `template/compose.yml` sits one level down and so do
+eight of the nine package manifests. From any of them, `../reference` is the
+prototype, and the first-segment rule returned false for it. So this was green:
+
+```yaml
+services:
+  web:
+    image: nginx
+    volumes:
+      - ../reference:/usr/share/nginx/html:ro
+    ports: ["8080:80"]
+```
+
+That is the prototype served on every interface by `pnpm stack:up`, with the
+founder's mailbox, the customer-zero domain and the unauthenticated operator
+page on it. The Docker ignore entry does not help, because a bind mount is not
+a build context. The same hole existed in any workspace script:
+`npx http-server ../reference/orbit-os-frontend` in `dashboards/package.json`.
+
+**The worst part of that finding is that this repository had written the hole
+down as correct.** A probe in the first version asserted that `../reference`
+must return false. The reviewer could see that assertion and said so. A test
+that pins the wrong behaviour is worse than no test, because it tells the next
+reader the question was considered and settled.
+
+**What replaced it.** A token is now resolved, not pattern matched. Every
+extracted token is resolved against the directory its own surface is relative
+to, and compared with the protected directory by containment. That also made
+the guard more precise rather than only wider: a bare `reference` inside
+`dashboards/` is `dashboards/reference` and is correctly not a finding, which
+the first version would have reported.
+
+**The base a token resolves against is per class, and getting it wrong in the
+other direction is the same bug.** A workflow step runs in the workspace root,
+so a workflow's paths are root relative however deep the file sits. A compose
+volume, a package script, a Dockerfile copy and a bundler config are relative
+to their own file. Resolving a workflow against its own directory would put
+`path: reference` at `.github/workflows/reference` and miss it. One function
+states this and a test pins the table, because this is the kind of detail that
+is obvious once and invisible afterwards.
+
+**The other nine important findings, each fixed.** A path attached to a flag
+with an equals sign was never matched, so `python3 -m http.server
+--directory=reference` passed, which is the exact spelling of the habit the
+entry above records; tokens are now split on the equals sign. A negated glob in
+a Docker ignore file put the folder back into every context while the strict
+spelling check said nothing, so `!reference*` and `!ref*` were silent; the
+negation rule is now glob aware, while the rule that proves exclusion stays
+strict, because being wrong fails open in opposite directions for the two. A
+per-Dockerfile ignore file, which BuildKit prefers over `.dockerignore`, was in
+no surface class. Four real copy forms were unread: the documented JSON-array
+form, a BuildKit bind mount that reads the context with no copy instruction at
+all, an indented instruction, and a copy hidden under a comment ending in a
+backslash, which the extractor joined into the comment and lost. Differently
+named Dockerfiles, and composite actions under `.github/actions/`, were outside
+their classes. A Vite config was read for its build inputs and its allow list
+only, so `publicDir`, which copies a folder verbatim into the output, and
+`root`, which changes what every input resolves against, were both invisible,
+and only the build branch of a config function was evaluated. A multi-document
+YAML file was read as its first document, because the parser warns rather than
+throwing, and the hand-rolled separator detector that stood in for it missed a
+separator carrying a comment. Trailing shell punctuation and case variants
+defeated the matcher.
+
+**The guard was seen red against two real surfaces after the rewrite**, not
+only in its own probes. A climbing path in `dashboards/package.json` now fails
+with `dashboards/package.json: probe:proto: ../reference/orbit-os-frontend`,
+where before the rewrite the same probe passed green. A glob negation in
+`.dockerignore` now fails with `.dockerignore: !reference* re-includes
+reference/`. Both files were restored from a copy and confirmed clean.
+`template/compose.yml` was NOT probed, because `template/` is frozen and a
+guard does not earn a change to frozen code; the climbing case is covered by
+the manifest probe and by a unit probe that passes `template` as its base.
+
+**What is still not fixed, and is not pretended to be.** A whole-context copy
+is not itself reported: the Docker ignore rules are the control for it, which
+is one rule deep rather than two. The floors count files rather than extracted
+values, so a manifest with no scripts counts toward its floor while
+contributing nothing checked. Four minor findings were left alone: a dead
+null-coalescing on a split result, the total floor being redundant with the
+per-class check, a null web-server entry throwing rather than reporting, and
+the observation that deleting an allow list entirely is caught by a floor
+rather than by a rule. None of them changes what the guard reports.
+
+**Reason the critical finding was fixed in the same change rather than
+recorded.** The two earlier reviews on this branch recorded their findings and
+fixed none, for reasons this log gives. This one is different: the finding is
+not a gap in somebody else's code, it is this change failing to do the single
+thing it was approved to do. Leaving it recorded would have put a guard in the
+suite whose green run means less than its name claims, which is the failure
+every entry about guards on this branch is about.
+
+**Cost if wrong:** moderate. The rewrite is larger than the guard it replaces
+and resolution has more edges than a string compare, so a false positive is
+possible and would land on whoever next edits a compose file or a manifest. The
+probes are the mitigation: nineteen of them, including the cases that must NOT
+report. A false negative costs what the first version cost, which is a guard
+that reads green while the prototype is one line away from being served.

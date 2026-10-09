@@ -12,3 +12,5 @@ docs
 # here goes to the daemon on every stack:up. Nothing copies it today, and this
 # line is what keeps a later `COPY . .` from shipping the founder's mailbox.
 reference
+# The same prototype, zipped, untracked and still in the context without this.
+orbit-os-frontend.zip
