@@ -2598,3 +2598,202 @@ recorded here. The branch is not merged.
 **Cost if wrong:** low. If the green run is a fluke the next push says so, and
 the two count assertions are the mechanism that makes a silent regression report
 itself rather than hide behind an unhealthy container.
+
+## 2026-10-09 - The second security review of this branch, four high findings, none fixed
+
+**Result:** a fresh review of `stream-0/seam-and-contract` against `main`
+reported 4 high, 23 medium, 24 low and 18 informational findings, and zero
+critical. Nothing was fixed in this change. The branch is now 122 files and
+26,251 added lines, against 73 files and about 13,400 when the 2026-10-08 entry
+was written, so roughly half the material here had never been reviewed.
+
+**How it was run.** The diff was split into five bundles whose line counts sum
+to the full 28,138, so no file fell between them. Four bundles went to four
+separate sessions, one each. Every session was handed one diff file and told it
+could open nothing else: no repository, no `git`, no network, no subagents of
+its own, and fix nothing. None of them was told what the earlier review found,
+so none could confirm a finding it was handed. The fifth bundle, 16,333 lines of
+`docs/`, `ORBIT-OS_Claude_Code_Build_Prompts.md` and `pnpm-lock.yaml`, was
+scanned by the recording session rather than read line by line.
+
+The split was CI and build tooling; `dashboards/`; `guards/`, `e2e/` and
+`template/`; `reference/` with the security and rule documents; and the
+documents and lockfile.
+
+**Findings, high.**
+
+| Id | Finding |
+| --- | --- |
+| H1 | The committed `reference/orbit-os-frontend/` prototype holds the founder's real mailbox, the founder's name, the live domain `office.orbitumai.com` labelled customer zero, and five addresses at `brightpath.co`, which is a real registrable domain and not a reserved one. Its README says to deploy the whole folder as static files, and `fleet/index.html` is a complete page that sets the operator role in a script tag with no authentication anywhere. Following that instruction publishes the operator's address, the office list, and the runtime adapter names. Nothing checks any of it, because `reference/` is excluded from the guards by name in `guards/paths.test.ts` and absent from `CUSTOMER_DIRS` in `guards/design-naming.test.ts`. Section 6a's reserved-domain rule and section 5's naming rule are both unenforced in the one directory where real data landed. |
+| H2 | The cross-project env rule in section 6 is enforced by a scan that needs `.env` and `..` on the same line. An absolute path passes, a home-relative path passes, and a path assembled from an identifier passes. Those are the natural ways to name a file outside this repository, which is the whole subject of the rule. `guards/vite-fs-allow.test.ts` resolves paths instead of grepping them, and says in its own header why a text scan is not enough. That reasoning was not carried across. |
+| H3 | All three freeze checks survive the thing the freeze exists to stop. The skip pattern needs a word boundary after `skip`, so `test.skipIf(true)` does not match, and `test.skipIf` is used three times elsewhere in this branch, which makes it the idiom a future session reaches for. The recorded test count is held as a record and deliberately not compared, so emptying a test body fails nothing. The collection check names one file, so the other 31 baseline files could leave the vitest include list unnoticed. Combining the first and third, the single-route-to-Gmail proof in the frozen template can be turned off and the guard reports green on all three assertions. |
+| H4 | Role is decided by which static HTML file the browser loads. There is no identity, no session, no server check and no deny branch in `dashboards/src`, and the three entries build into one output tree, so reaching the operator console is a matter of guessing its path. The router is a hash router by design, so the requested screen never reaches a server and route authority cannot be added there later. The operator screen list is also the surface that will hold shutdown, view as customer, and the operator audit, and it carries no sign-in screen of its own. |
+
+**Findings, medium.** M1 any value starting with `$` is allowed, so a real
+mailbox reaches CI through a secret interpolation with every gate assertion
+green. M2 the tracked-address scan reads `.env.example` and YAML only, so the
+owner address hardcoded in the seed script is outside it. M3 the CI credential
+check is a list of vendor prefixes, and a real 64 hex character encryption key
+matches none of them and passes its validator. M4 the Vite guard does not
+require `fs.allow` to be set and never looks at `fs.strict`, so turning strict
+off reproduces the exposure the guard was written for. M5 the naming and
+screen-state guards scan three app directories, and `dashboards/src/features/`
+is a planned real folder outside all three. M6 the screen-state probes are
+built from the same constant the scan uses, so a rename makes the real check
+vacuous while every probe still passes. M7 the shared walker skips symlinks
+without a word, and swallows a missing directory inside the recursion as well
+as at the start, so every guard built on it can quietly under-count. M8 the
+pinning guard passes `18.x`, `latest`, `next`, and any range hidden behind an
+`npm:` alias. M9 three high advisories are suppressed by id with nothing that
+expires them, and the audit level means a moderate advisory never gates at all.
+M10 the one lint rule the freeze does not buy out does not reach `.jsx`, `.mts`
+or `.cts` files, which are linted by nothing. M11 the base image is pinned by a
+mutable tag in the same change that SHA-pins all five actions and writes down
+why tags are unsafe. M12 the CI seed script has no environment check and
+interpolates the cipher straight into SQL while quoting the workspace id
+properly, and it emits the one owner row the front desk treats as authoritative
+through the same compose file real instances use. M13 the freeze check that
+follows the env write cannot observe that write, because the file it writes is
+ignored by git, which is the comment's own stated reason. M14 all three bundles
+share one module graph, and the operator screen list stays out of the customer
+bundles only because the optimizer removes it, which nothing asserts. M15 the
+route tests pass the screen list in as a parameter, so the suite would pass
+unchanged if role separation were deleted, and there is no negative test. M16
+none of the seven entry documents carries a Content-Security-Policy. M17 both
+threat models write ten controls and ten proving tests in the present tense
+while nothing in this branch implements any of them, and the word skeletons
+appears in a different file. M18 both threat models declare the secret-leakage
+part closed on rotation owners while the key inventory names the same condition
+as the open one, and rotating the token encryption key destroys every stored
+mail grant because the re-encryption step does not exist, so the runbook's
+rotate-first order cannot be followed for the key it matters most for. M19 both
+threat models omit audit log integrity, which is the backstop eight of their
+twenty failure parts resolve to, and also omit confirm-link abuse, server-side
+request forgery through a connector, injection arriving in tool output,
+spend-driven denial of service, and caller authentication. M20 the prototype
+encodes a client-side role as the control, and a query string turns on identity
+switching on any host under a label reading hidden in production. M21 the
+prototype renders everything through one sink, four of its helpers do not
+escape their arguments, and two paths are already unescaped, which is latent
+only until the mock becomes real calls. M22 the prototype tells a customer that
+one part sends and only approved text, and that every action is checked against
+what they allowed, while the key inventory in the same commit records two other
+programs holding send credentials and the gateway not existing. M23 the skip
+link target collides with the hash router, so the first thing a keyboard user
+reaches navigates away from the screen they were on, on all 52 screens, and the
+test asserts the attribute rather than the behaviour.
+
+**Findings, low.** Twenty-four, grouped by what they touch. Test-server and
+artefact handling: the end-to-end server is launched through `npx`, which falls
+back to the registry on a partial tree; both preview servers bind every
+interface; traces and reports upload wholesale with a week of retention, which
+becomes a copy of real data the day the gate opens. Lint and freeze tooling:
+the frozen lint config replaces any block carrying ignores with ignores alone,
+so a rule added to that block would vanish silently; the frozen lint script
+cannot distinguish a renamed directory from a clean one, and says itself that
+it currently passes by having nothing to look at. Ignore files: neither the git
+nor the docker ignore list carries key, certificate, dump or `.envrc` patterns,
+and the newly added copy of the database directory into the runtime image is the
+first time that directory ships. Guard scope: the appendix tripwire is keyed to
+one exact filename and seven assertions stay undone if the file is named
+anything else; the tracked-env check misses `.envrc`; the mock allowlist permits
+any test file anywhere and omits six directories; the workflow pin check cannot
+see an untagged docker action; the accessibility helper drops violations whose
+impact is null; the credential-shape rules and the vendor-prefix rules live in
+two guards, each covering the file the other does not. Dashboards: the target
+size and layout tests assert class names, so deleting the theme entry keeps
+every test green while every target loses its height, and that config file is
+outside the typecheck project; the flag check hardcodes one flag for all flagged
+rows, which is fail-open for the second one; the banned-word scan covers two
+fields of the inventory and no literal copy in components; an unknown screen
+state throws rather than degrades; a config file was added at a root its own
+contract allows only one extension at; the paused banner is a live region
+present at mount, so it is never announced. Prototype: the preview builder
+inlines script with no closing-tag guard; the committed preview artefact has
+nothing regenerating or checking it; office ids come from a non-cryptographic
+generator; the authority screens are not behind the flag the engine rules
+require. Supply chain and documents: the secret scanner's pin covers the wrapper
+and not the binary it downloads at run time, and with a read-only token a
+finding may surface only in the job log; the prototype loads a font from a third
+party on every page including the operator console; the unit suite executes the
+seed script with stdout patched, which is a code-execution surface as that
+script grows; three real registrable domains appear in documents, two of them as
+records of probes that correctly failed; the orphaned pre-rewrite commit and its
+coordinates are published in this log.
+
+**Findings, informational.** No credential, private key or live token anywhere
+in 28,138 lines. The only credential-shaped strings are the vendor's own
+documentation example key, the CI database passwords, and sixty-four zeros. All
+397 added lockfile resolutions carry an integrity hash, with no non-registry
+source, no install script, no override, no patch and no settings change. All
+five actions are pinned to commits with the argument written down, the workflow
+token is read-only and restated on the one job that hands it to a third party,
+full history is confined to that job, there is no `pull_request_target` and no
+untrusted interpolation in any run block, so the workflow has no script
+injection surface. The runtime image drops to a non-root user and the generate
+stage points its database url at a port where a stray connection fails. The
+docker ignore list excludes every env file, which closes the concern about env
+files reaching a layer. No unsafe sink, no client-side secret and no inlined
+environment variable in the dashboards code, whose TypeScript settings are
+stricter than the root's. Replacing the colour theme rather than extending it
+means an off-token colour has no class to reach for. The authority gate in the
+route layer is genuinely fail-closed and its three tests are real behavioural
+tests, which makes it the one piece of working gating in the slice. No guard
+asserts on a mock where behaviour was available: four of them import, resolve or
+execute the thing they judge, and each explains why. The template edit is
+permitted: the scanning functions are untouched, the count is unchanged, the
+replacement probe is equivalent in strength, and the removed assertion could not
+pass in a clean checkout. The key inventory holds no values. The preview
+artefact was rebuilt from its own sources and is byte identical, so there is no
+drift today. Section 6a's paragraph on what nothing checks is accurate, and is
+the discipline the two threat models lack. The prototype router validates its
+role segment and routes names through a registry, so there is no open redirect
+and the fragment never reaches a markup sink.
+
+**Where this review reaches a different conclusion.** The 2026-10-08 entry
+graded the role split medium. This review grades it high, as H4 above, because
+one output tree plus a hash router leaves no place to add route authority later,
+and the operator surface has no sign-in screen. The same entry records H1 as
+closed. The two instruction sites in the plan now carry supersession notes, so
+that half is closed, but the guard added alongside them does not require the
+setting to be present and never reads the strict flag, so the original exposure
+returns on the next edit. That is M4 above. H2 is closed as to the wording in
+section 6a, and M1 and M2 above are two gaps in the committed-configuration half
+that section 6a does claim is checked. H3 is confirmed closed. M4 is confirmed
+closed, with the residual noted in M7. M7 of that entry was scheduled as medium
+and is raised here to H3, because the skip form it misses is the one already in
+use in this branch. M8 is agreed as medium, with three further cases. M12, M14
+and M15 stand as accepted, and H1 above is the finding that a private repository
+does not cover, because the instruction is to publish a folder of static files.
+
+**Three facts verified outside the diff, after the review and not by it**,
+because two findings would have been misgraded otherwise. A docker ignore file
+exists and excludes every env file, which drops one medium to informational. The
+git ignore list carries a bare `.env` on line 5, so the per-instance env file is
+ignored, which drops one low by half. Neither file carries key, dump or
+certificate patterns, which is the part that stays.
+
+**What this review did not read.** The lockfile line by line, about 5,250 lines
+of plan prose beyond the pattern sweeps, the three product requirement documents
+beyond the owner line, and the backlog. The seven frozen directories are not in
+the diff at all, and they hold the send, approval and mail code that the guards
+above assert against. Nothing was run: four sessions read assertions, not
+results, so every count quoted in this branch's documents is unverified here. No
+server started, no browser opened, no upstream pin checked, no integrity hash
+confirmed, no domain ownership looked up.
+
+**Reason the findings are recorded and not fixed in the same change.** The same
+reason as the 2026-10-08 entry, and one more. H1 is a founder decision before it
+is a fix: it asks whether the prototype is history to be left alone, in which
+case the real addresses come out and the README loses the deploy instruction, or
+product source, in which case it comes inside the guards. H4 is the larger one.
+It asks where operator authority lives, and the honest answer is that the
+current shape has no slot for it, so the answer belongs in a decision before
+sub-project 1b and not in a patch to a route file.
+
+**Cost if wrong:** high on H1 and H4, low on the rest. H1 is reversible only
+until the folder is deployed once, and a published operator address cannot be
+unpublished. H4 is cheap to answer now and expensive later, because every screen
+written against a role-by-filename model has to be revisited once a real check
+exists. The remaining findings are guard gaps, and a guard gap costs the
+difference between what a green run means and what a reader thinks it means.
