@@ -2797,3 +2797,186 @@ unpublished. H4 is cheap to answer now and expensive later, because every screen
 written against a role-by-filename model has to be revisited once a real check
 exists. The remaining findings are guard gaps, and a guard gap costs the
 difference between what a green run means and what a reader thinks it means.
+
+## 2026-10-09 - H1: a guard on the deploy surfaces, the prototype out of the Docker context, and the folder left as it is
+
+**Reason:** finding H1 of the 2026-10-09 security review reported that
+`reference/orbit-os-frontend/` holds the founder's mailbox, the founder's name
+and `office.orbitumai.com` labelled customer zero, that its README says to
+upload the whole folder as static files, and that no guard reads it. A
+read-only investigation on 2026-10-09 checked what could act on that
+instruction. Three things were decided from it: add a guard on the deploy
+surfaces, keep the folder out of every Docker build context, and leave the
+folder itself alone.
+
+**What the investigation found, and what the finding rests on.** No path exists
+today from this repository to a deployed copy of the prototype. Four things
+carry that claim. CI runs no deploy step at all: `.github/workflows/ci.yml`
+installs, audits, typechecks, lints, runs the frozen lint, the screen checks,
+the tests, the end-to-end suite, the secret scan and the compose smoke check,
+and its one artifact upload names `playwright-report/` and `test-results/` on
+failure. The image cannot carry the folder: `Dockerfile` has no whole-context
+copy and copies `shared`, `db` and the selected app only. The Vite bundle
+cannot carry it: Vite's root is `dashboards/` and `build.rollupOptions.input`
+names three HTML files under it. The dev server cannot read it:
+`server.fs.allow` in `dashboards/vite.config.ts` names `dashboards/` and
+`design/` and nothing else. The only other static server in the repository
+serves `e2e/fixture`.
+
+**What was added.** `guards/deploy-surface.test.ts` reads seven classes of
+tracked surface and fails if any names the top-level `reference/` directory as
+a copy source, a Vite input, an `fs.allow` entry, a served root or an artifact
+path. The classes are Dockerfiles, the Docker ignore file, compose files,
+workflow files, package manifests, Vite configs and Playwright configs:
+seventeen tracked files today, and each class carries its own floor so a
+rename that stopped a pattern matching fails here rather than going quiet. The
+directory is matched as one exact path segment, so `docs/reference/` does not
+trip it, which is the distinction `guards/lib/walk.ts:65` exists to keep. The
+Vite and Playwright configs are imported and their values resolved rather than
+grepped, for the reason `guards/vite-fs-allow.test.ts` gives in its own header:
+a text scan passes on an identifier defined three lines higher.
+
+**The guard was seen red against every class before it was committed.** It is
+green on arrival, and a guard never seen red is not a guard. Each prohibited
+form was written into one real surface outside `reference/` and outside the
+seven frozen directories, the guard was run, the failure was read, and the file
+was restored and confirmed clean. Seven probes, seven failures:
+
+```
+probe 1 dockerfile: FAIL no tracked Dockerfile copies the prototype
+  the image must not carry the prototype: expected [ "Dockerfile: reference", "Dockerfile: reference" ] to deeply equal []
+probe 2 dockerignore: FAIL the docker ignore file keeps the prototype out of every build context
+  expected [ ".dockerignore: !reference/orbit-os-frontend re-includes reference/" ] to deeply equal []
+probe 3 compose: FAIL no tracked compose file or workflow names the prototype
+  expected [ "compose.dev.yml: volumes: ./reference:/site:ro" ] to deeply equal []
+probe 4 workflow: FAIL no tracked compose file or workflow names the prototype
+  expected [ ".github/workflows/ci.yml: path: reference/orbit-os-frontend" ] to deeply equal []
+probe 5 manifest: FAIL no package script names the prototype
+  expected [ "package.json: probe:deploy: reference" ] to deeply equal []
+probe 6 vite: FAIL no vite config builds from the prototype or serves it
+  expected [ "dashboards/vite.config.ts: input ../reference/orbit-os-frontend/fleet/index.html" ] to deeply equal []
+probe 7 playwright: FAIL no playwright config serves the prototype
+  expected [ "playwright.config.ts: reference" ] to deeply equal []
+```
+
+The guard also carries permanent probes on synthetic input, one per rule, so it
+stays red on demand rather than only once by hand. One of those probes could
+not be seen red the honest way. The rule that checks the Docker ignore file was
+written in the same step as the rule beside it, so by the time its probe
+existed the implementation did too. It was verified by mutation instead: the
+function was gutted to return an empty list, the probe failed with `expected []
+to deeply equal [ 'no line excludes reference/' ]`, and the function was
+restored. A probe that has only ever been green is wired to nothing.
+
+**The Docker build context.** `reference` was added to `.dockerignore`.
+`template/compose.yml` builds with `context: ..`, so the whole repository goes
+to the daemon on every `pnpm stack:up`, and the ignore file listed `landing`,
+`archive`, `docs`, `.superpowers` and every markdown file but not `reference`.
+Nothing copies the folder today, so nothing shipped, and the entry is what
+keeps a later whole-context copy from shipping the founder's mailbox without a
+word. The build context was confirmed afterwards by building the `manifests`
+stage, which exited 0 with all eight workspace manifest copies resolving. The
+`generate` and `runtime` stages were not built and the stack was not started,
+so what is confirmed is that the context still transfers, not that the whole
+image still builds.
+
+**Option (b), a note at the top of the prototype README contradicting its
+deploy instruction, was rejected.** `reference/` is read-only by the ruling at
+`docs/prd/ORBIT_OS_PRD_v9_0.md:731`, which is the same ruling that settled the
+page-title question: editing the prototype makes the spec disagree with the
+artifact it documents. A note is also enforced by nothing. `reference/` is
+excluded from lint and typecheck and no guard reads its contents, so a later
+edit could delete the note and the suite would stay green. And a note removes
+no identifier.
+
+**Option (c), extracting the behaviour and copy spec and removing the folder,
+is deferred, and the trigger is an event and not a date.** Do it when either of
+these happens: this repository stops being private, or the prototype stops
+being cited as a behaviour spec. The second is the likelier one, and it arrives
+on its own as `dashboards/` is built out.
+
+What (c) would cost: reading all 36 files and writing down, as prose a future
+implementer can follow, the flows, validation rules, copy strings, empty states
+and error text that currently exist only as working code. Then updating every
+citation: `dashboards/CLAUDE.md`, `docs/prd/ORBIT_OS_PRD_v9_0.md`,
+`docs/backlog.md` and six prompts in `ORBIT-OS_Claude_Code_Build_Prompts.md`
+that say to match a named prototype screen. Then deleting the untracked zip at
+the repository root.
+
+What (c) would break: `guards/paths.test.ts` fails on its first assertion, that
+the prototype README exists, and again on its check that every prototype path
+cited by the build prompts and the dashboards rules resolves on disk.
+`guards/lib/walk.test.ts` fails on its assertion that the walk finds files
+under the prototype directory. Every exclusion listed in the guards and both
+ESLint configs becomes dead configuration. All three have to be rewritten in
+the same change, not after it. And the extraction is lossy in a way that is
+hard to see until it bites: a prototype answers questions nobody thought to
+ask, and `ORBIT-OS_Claude_Code_Build_Prompts.md` tells an implementer to open
+the reference screen and compare step by step. After removal there is no screen
+to open.
+
+**What none of this removes.** Three personal identifiers stay exactly where
+they are. `shuv@orbitumai.com` at
+`reference/orbit-os-frontend/assets/data/fleet.js:4` and again at
+`reference/orbit-os-frontend/dist/preview.html:392`. The hardcoded
+`Shuv Chowdhury` / `Operator` identity at
+`reference/orbit-os-frontend/assets/shell.js:15` and at
+`reference/orbit-os-frontend/dist/preview.html:576`. And
+`office.orbitumai.com`, labelled customer zero, at the same two `fleet.js` and
+`preview.html` lines. Five addresses at `brightpath.co`, a real registrable
+domain, stay in `reference/orbit-os-frontend/assets/data/people.js:3-7` and
+`reference/orbit-os-frontend/dist/preview.html:315-319`. The guard and the
+Docker ignore entry remove none of them. They stop this repository's machinery
+from publishing the folder. Anybody who serves it by hand still publishes every
+one.
+
+**A habit to change, not a code fix.** The prototype README,
+`dashboards/CLAUDE.md:45` and `ORBIT-OS_Claude_Code_Build_Prompts.md` all say
+to run `python3 -m http.server` inside the prototype folder. That command binds
+to every interface, not to loopback, so following it puts the founder's
+mailbox, the customer-zero domain and the unauthenticated operator page on the
+local network for as long as the server is up.
+`reference/orbit-os-frontend/fleet/index.html:13` sets the operator role in a
+script tag and there is no authentication anywhere in the folder, so a visitor
+on that network is the Super Admin. The fix is to run it bound to loopback. It
+is recorded here as a habit because the instruction sits in a read-only folder
+and in two documents that a guard cannot sensibly police, and because no code
+change makes an operator type a different command.
+
+**What this guard does not cover.** Three gaps, stated so a green run is not
+read as more than it is. It reads seven classes of surface, so a deploy
+descriptor of a kind nobody anticipated, such as a Netlify, Vercel, Cloudflare
+or Coolify configuration file, is invisible to it; the class list is pinned by
+hand so that adding one without widening the guard fails, but the guard cannot
+know about a kind that does not exist here yet. It discovers surfaces through
+`git ls-files`, so an untracked local compose override naming the prototype
+passes, which is the same choice `guards/lib/walk.ts` makes so that an
+untracked scratch file cannot fail a guard locally while CI passes. And the
+recorded miss: in a free-form string under a key the guard does not treat as a
+path, a bare `reference` in the middle of the string is not reported. So
+`shell: cp -r reference dist` passes, while the same command under `run:`, and
+the same command written `reference/` with a separator, are both caught. The
+alternative is a rule that fires on a step named `Run reference checks`, and a
+guard that fires on correct prose gets switched off and takes its real rules
+with it. The probe in `guards/deploy-surface.test.ts` pins both halves, the
+catch and the miss, so the gap is behaviour this repository has written down
+rather than something a later reader discovers.
+
+**Corrects:** the H1 row of the 2026-10-09 security review entry says
+`reference/` is excluded from the guards by name in `guards/paths.test.ts`. The
+list named `NOT_OURS` is in `guards/standing-rules.test.ts:46`. The equivalent
+list in `guards/paths.test.ts` is called `SKIP_AT_ROOT`, on line 7. Both
+exclude the folder, so the finding's conclusion is unchanged. One further
+detail: `guards/paths.test.ts` does read `reference/`, at lines 11 and 70 to
+90, where it asserts the README exists and that every prototype path cited by
+the build prompts and the dashboards rules resolves on disk. It reads paths and
+never file contents, so no guard has ever read the folder for addresses, names
+or domains.
+
+**Cost if wrong:** low on what was done, high on what was deferred. The guard
+and the ignore entry are reversible in one commit and neither can publish
+anything. The deferral is the exposure that stays: three personal identifiers
+sit in a committed folder whose own README says to upload it, and a published
+operator address cannot be unpublished. The trigger is an event rather than a
+date so that it fires when the risk actually changes, and the risk changes the
+moment this repository stops being private.
