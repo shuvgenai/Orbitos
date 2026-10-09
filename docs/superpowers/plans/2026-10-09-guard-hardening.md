@@ -69,7 +69,7 @@ This session wrote the plan and does not execute it.
 - **The log entry opens its explanation with `**Reason`, `**Why`, `**Result` or `**Superseded`** and uses the heading `## <ISO date> - <decision>`. CLAUDE.md section 9, enforced by `guards/decisions-log.test.ts:85`.
 - **The log entry must not contain the string `**Superseded`.** The founder asked for `**Corrects:**`. `guards/decisions-log.test.ts:93` puts an extra obligation on any entry containing `**Superseded`: it must name the ISO date of a replacement entry that exists in the log. `**Corrects:**` carries no such obligation.
 - **No new dependency.** Everything needed is in `node:fs`, `node:os`, `node:path` or already a devDependency.
-- **No committed change to `vitest.config.ts`, `package.json`, `.github/workflows/ci.yml`, `scripts/dev-db.mjs`, `scripts/ci-seed-instance.ts` or `dashboards/vite.config.ts`.** Each is a probe surface, edited and restored within one task, and Task 8 Step 1 checks that none of them appears in the final diff.
+- **No committed change to `vitest.config.ts`, `package.json`, `.github/workflows/ci.yml`, `scripts/dev-db.mjs`, `scripts/ci-seed-instance.ts` or `dashboards/vite.config.ts`.** Each is a probe surface, edited and restored within one task, and Task 9 Step 1 checks that none of them appears in the final diff.
 - **One command per Bash call. Never chain `git commit` or `git push` onto a test run, a grep or a pipe.** Read each exit code on its own.
 - **Redirect long output to a file and read its tail,** rather than piping to `tail` and reading `PIPESTATUS`. A pipe into `tail` reported exit 139 in this environment for a command that exits 0, which is a SIGPIPE artifact and not the command's status.
 
@@ -96,6 +96,7 @@ Five things no task's tests exercise, most likely to bite first:
 | `guards/standing-rules.test.ts` | Modify three helpers and one scope | Env references resolved not grepped; mail interpolation split by kind; address scan widened |
 | `guards/vite-fs-allow.test.ts` | Modify the rule and its header | `fs.allow` required, `fs.strict` read |
 | `docs/decisions.md` | Append one entry | The six changes, their probe output, and two corrections |
+| `guards/contract-boundary.test.ts` | Modify one comment, Task 8 | Its header called the guard vacuous; `dashboards/src` now holds source |
 | The seven frozen directories | **No change** | Read only |
 
 ### Measurements this plan rests on
@@ -196,9 +197,9 @@ Expected: `0`. Note that `grep -c` exits 1 when the count is 0, which is not a
 failure here. Run the same check against `docs/decisions.md` after Task 7
 writes the entry.
 
-- [ ] **Step 4: Confirm Task 8 Step 1's path list is named and explained**
+- [ ] **Step 4: Confirm Task 9 Step 1's path list is named and explained**
 
-Read Task 8 Step 1. It must list eight paths by name and say which two are
+Read Task 9 Step 1. It must list eight paths by name and say which two are
 additions beyond the six files the approved plan named. No command; this is a
 read of the plan, and the task is complete when the list and the sentence are
 both present.
@@ -303,9 +304,13 @@ then run `git commit -F /tmp/msg-task1.txt`.
 ```ts
 export function modifierOffenders(file: string, text: string): readonly string[]
 export function emptyBodyOffenders(file: string, text: string): readonly string[]
-export function literalEachCases(text: string, from: number): number | null
+export function literalEachCases(text: string, from: number): number | null  // null means opaque
 export function countExpandedTests(text: string): number   // primary floor
 export function opaqueEachCount(text: string): number
+export function opaqueComplaints(
+  actual: number,
+  recorded: { readonly frozenOpaqueEachCount: number },
+): readonly string[]                                       // a CEILING, fails when it rises
 export function countTests(text: string): number           // tertiary floor
 export function countAssertions(text: string): number
 export type ListedCounts = { readonly unit: number; readonly db: number }
@@ -530,6 +535,82 @@ test('removing a case from an each table is caught by the expanded count and by 
   expect(countExpandedTests("test.each([[1, [2, 3]], [4, { a: 5 }]])('n', () => {});")).toBe(2);
 });
 
+test('an each table the parser cannot read is counted as opaque, never as zero or one', () => {
+  // The founder's tightening of 2026-10-09. The parser has to answer "I cannot
+  // read this" distinctly from "this holds one case", because the two differ by
+  // however many cases the table really holds.
+  const at = (source: string) => literalEachCases(source, source.indexOf('.each(') + '.each('.length);
+
+  // Readable, and read exactly.
+  expect(at("test.each([['a'], ['b'], ['c'], ['d']])('x', () => {});")).toBe(4);
+  // A trailing comma is not a fifth element.
+  expect(at("test.each([['a'], ['b'],])('x', () => {});")).toBe(2);
+  // An empty literal is zero cases, which is a real count, not a parse failure.
+  expect(at("test.each([])('x', () => {});")).toBe(0);
+  // Nesting inside a case.
+  expect(at("test.each([[1, [2, 3]], [4, { a: 5 }]])('x', () => {});")).toBe(2);
+
+  // Unreadable, and said so. Each of these returns null, and null is what the
+  // caller counts as opaque.
+  expect(at("test.each(transient)('x', () => {});"), 'an identifier table').toBeNull();
+  expect(at('test.each(buildCases())(\'x\', () => {});'), 'a call table').toBeNull();
+  expect(at("test.each([...cases, ['x']])('x', () => {});"), 'a spread table').toBeNull();
+  expect(at("test.each([...cases])('x', () => {});"), 'a spread-only table').toBeNull();
+  expect(at("test.each([['a'], ['b']\n"), 'an unterminated table').toBeNull();
+
+  // A gap, named rather than faked. The tagged-template table form,
+  // test.each`a | b` with no parenthesis, is not matched by TEST_CALL at all,
+  // so it is counted as neither a test nor an opaque each. Asserting it through
+  // `at` above would pass for the wrong reason, because `at` looks for
+  // `.each(` and there is none. No frozen baseline file uses that form today,
+  // checked on 2026-10-09, and the modifier rule would not see one either.
+  // Closing it means matching a backtick after the chain, which is a change to
+  // TEST_CALL and to every count that uses it, so it is recorded here and not
+  // done inside this task.
+  expect(countTests('test.each`\n  a | b\n  1 | 2\n`;'), 'the template form is invisible to TEST_CALL').toBe(0);
+  expect(opaqueEachCount('test.each`\n  a | b\n  1 | 2\n`;')).toBe(0);
+
+  // And the ceiling fails when the number of unreadable tables rises.
+  expect(opaqueComplaints(1, { frozenOpaqueEachCount: 1 })).toEqual([]);
+  expect(opaqueComplaints(0, { frozenOpaqueEachCount: 1 }), 'turning one back into a literal is an improvement').toEqual(
+    [],
+  );
+  expect(opaqueComplaints(2, { frozenOpaqueEachCount: 1 })).toEqual([
+    'frozen opaque each tables: 2, recorded 1',
+  ]);
+});
+
+test('rewriting a literal each table into an expression raises the opaque count by exactly one', () => {
+  // The probe the founder asked for, on a real frozen file, in memory, with no
+  // frozen file written. shared/src/agent-output.test.ts holds one literal
+  // ten-case table and no opaque one.
+  const real = readRepoFile('shared/src/agent-output.test.ts');
+  expect(opaqueEachCount(real), 'this file starts with no opaque table').toBe(0);
+  const expandedBefore = countExpandedTests(real);
+
+  // Turn that literal table into an identifier, which is the shape of an
+  // ordinary refactor and the shape that used to go unseen.
+  const rewritten = real.replace(
+    'test.each([0x0a, 0x0d, 0x0b, 0x0c, 0x09, 0x85, 0x2028, 0x2029, 0x202e, 0x200b])',
+    'test.each(CONTROL_AND_SEPARATOR_CODE_POINTS)',
+  );
+  expect(rewritten, 'the replacement must have matched').not.toBe(real);
+
+  // The opaque count rises by exactly one.
+  expect(opaqueEachCount(rewritten) - opaqueEachCount(real)).toBe(1);
+
+  // And the damage the ceiling exists to catch: nine cases vanish from the
+  // primary count, while the call-site count does not move at all.
+  expect(expandedBefore - countExpandedTests(rewritten)).toBe(9);
+  expect(countTests(rewritten)).toBe(countTests(real));
+
+  // So the ceiling reports it even if the expanded floor were satisfied by
+  // tests added elsewhere in the same change.
+  expect(opaqueComplaints(opaqueEachCount(rewritten), { frozenOpaqueEachCount: 0 })).toEqual([
+    'frozen opaque each tables: 1, recorded 0',
+  ]);
+});
+
 test('the each-aware count catches a removed case in a throwaway copy of a real frozen file', () => {
   // The probe the founder asked for, on real text rather than a fixture, and in
   // a tree outside the repository so no frozen file is written.
@@ -660,12 +741,32 @@ const TEST_CALL = /(?:^|[^.\w])(?:test|it)((?:\.[A-Za-z][A-Za-z0-9]*)*)\s*\(/g;
 const ASSERTION_CALL = /(?:^|[^.\w])expect\s*\(/g;
 
 /**
- * How many cases a `.each(` table holds, when the table is a literal array.
+ * How many cases a `.each(` table holds, when and only when the table is a
+ * literal array this function can count with certainty.
  *
- * `from` is the index just after the opening parenthesis. Returns the number of
- * top-level elements, or null when the table is not a literal, which is the
- * case for `test.each(transient)` in db/test/poll.test.ts. Bracket depth is
- * tracked so a nested array or object inside one case does not miscount.
+ * `from` is the index just after the opening parenthesis. Returns the element
+ * count, or **null meaning opaque**. Null is not an error and not a zero: it is
+ * the answer "this table's size cannot be read from the text", and the caller
+ * is required to record it rather than guess. That is the founder's tightening
+ * of 2026-10-09: an unparseable table must be counted as opaque and reported,
+ * never silently counted as zero or one.
+ *
+ * It returns null, deliberately, for every one of these:
+ *
+ * - A table that is not an array literal at all: `test.each(transient)` in
+ *   db/test/poll.test.ts, or a template-literal table.
+ * - An array holding a spread, `[...cases, ['x']]`, whose size depends on a
+ *   value this function cannot see.
+ * - An array whose closing bracket is never found, which means the text is not
+ *   what this parser assumed and any number it returned would be invented.
+ *
+ * It returns 0 for an empty literal `[]`, which is a real count and not a
+ * failure to parse. Counting that as 1 would be the exact silent-one the
+ * tightening forbids.
+ *
+ * Elements are counted as elements, not as commas plus one, so a trailing comma
+ * in `[['a'], ['b'],]` gives 2 and not 3. Bracket depth is tracked so a nested
+ * array or object inside one case does not miscount.
  *
  * This is what makes the primary count catch a case deleted from an `each`
  * table. Neither the regex call-site count nor `vitest list --json` can: both
@@ -679,15 +780,37 @@ export function literalEachCases(text: string, from: number): number | null {
   if (text[i] !== '[') return null;
 
   let depth = 0;
-  let commas = 0;
+  let elements = 0;
+  let sawContent = false;
+
   for (; i < text.length; i += 1) {
     const char = text[i];
-    if (char === '[' || char === '(' || char === '{') depth += 1;
-    else if (char === ']' || char === ')' || char === '}') {
+
+    if (char === '[' || char === '(' || char === '{') {
+      depth += 1;
+      if (depth > 1) sawContent = true;
+      continue;
+    }
+
+    if (char === ']' || char === ')' || char === '}') {
       depth -= 1;
-      if (depth === 0) return commas + 1;
-    } else if (char === ',' && depth === 1) commas += 1;
+      if (depth === 0) return sawContent ? elements + 1 : elements;
+      continue;
+    }
+
+    // A spread at the top level makes the size unknowable from the text.
+    if (depth === 1 && char === '.' && text.startsWith('...', i)) return null;
+
+    if (depth === 1 && char === ',') {
+      if (sawContent) elements += 1;
+      sawContent = false;
+      continue;
+    }
+
+    if (!/\s/.test(char ?? '')) sawContent = true;
   }
+
+  // The closing bracket was never found, so this is not the shape assumed.
   return null;
 }
 
@@ -738,7 +861,17 @@ export function countExpandedTests(text: string): number {
   return total;
 }
 
-/** How many `each` tables this file cannot expand, so the blind spot is counted. */
+/**
+ * How many `each` tables this file's text cannot expand.
+ *
+ * The other half of failing closed. `countExpandedTests` has to return a
+ * number, so an opaque table contributes one, which UNDERcounts its real cases.
+ * That is safe for a floor but it is also invisible, and a literal table
+ * rewritten into an expression would drop the expanded count while looking like
+ * an ordinary edit. So the opaque tables are counted here and compared as a
+ * CEILING: if the number rises, the expanded count has gone blind somewhere new
+ * and that has to be a decision rather than a side effect.
+ */
 export function opaqueEachCount(text: string): number {
   let opaque = 0;
   for (const match of text.matchAll(TEST_CALL)) {
@@ -746,6 +879,28 @@ export function opaqueEachCount(text: string): number {
     if (chain.includes('each') && literalEachCases(text, match.index + match[0].length) === null) opaque += 1;
   }
   return opaque;
+}
+
+/**
+ * Whether the number of `each` tables the expanded count cannot read has risen.
+ *
+ * A ceiling, not a floor, which is why it is its own function. Every other
+ * recorded number here fails when it DROPS. This one fails when it CLIMBS,
+ * because each new opaque table is a set of cases the primary instrument stops
+ * being able to see. Putting a ceiling inside a function named for floors would
+ * make the next reader assume the direction.
+ *
+ * Lowering the recorded number by turning an expression back into a literal is
+ * an improvement and does not fail. Raising it is a founder decision, the same
+ * as raising any floor here.
+ */
+export function opaqueComplaints(
+  actual: number,
+  recorded: { readonly frozenOpaqueEachCount: number },
+): readonly string[] {
+  return actual > recorded.frozenOpaqueEachCount
+    ? [`frozen opaque each tables: ${actual}, recorded ${recorded.frozenOpaqueEachCount}`]
+    : [];
 }
 
 /**
@@ -858,17 +1013,27 @@ Edit `guards/freeze-baseline.json`. Keep `recordedAt`, `testFiles` and `unitTest
   "frozenExpandedTestCount": 440,
   "frozenTestCallCount": 411,
   "frozenAssertionCount": 955,
-  "frozenListedTestCount": { "unit": 239, "db": 170 }
+  "frozenListedTestCount": { "unit": 239, "db": 170 },
+  "frozenOpaqueEachCount": 1
 ```
 
-All four were measured on 2026-10-09 across the 46 baseline files:
+All five were measured on 2026-10-09 across the 46 baseline files:
 
-| Key | Value | How it was measured |
-| --- | --- | --- |
-| `frozenExpandedTestCount` | 440 | 400 plain `test`/`it` call sites, plus 10 `test.each` with a literal table expanded to 39 cases, plus 1 `test.each` whose table is the identifier `transient` in `db/test/poll.test.ts` and counts as one |
-| `frozenTestCallCount` | 411 | `test`/`it` call sites, one per declaration |
-| `frozenAssertionCount` | 955 | `expect(` call sites |
-| `frozenListedTestCount` | unit 239, db 170 | `pnpm exec vitest list --project unit --json` and the same for `db`, counting entries whose file is a frozen baseline file. The unit project lists 420 in total and db lists 170, all of which are frozen |
+| Key | Value | Direction | How it was measured |
+| --- | --- | --- | --- |
+| `frozenExpandedTestCount` | 440 | floor | 400 plain `test`/`it` call sites, plus 10 `test.each` with a literal table expanded to 39 cases, plus 1 opaque `each` contributing one |
+| `frozenTestCallCount` | 411 | floor | `test`/`it` call sites, one per declaration |
+| `frozenAssertionCount` | 955 | floor | `expect(` call sites |
+| `frozenListedTestCount` | unit 239, db 170 | floor | `pnpm exec vitest list --project unit --json` and the same for `db`, counting entries whose file is a frozen baseline file. The unit project lists 420 in total and db lists 170, all of which are frozen |
+| `frozenOpaqueEachCount` | 1 | **ceiling** | `each` tables the text cannot expand. Exactly one today: `test.each(transient)` at `db/test/poll.test.ts:120` |
+
+**Four floors and one ceiling.** The ceiling is the founder's tightening of
+2026-10-09 and it is what makes the expanded count fail closed. An opaque table
+contributes one case to the expanded count, which undercounts it, and that is
+safe for a floor but invisible: rewriting a literal four-case table into
+`test.each(cases)` would drop the expanded count by three while reading as an
+ordinary refactor. The ceiling turns that into a failure. Lowering it, by
+turning an expression back into a literal, is an improvement and passes.
 
 **Raising any of these is a founder decision.** Nothing in the guard writes them, and a lower count fails. The command to recompute them is in the log entry so the next person can reproduce the numbers rather than trust them.
 
@@ -885,6 +1050,7 @@ const baseline = JSON.parse(readRepoFile('guards/freeze-baseline.json')) as {
   frozenTestCallCount: number;
   frozenAssertionCount: number;
   frozenListedTestCount: ListedCounts;
+  frozenOpaqueEachCount: number;
 };
 
 const frozenTestFiles = () => FROZEN.flatMap((dir) => walkFiles(dir, { extensions: ['.test.ts'] }));
@@ -919,6 +1085,7 @@ test('the frozen suites still hold every test and assertion that was recorded', 
   let expanded = 0;
   let calls = 0;
   let assertions = 0;
+  let opaque = 0;
   for (const file of baseline.testFiles) {
     if (!FROZEN.includes(file.split('/')[0] ?? '')) continue;
     if (!existsExact(file)) continue;
@@ -926,11 +1093,17 @@ test('the frozen suites still hold every test and assertion that was recorded', 
     expanded += countExpandedTests(text);
     calls += countTests(text);
     assertions += countAssertions(text);
+    opaque += opaqueEachCount(text);
   }
 
   expect(
     floorComplaints({ expanded, calls, assertions, listed: baseline.frozenListedTestCount }, baseline),
   ).toEqual([]);
+
+  // The ceiling, checked here and not inside floorComplaints, because it fails
+  // in the other direction. If this rises, the expanded count above has gone
+  // blind to a set of cases it used to read.
+  expect(opaqueComplaints(opaque, baseline)).toEqual([]);
 });
 
 test('the recorded listed counts still match what vitest collects', () => {
@@ -2305,7 +2478,135 @@ and run `git commit -F /tmp/msg-task7.txt`.
 
 ---
 
-## Task 8: The Done checks, the review, and the push
+## Task 8: Correct one stale comment, on its own
+
+**Files:**
+- Modify: `guards/contract-boundary.test.ts`, one comment line only
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing. No rule, no export and no behaviour changes.
+
+**Why this is its own task and its own commit.** It is a comment, and it sits in
+a file no other task in this plan touches. Folded into another task it would be
+an unexplained line in a diff about something else; on its own it is one line
+with one reason. The founder asked for it this way on 2026-10-09 after the
+`contract/` finding of the same date surfaced it.
+
+**What is stale.** `guards/contract-boundary.test.ts` says in its header:
+
+> This is a text grep, so it needs nothing from contract/ and can run before
+> that package exists. It is vacuous while dashboards/ holds no source, which is
+> true today.
+
+The first sentence is still true and `contract/` still does not exist, which the
+2026-10-09 decisions entry establishes with evidence. The second sentence is
+not: `dashboards/src` holds 21 tracked files, so that guard's real-surface test
+reads real code and is no longer vacuous. A comment claiming a guard is inert
+when it is live is the kind of thing a later reader trusts instead of checking.
+
+**This task changes no rule.** The guard is correct as it stands. Do not touch
+`ENGINE_HOOKS`, `EXPERIMENTAL`, `SOURCE`, `ROOT_CONFIG`, any test, or the
+tripwire. If the comment edit seems to require a code change, stop: it does not,
+and that would be a different task.
+
+- [ ] **Step 1: Confirm the comment is still stale**
+
+Run: `sed -n '1,25p' guards/contract-boundary.test.ts`
+
+Expected: the header still contains the sentence `It is vacuous while dashboards/ holds no source, which is true today.` If it does not, this task is already done and the rest is skipped.
+
+Then, as a separate command:
+
+Run: `git ls-files dashboards/src | wc -l`
+
+Expected: a number of 21 or higher. That is what makes the sentence stale, so it is worth seeing rather than assuming. Note the number; the commit message uses it.
+
+- [ ] **Step 2: Confirm the guard is green before the edit**
+
+Run: `pnpm exec vitest run --project unit guards/contract-boundary.test.ts > /tmp/cb-before.log 2>&1; echo "EXIT=$?"; tail -5 /tmp/cb-before.log`
+
+Expected: exit 0. A comment change cannot alter that, and the point of running it first is to know the green was there before, not to discover it afterwards.
+
+- [ ] **Step 3: Replace the stale sentence**
+
+Edit `guards/contract-boundary.test.ts`. Replace the one sentence
+
+```
+// This is a text grep, so it needs nothing from contract/ and can run before
+// that package exists. It is vacuous while dashboards/ holds no source, which is
+// true today. The tripwire below stops that lasting forever.
+```
+
+with
+
+```
+// This is a text grep, so it needs nothing from contract/ and can run before
+// that package exists, and contract/ still does not exist: no commit on any
+// branch has ever added a file under it, which the 2026-10-09 decisions entry
+// records with its evidence.
+//
+// It is no longer vacuous. It was when it was written, because dashboards/ held
+// no source; dashboards/src now holds 21 tracked files, so the boundary test
+// below reads real code. The tripwire is still here and still earns its place,
+// because the next empty-directory period would otherwise be silent.
+```
+
+Keep every other line of the header exactly as it is, including the paragraph
+above about why the split exists and the paragraph below about the hooks folder.
+
+- [ ] **Step 4: Confirm nothing but comments changed**
+
+Run: `git diff --stat guards/contract-boundary.test.ts`
+
+Expected: one file changed, and the insertions and deletions are within a few lines of each other.
+
+Then, as a separate command:
+
+Run: `git diff -U0 guards/contract-boundary.test.ts | grep -E '^[+-]' | grep -vE '^[+-]{3}' | grep -vE '^[+-]\s*//' | head`
+
+Expected: **empty output.** Every changed line is a comment. If anything prints, a line of code moved and this task has exceeded its scope: revert and start again.
+
+- [ ] **Step 5: Confirm the guard is still green**
+
+Run: `pnpm exec vitest run --project unit guards/contract-boundary.test.ts > /tmp/cb-after.log 2>&1; echo "EXIT=$?"; tail -5 /tmp/cb-after.log`
+
+Expected: exit 0, with the same test count as Step 2.
+
+Then, as a separate command:
+
+Run: `pnpm lint > /tmp/cb-lint.log 2>&1; echo "EXIT=$?"; tail -4 /tmp/cb-lint.log`
+
+Expected: exit 0.
+
+- [ ] **Step 6: Commit, on its own**
+
+```bash
+git add guards/contract-boundary.test.ts
+```
+
+Then, separately, write `/tmp/msg-task8.txt` holding:
+
+```
+docs(guards): the contract boundary guard is no longer vacuous
+
+Its header said it was vacuous while dashboards/ holds no source, which was
+true when it was written. dashboards/src now holds 21 tracked files, so the
+boundary test reads real code. A comment claiming a guard is inert when it is
+live gets trusted instead of checked.
+
+The rest of the sentence stands and is now cited: contract/ still does not
+exist, and no commit on any branch has ever added a file under it, which the
+2026-10-09 decisions entry records with its evidence.
+
+Comment only. No rule, no export and no test changed.
+```
+
+and run `git commit -F /tmp/msg-task8.txt`.
+
+---
+
+## Task 9: The Done checks, the review, and the push
 
 **Files:**
 - No change. This task verifies and ships.
@@ -2326,7 +2627,7 @@ Then, as a separate command:
 
 Run: `git diff --name-only 98dd8b6..HEAD`
 
-Expected: exactly these eight paths and nothing else.
+Expected: exactly these nine paths and nothing else.
 
 The six the approved plan named, one per item:
 
@@ -2364,6 +2665,19 @@ docs/superpowers/plans/2026-10-09-guard-hardening.md
                                   Task 7 Step 6 commits it with the log entry
                                   so the record and the argument for it land
                                   together.
+```
+
+And **one more beyond those eight**, added when the founder approved the
+cleanup task on 2026-10-09:
+
+```
+guards/contract-boundary.test.ts  Task 8, comment only, its own commit. The
+                                  header claimed the guard was vacuous because
+                                  dashboards/ held no source. dashboards/src
+                                  now holds 21 tracked files. No rule, no
+                                  export and no test changed, and Task 8
+                                  Step 4 proves that by failing if any changed
+                                  line is not a comment.
 ```
 
 If `vitest.config.ts`, `package.json`, `.github/workflows/ci.yml`, `scripts/dev-db.mjs`, `scripts/ci-seed-instance.ts` or `dashboards/vite.config.ts` appears, a probe was not restored. Stop and restore it from the backup, then re-run the guard it belongs to.

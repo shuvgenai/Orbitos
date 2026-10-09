@@ -3175,3 +3175,82 @@ different name, the cost would be a second implementation starting beside it,
 and the evidence above rules that out, because a path that no commit ever added
 cannot hold code. The residual is the stale comment, which costs one reader one
 minute.
+
+## 2026-10-09 - The expanded test count fails closed on a table it cannot read
+
+**Reason:** the three-floor design recorded earlier today expands every literal
+`test.each` table so that deleting a case from one fails the freeze guard. A
+table the parser cannot read was counted as one case, which undercounts it
+safely but invisibly. The founder asked for that to fail closed instead. It now
+does, and the plan at
+`docs/superpowers/plans/2026-10-09-guard-hardening.md` carries the rule and
+its probe.
+
+**What was invisible.** Rewriting `test.each([a, b, c, d])` into
+`test.each(cases)` is the shape of an ordinary refactor. Before this, the
+expanded count fell by three and nothing said why, because an unreadable table
+contributes one. A floor that drops for a legitimate reason and for an
+illegitimate one, with no way to tell which, is a floor somebody raises to make
+the build green.
+
+**The rule.** The parser answers with a count or with opaque, and opaque is
+never silently turned into zero or one. It answers opaque for a table that is
+not an array literal, for an array holding a spread, and for an array whose
+closing bracket is never found. It answers zero for an empty literal, which is
+a real count. Elements are counted as elements, so a trailing comma in
+`[['a'], ['b'],]` gives two and not three.
+
+The opaque tables are then counted and compared as a **ceiling**, which is a
+new direction in this file: every other recorded number fails when it drops and
+this one fails when it climbs. It is its own function for that reason, because a
+ceiling inside a function named for floors is a direction the next reader would
+assume rather than read. `frozenOpaqueEachCount` is 1 today, which is
+`test.each(transient)` at `db/test/poll.test.ts:120`. Turning an expression back
+into a literal lowers it and passes.
+
+**Measured, against a real frozen file, before the rule was written.**
+`shared/src/agent-output.test.ts` holds one literal ten-case table and no
+opaque one. Rewriting that table into an identifier, in memory, with no frozen
+file written:
+
+```
+opaqueEachCount(real): 0
+countExpandedTests(real): 21
+replacement matched: true
+opaque after: 1   rise: 1
+expanded after: 12   drop: 9
+```
+
+So the ceiling reports the rewrite even when the expanded floor would have been
+satisfied by tests added elsewhere in the same change. The parser's own answers
+were checked the same way: four for a four-element literal, two for a trailing
+comma, zero for an empty literal, two for a nested one, and opaque for an
+identifier, a call, a spread and an unterminated bracket.
+
+**One gap named rather than closed.** The tagged-template form, `test.each` with
+a backtick table and no parenthesis, is not matched by the call-site regular
+expression at all, so it counts as neither a test nor an opaque table. No frozen
+baseline file uses it, checked on 2026-10-09. Closing it means changing the
+regular expression that every count in that guard shares, so it is recorded here
+and left for a session that can re-measure all five numbers.
+
+**One cleanup scheduled, not done.** `guards/contract-boundary.test.ts` says in
+its header that it is vacuous while `dashboards/` holds no source.
+`dashboards/src` now holds 21 tracked files, so that guard reads real code. The
+sentence is stale and the guard is correct. It is Task 8 of the hardening plan,
+comment only, its own commit, with a check that fails if any changed line is not
+a comment.
+
+**Corrects:** the instruction that produced the three-floor design said to take
+the primary count from `vitest list --json`. Measured on 2026-10-09, that
+command does not expand a `test.each`: the ten-case table above shows as one
+listed entry with its placeholder unresolved, and the unit project lists 420
+where a run reports 437. So the listed count cannot catch a removed case. It is
+recorded and compared as the secondary check, and the each-aware static count is
+primary. The founder accepted that correction the same day.
+
+**Cost if wrong:** low. The ceiling can only report more than before, so the
+failure mode is a complaint about a refactor that was deliberate, and the fix
+for that is one founder-approved line in the baseline. The parser erring toward
+opaque costs an undercount in the expanded floor, which is the direction that
+was already safe. The residual is the template form above, which no file uses.
