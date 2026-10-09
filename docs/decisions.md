@@ -2101,7 +2101,7 @@ invisible until the one in front of it cleared.
 | 6 | The Dockerfile never copied `db/`, so api could not load its own code | fixed, `e7af736` |
 | 7 | The `/setup` files were created empty, and frontdesk rejects an empty one | fixed, `2d89d8e` |
 | 8 | The seed step reports success while inserting nothing | fixed, `1377817` |
-| 9 | The seed creates no owner user, and frontdesk requires one | open, see the 2026-10-08 cause 9 entry |
+| 9 | The seed creates no owner user, and frontdesk requires one | fixed, `11f2ea8` |
 
 **Cause 3, the one worth remembering.** A job-level `env:` entry feeds Compose's
 `${...}` interpolation. It does not reach a container. A service receives only
@@ -2486,3 +2486,82 @@ is in fact reliable and this was a one-off, the cost is two lines of caution in
 a plan nobody is forced to follow. If it is not reliable and this had gone
 unwritten, the next session reads `gh run watch --exit-status` in the very plan
 it is executing, sees a zero, and reports a red branch as green.
+
+## 2026-10-09 - Cause 9 fixed: the seed inserts the owner user, and matching the two addresses is seed data
+
+**Result:** cause 9 is fixed in `11f2ea8`. `scripts/ci-seed-instance.ts` now
+inserts one `users` row in the same transaction as the workspace and the
+connection, and the `compose-smoke` job counts it the way it already counts the
+`gmail_connections` row. Whether the job is green is reported separately in this
+log once the run has a conclusion; this entry records the change and the two
+facts the founder asked about before it was written.
+
+**The users model requires no credential.** `db/prisma/schema.prisma:126-141`.
+Two columns have no default and so must be supplied: `workspace_id`, a uuid
+foreign key to `workspaces.id`, and `email`. `id` and `created_at` are database
+defaults. The only unique constraint is `(workspace_id, email)`. There is no
+password hash, no token, no secret and no API key on the model. Token hashes
+live on `sessions` and `sign_in_links`, which this seed does not touch. Nothing
+in the seed needs to be kept secret, and nothing was invented to fill a column.
+
+**assertOwnerAddress constrains the connection address only.**
+`frontdesk/src/main.ts:64` passes `connection.emailAddress` to the function at
+`frontdesk/src/filter.ts:34`, which requires a non-empty local part and a
+non-empty domain and nothing else. It never reads a `users` row. The owner
+lookup is the separate `findFirst` at `frontdesk/src/main.ts:69`, scoped to the
+workspace and with no email filter. So no code anywhere requires the owner
+address and the connection address to be equal.
+
+**Matching them is seed data by founder decision, not a product rule.** Founder
+decision, 2026-10-09: the owner user's email equals the `gmail_connections`
+address, because they are the same person in the test office. No schema
+constraint, no validation rule and no code was added to enforce it. Whether the
+two may diverge is a product decision the founder has not made, and this entry
+is not it.
+
+**Three guards, each watched failing first.** In
+`guards/compose-smoke-env.test.ts`. The first runs the generator and reads the
+SQL it writes, rather than grepping the file, for the reason
+`guards/vite-fs-allow.test.ts` gives: a text scan passes on a statement built
+from an identifier defined three lines higher. It asserts one `INSERT INTO
+users`, the workspace id taken from `\gset` rather than written as a literal,
+the two required columns named, and the statement inside the transaction after
+the connection row. The second and third require the workflow to count the row
+with `-tAc`, to compare it as a string against 1, and to do that between the
+seed and the final `--wait`.
+
+**One assertion exists because the first red run was ambiguous.** Zero `INSERT
+INTO users` statements and a capture that read nothing produce the same message,
+`expected +0 to be 1`. The test now asserts that the captured SQL contains the
+`gmail_connections` insert first, so a broken capture says so in its own words.
+That ambiguity is the same shape as the pipefail detector of 2026-10-08, which
+matched the YAML block scalar indicator and reported five offenders where one
+step pipes.
+
+**The local Done checks and the one that could not run at first.** Each was run
+on its own. `pnpm install --frozen-lockfile`, `pnpm audit --audit-level=high`,
+`pnpm typecheck`, `pnpm lint`, `pnpm lint:frozen:danger`, `pnpm check:screens`
+and `pnpm e2e` all exited 0. `pnpm lint:frozen:danger` reports one finding in
+frozen `api`, `no-control-regex`, which is reported and not fixed. `pnpm test`
+first failed with `connect ECONNREFUSED 127.0.0.1:5433` before it collected any
+test file: the dev postgres was healthy and published on `127.0.0.1:5433` inside
+WSL, and Windows could not reach it on `127.0.0.1`, `::1`, `localhost` or the
+WSL address. Recreating the dev containers did not restore it. The founder
+restarted WSL, after which `pnpm test` passed: 74 files, 744 passed, 1 skipped.
+Recorded because the first run of that check looked like a failure of this
+change and was a failure of WSL port forwarding.
+
+**One flaky test, named rather than left in the scrollback.** The run before the
+green one failed one test:
+`dashboards/src/shared/layout/RoleRoutes.test.tsx > every Org Admin screen has
+a route that renders it, all 35`. It passed alone, and it passed in the next
+full run of all 74 files. It is unrelated to this change, which touches no
+dashboard code. No cause was investigated and none is claimed. It is written
+down because a red test that scrolls past unmentioned is a report falsified by
+omission.
+
+**Cost if wrong:** low for the seed and the guards, which are CI-only and touch
+no frozen directory. The cost of the address decision being read as a rule is
+higher: a future reader who treats the two equal addresses as a constraint
+builds validation the founder has not decided on, which is why the equality is
+stated here as seed data three times over.
