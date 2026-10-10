@@ -131,10 +131,18 @@ function scanText(text: string): Scanned {
           if (text[j] === '\\') j += 1;
           j += 1;
         }
-        if (j >= text.length || text[j] === '\n') {
+        if (j >= text.length) {
           fail('an unterminated string');
-          blank(i + 1, Math.min(j, text.length));
-          i = j;
+          blank(i + 1, text.length);
+          return text.length;
+        }
+        if (text[j] === '\n') {
+          // A quote that is not closed on its line is not a string. It is most
+          // likely the quote inside a regex literal the scanner took for a
+          // division, as in `(s) => /'/.test(s)`. Blank nothing and move on. A
+          // string that is really unterminated still runs to the end of the
+          // file, and that is where it fails.
+          i += 1;
           continue;
         }
         blank(i + 1, j);
@@ -243,19 +251,42 @@ const VITEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it', 'describe']);
 const DISABLING_NAMES: ReadonlySet<string> = new Set(['skip', 'only', 'skipIf', 'runIf', 'todo', 'fails']);
 
 /**
+ * Whether the argument list that starts at `from` looks like a test
+ * declaration: a string or template title first, OR a function second.
+ *
+ * Either is enough. A title alone covers `T.todo('a')`, which has no callback.
+ * A function second covers `T.skip(title, () => {})`, where the title is a
+ * variable. Neither is true of `cursor.skip(10)` or `qb.skip(20).take(10)`,
+ * which are pagination and must stay clean. The text is the stripped text,
+ * where quotes are kept and brackets inside strings are blank, so counting
+ * brackets here is safe.
+ */
+function looksLikeArguments(code: string, from: number): boolean {
+  if (/^\s*['"`]/.test(code.slice(from))) return true;
+
+  let depth = 0;
+  let i = from;
+  for (; i < code.length; i += 1) {
+    const ch = code[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      if (depth === 0) return false;
+      depth -= 1;
+    } else if (ch === ',' && depth === 0) break;
+  }
+  if (i >= code.length) return false;
+  return /^\s*(?:async\s+)?(?:function\b|(?:\((?:[^()]|\([^()]*\))*\)|[\w$]+)\s*=>)/.test(code.slice(i + 1));
+}
+
+/**
  * Whether a non-vitest root's call looks like a test declaration.
  *
- * `cursor.skip(10)` and `qb.skip(20).take(10)` are pagination, not a disabled
- * test, so a bare name on an arbitrary root is not enough. A declaration takes
- * a title: a string or a template as its first argument. `skipIf(cond)` and
- * `runIf(cond)` take the condition first and the title in a second call, so for
- * those the title is looked for after the first argument list closes. The text
- * is the stripped text, where quotes are kept and parentheses inside strings
- * are blank, so counting parentheses here is safe.
+ * `skipIf(cond)` and `runIf(cond)` take the condition first and the declaration
+ * in a second call, so for those the second call's arguments are checked. With
+ * no second call it is reported, which is conservative.
  */
 function looksLikeDeclaration(code: string, open: number, segment: string): boolean {
-  const titleAt = (from: number) => /^\s*['"`]/.test(code.slice(from));
-  if (segment !== 'skipIf' && segment !== 'runIf') return titleAt(open);
+  if (segment !== 'skipIf' && segment !== 'runIf') return looksLikeArguments(code, open);
 
   let depth = 1;
   let i = open;
@@ -265,9 +296,8 @@ function looksLikeDeclaration(code: string, open: number, segment: string): bool
     i += 1;
   }
   if (depth !== 0) return true;
-  const rest = code.slice(i);
-  const next = /^\s*\(/.exec(rest);
-  return next === null ? true : titleAt(i + next[0].length);
+  const next = /^\s*\(/.exec(code.slice(i));
+  return next === null ? true : looksLikeArguments(code, i + next[0].length);
 }
 
 /** Every disabling or inverting modifier in one file's text. */
@@ -775,21 +805,50 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     ['alias only', "const T = test.extend({});\nT.only('a', () => { expect(1).toBe(1); });"],
     ['alias concurrent skip', "const T = test.extend({});\nT.concurrent.skip('a', () => { expect(1).toBe(1); });"],
     ['alias todo', "const T = test.extend({});\nT.todo('a');"],
+    // A computed title: the function is the second argument.
+    ['alias skip, computed title', "const T = test.extend({});\nT.skip(title, () => { expect(1).toBe(1); });"],
+    ['alias only, function expression', "const T = test.extend({});\nT.only(name, function () { expect(1).toBe(1); });"],
+    ['alias skipIf, computed title', "const T = test.extend({});\nT.skipIf(cond)(name, async () => { expect(1).toBe(1); });"],
   ];
 
-  // A file the scanner cannot read is an offender, never a pass. Without this,
-  // everything after an unterminated span is blanked and every test there is hidden.
+  // Three inputs the scanner cannot read to the end. Each is reported as
+  // unscannable and never passes, because blanking the rest of the file would
+  // hide every test after the open span.
   const unscannable: readonly (readonly [string, string])[] = [
     ['unterminated template', "const s = `open\ntest.skip('a', () => { expect(1).toBe(1); });"],
-    ['unterminated string', "const s = 'open\ntest.skip('a', () => { expect(1).toBe(1); });"],
+    ['unterminated string at end of file', "test('a', () => { expect(1).toBe(1); });\nconst s = 'open"],
     ['unterminated block comment', "/* open\ntest.skip('a', () => { expect(1).toBe(1); });"],
-    [
-      'a backtick inside a template hole',
-      "const md = `a ${ \"x`y\" }\n  tail`;\ntest.skip('frozen', () => { expect(1).toBe(1); });",
-    ],
   ];
   for (const [label, source] of unscannable) {
-    expect(modifierOffenders('api/probe.test.ts', source), `${label} must be reported`).not.toEqual([]);
+    const found = modifierOffenders('api/probe.test.ts', source);
+    expect(found, `${label} must be reported`).toHaveLength(1);
+    expect(found[0], `${label} must say it cannot be scanned`).toContain('cannot be scanned');
+  }
+
+  // The fourth is NOT unscannable. A backtick inside a template hole is read by
+  // the hole recursion, so the file scans to the end and the skipped test after
+  // it is found. Exact on purpose: if the recursion regressed, this would turn
+  // into an unscannable report and a loose check would still pass.
+  expect(
+    modifierOffenders(
+      'api/probe.test.ts',
+      "const md = `a ${ \"x`y\" }\n  tail`;\ntest.skip('frozen', () => { expect(1).toBe(1); });",
+    ),
+    'a backtick inside a template hole',
+  ).toEqual(['api/probe.test.ts: test.skip']);
+
+  // Valid code that holds a quote inside a regex literal reads as code, not as
+  // an unterminated string, wherever the regex sits. Each is a whole file, so it
+  // ends with a newline.
+  for (const line of [
+    "const f = (s) => /'/.test(s);",
+    "function f(s) { return /'/.test(s); }",
+    "const n = 1 + /'/.source.length;",
+    'const t = typeof /"/;',
+  ]) {
+    const source = `${line}\n`;
+    expect(modifierOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
+    expect(emptyBodyOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
   }
 
   for (const [label, source] of cases) {
@@ -821,6 +880,8 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     'const page = cursor.skip(10);',
     'const rows = qb.skip(20).take(10);',
     'scheduler.fails(3);',
+    'const next = page.skip(1);',
+    'reader.skip(4);',
   ];
   for (const source of fine) {
     expect(modifierOffenders('api/probe.test.ts', source), `must NOT be reported: ${source}`).toEqual([]);
@@ -843,7 +904,8 @@ test('a frozen test with an empty body is reported', () => {
 
   // The limit, recorded rather than hidden. It is an open gap: a body emptied to
   // a no-op statement is not an empty block, and the assertion floor does not
-  // cover it either, because an expect( left in a comment still counts.
+  // cover it either, because an expect( left in a comment still counts. The
+  // same family: a body of only `;` or `void 0;`, which no rule here matches.
   expect(countAssertions("test('a', () => { void 0; // expect(1).toBe(1);\n});")).toBe(1);
   expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { void 0; // expect(1).toBe(1);\n});")).toEqual([]);
   // A body that holds only a comment is an empty block once comments are blanked.
