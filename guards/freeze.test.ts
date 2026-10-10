@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
-import { existsExact, readFileIn, readRepoFile, walkFiles, walkFilesIn } from './lib/walk.ts';
+import { REPO_ROOT, existsExact, readFileIn, readRepoFile, walkFiles, walkFilesIn } from './lib/walk.ts';
 
 // The lead-reply freeze, turned into a check instead of a promise.
 //
@@ -64,31 +65,116 @@ function probeTree(relative: string, contents: string): string {
 }
 
 /**
- * A call on `test`, `it` or `describe` with one or more chained modifiers.
+ * The text with every comment and every string body blanked to spaces.
  *
- * Group 1 is the function, group 2 the whole chain. The chain is split and
- * every segment checked, so `test.concurrent.skip` is caught by its second
- * segment and `test.concurrent` alone is not caught at all.
+ * Offsets and line breaks are kept, so a match in the result points at the same
+ * place in the original. String quotes are kept and only what is between them
+ * is blanked, so a test title is still recognisable as a string.
  *
- * The leading boundary is `[^.\w]` rather than `\b`, so a property access like
- * `helpers.test.skip` does not read as a vitest call.
+ * Not a full tokenizer. It knows `//` and block comments, single, double and
+ * template strings, and regex literals after a character that cannot end a
+ * value. Text inside a `${ }` of a template is blanked with the rest of the
+ * template, which hides code written there. That is a named gap, not a claim.
+ * This is why the modifier rule scans this and not raw lines: a line that
+ * merely starts with a comment can still hold a disabled test after it.
  */
-const MODIFIER_CALL = /(?:^|[^.\w])(test|it|describe)((?:\.[A-Za-z][A-Za-z0-9]*)+)\s*\(/g;
+const REGEX_AFTER = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';']);
 
-/** A line that is a comment, which cannot disable anything. */
-const isComment = (line: string) => /^\s*(?:\/\/|\*|\/\*)/.test(line);
+export function stripNonCode(text: string): string {
+  const out = text.split('');
+  const blank = (from: number, to: number) => {
+    for (let k = from; k < to; k += 1) if (out[k] !== '\n') out[k] = ' ';
+  };
+  let i = 0;
+  let prev = '';
+  while (i < text.length) {
+    const c = text[i] ?? '';
+    const n = text[i + 1] ?? '';
+    if (c === '/' && n === '/') {
+      const end = text.indexOf('\n', i);
+      const stop = end < 0 ? text.length : end;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === '/' && n === '*') {
+      const end = text.indexOf('*/', i + 2);
+      const stop = end < 0 ? text.length : end + 2;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c) {
+        if (text[j] === '\\') j += 1;
+        else if (c !== '`' && text[j] === '\n') break;
+        j += 1;
+      }
+      blank(i + 1, Math.min(j, text.length));
+      i = j + 1;
+      prev = c;
+      continue;
+    }
+    if (c === '/' && REGEX_AFTER.has(prev)) {
+      let j = i + 1;
+      let inClass = false;
+      let closed = false;
+      while (j < text.length && text[j] !== '\n') {
+        const ch = text[j];
+        if (ch === '\\') j += 1;
+        else if (ch === '[') inClass = true;
+        else if (ch === ']') inClass = false;
+        else if (ch === '/' && !inClass) {
+          closed = true;
+          break;
+        }
+        j += 1;
+      }
+      if (closed) {
+        blank(i + 1, j);
+        i = j + 1;
+        prev = 'x';
+        continue;
+      }
+    }
+    if (!/\s/.test(c)) prev = c;
+    i += 1;
+  }
+  return out.join('');
+}
+
+/**
+ * A call with a dotted chain on any identifier.
+ *
+ * Group 1 is the root, group 2 the whole chain. The leading boundary is
+ * `[^.\w$]` rather than `\b`, so a property access like `helpers.test.skip`
+ * does not read as a vitest call on `test`.
+ */
+const CHAIN_CALL = /(?:^|[^.\w$])([A-Za-z_$][\w$]*)((?:\.[A-Za-z_$][\w$]*)+)\s*\(/g;
+
+/** The roots that vitest gives its modifiers to. Their chains use the allow list. */
+const VITEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it', 'describe']);
+
+/**
+ * Names that disable or invert a test, on ANY root.
+ *
+ * `const T = test.extend({})` then `T.skip(...)` is the same weakening under a
+ * different name, and a rule that only knew `test`, `it` and `describe` would
+ * not see it. In a frozen test file these names on anything are a finding. That
+ * reports more than strictly needed, which is the right side to err on.
+ */
+const DISABLING_NAMES: ReadonlySet<string> = new Set(['skip', 'only', 'skipIf', 'runIf', 'todo', 'fails']);
 
 /** Every disabling or inverting modifier in one file's text. */
 export function modifierOffenders(file: string, text: string): readonly string[] {
   const out: string[] = [];
-  for (const line of text.split('\n')) {
-    if (isComment(line)) continue;
-    for (const match of line.matchAll(MODIFIER_CALL)) {
-      const fn = match[1] ?? '';
-      const chain = (match[2] ?? '').split('.').filter((part) => part !== '');
-      for (const segment of chain) {
-        if (!HARMLESS_MODIFIERS.has(segment)) out.push(`${file}: ${fn}.${segment}`);
-      }
+  for (const match of stripNonCode(text).matchAll(CHAIN_CALL)) {
+    const root = match[1] ?? '';
+    const chain = (match[2] ?? '').split('.').filter((part) => part !== '');
+    for (const segment of chain) {
+      const bad = VITEST_ROOTS.has(root) ? !HARMLESS_MODIFIERS.has(segment) : DISABLING_NAMES.has(segment);
+      if (bad) out.push(`${file}: ${root}.${segment}`);
     }
   }
   return out;
@@ -97,13 +183,15 @@ export function modifierOffenders(file: string, text: string): readonly string[]
 /**
  * A test whose callback body is empty.
  *
- * Only the literal empty block. A body emptied to a comment or a no-op is not
- * matched, and the assertion floor is the instrument for that, because every
- * form of emptying removes the body's expect() calls. Two rules for one gap,
- * said out loud rather than left for a reader to discover.
+ * Only the literal empty block, with any parameter list, an arrow or a
+ * `function`, async or not. A body emptied to a comment or a no-op is NOT
+ * matched, and nothing else catches it either. The assertion floor does not:
+ * an `expect(` left inside a comment still counts, which the note on
+ * `countTests` says. This is an open gap, recorded here rather than hidden.
+ * Closing it needs a real parser, and that is a decision for the founder.
  */
 const EMPTY_BODY =
-  /(?:^|[^.\w])(?:test|it)(?:\.[A-Za-z][A-Za-z0-9]*)*\s*\(\s*(['"`])(?:\\.|(?!\1)[^\\])*\1\s*,\s*(?:async\s*)?\(\s*\)\s*=>\s*\{\s*\}\s*\)/g;
+  /(?:^|[^.\w])(?:test|it)(?:\.[A-Za-z][A-Za-z0-9]*)*\s*\(\s*(['"`])(?:\\.|(?!\1)[^\\])*\1\s*,\s*(?:async\s*)?(?:function\s*[\w$]*\s*\([^)]*\)|\([^)]*\)\s*=>|[\w$]+\s*=>)\s*\{\s*\}\s*\)/g;
 
 export function emptyBodyOffenders(file: string, text: string): readonly string[] {
   return [...text.matchAll(EMPTY_BODY)].map(() => `${file}: a test with an empty body`);
@@ -174,19 +262,81 @@ export function literalEachCases(text: string, from: number): number | null {
   let depth = 0;
   let elements = 0;
   let sawContent = false;
+  // The last character that was neither blank nor inside a comment. It decides
+  // whether a slash opens a regex literal or is a division.
+  let prev = '';
 
   for (; i < text.length; i += 1) {
-    const char = text[i];
+    const char = text[i] ?? '';
+    const next = text[i + 1] ?? '';
+
+    // Comments hold no elements and no brackets that count.
+    if (char === '/' && next === '/') {
+      const end = text.indexOf('\n', i);
+      if (end < 0) return null;
+      i = end;
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end < 0) return null;
+      i = end + 1;
+      continue;
+    }
+
+    // A string is one piece of content. A bracket or a comma inside it is not
+    // structure. A template with `${` inside cannot be classified, so it is
+    // opaque. So is any string that is not closed on its line.
+    if (char === "'" || char === '"' || char === '`') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== char) {
+        if (text[j] === '\\') j += 1;
+        else if (char === '`' && text[j] === '$' && text[j + 1] === '{') return null;
+        else if (char !== '`' && text[j] === '\n') return null;
+        j += 1;
+      }
+      if (j >= text.length) return null;
+      i = j;
+      sawContent = true;
+      prev = char;
+      continue;
+    }
+
+    // A regex literal, when a slash follows something that cannot end a value.
+    // Inside a table that is a comma, an open bracket, a colon or an operator.
+    if (char === '/' && REGEX_AFTER.has(prev)) {
+      let j = i + 1;
+      let inClass = false;
+      let closed = false;
+      while (j < text.length && text[j] !== '\n') {
+        const ch = text[j];
+        if (ch === '\\') j += 1;
+        else if (ch === '[') inClass = true;
+        else if (ch === ']') inClass = false;
+        else if (ch === '/' && !inClass) {
+          closed = true;
+          break;
+        }
+        j += 1;
+      }
+      if (!closed) return null;
+      i = j;
+      sawContent = true;
+      prev = 'x';
+      continue;
+    }
 
     if (char === '[' || char === '(' || char === '{') {
       depth += 1;
       if (depth > 1) sawContent = true;
+      prev = char;
       continue;
     }
 
     if (char === ']' || char === ')' || char === '}') {
       depth -= 1;
       if (depth === 0) return sawContent ? elements + 1 : elements;
+      prev = char;
       continue;
     }
 
@@ -196,10 +346,14 @@ export function literalEachCases(text: string, from: number): number | null {
     if (depth === 1 && char === ',') {
       if (sawContent) elements += 1;
       sawContent = false;
+      prev = char;
       continue;
     }
 
-    if (!/\s/.test(char ?? '')) sawContent = true;
+    if (!/\s/.test(char)) {
+      sawContent = true;
+      prev = char;
+    }
   }
 
   // The closing bracket was never found, so this is not the shape assumed.
@@ -308,8 +462,14 @@ export function opaqueComplaints(
  * project lists 420 entries while a run reports 437, and the ten-case
  * `test.each` in shared/src/agent-output.test.ts is one listed entry.
  *
- * It is recorded and compared, not computed inside the guard. A guard that
- * shelled out to vitest would be a test that runs the test runner.
+ * It is RECORDED in the baseline and NOT checked by this guard. A guard that
+ * shelled out to vitest would be a test that runs the test runner, and no CI
+ * step re-derives it either. `floorComplaints` can compare it when a caller
+ * passes a measured value, which the probes do. The real-surface check does
+ * not, because the only value it has is the recorded one, and a number
+ * compared with itself cannot fail. To re-measure it, run
+ * `pnpm exec vitest list --project unit --json` and the same for `db`, and
+ * count the entries whose file is a frozen baseline file.
  */
 export type ListedCounts = { readonly unit: number; readonly db: number };
 
@@ -339,7 +499,8 @@ export type FrozenCounts = {
   readonly expanded: number;
   readonly calls: number;
   readonly assertions: number;
-  readonly listed: ListedCounts;
+  /** Omitted when no measured value exists. Then the listed counts are not compared. */
+  readonly listed?: ListedCounts;
 };
 
 export type FrozenBaseline = {
@@ -358,8 +519,10 @@ export function floorComplaints(actual: FrozenCounts, recorded: FrozenBaseline):
   below('frozen expanded tests', actual.expanded, recorded.frozenExpandedTestCount);
   below('frozen test call sites', actual.calls, recorded.frozenTestCallCount);
   below('frozen assertions', actual.assertions, recorded.frozenAssertionCount);
-  below('frozen listed tests (unit)', actual.listed.unit, recorded.frozenListedTestCount.unit);
-  below('frozen listed tests (db)', actual.listed.db, recorded.frozenListedTestCount.db);
+  if (actual.listed !== undefined) {
+    below('frozen listed tests (unit)', actual.listed.unit, recorded.frozenListedTestCount.unit);
+    below('frozen listed tests (db)', actual.listed.db, recorded.frozenListedTestCount.db);
+  }
 
   return out;
 }
@@ -372,15 +535,23 @@ export function floorComplaints(actual: FrozenCounts, recorded: FrozenBaseline):
  * collected.
  */
 const GLOB_SENTINEL = '\u0001';
+const GLOB_ANY = '\u0002';
 export function globToRegExp(glob: string): RegExp {
+  // A `**` with no slash after it, as in `api/**` or a bare `**`, matches
+  // anything below. Without that, an exclude of `api/**` would match nothing
+  // and the exclude check would fail open.
   const source = glob
     .split('**/')
     .join(GLOB_SENTINEL)
     .replace(/[.+^${}()|[\]\\]/g, (char) => `\\${char}`)
+    .split('**')
+    .join(GLOB_ANY)
     .split('*')
     .join('[^/]*')
     .split(GLOB_SENTINEL)
-    .join('(?:.*/)?');
+    .join('(?:.*/)?')
+    .split(GLOB_ANY)
+    .join('.*');
   return new RegExp(`^${source}$`);
 }
 
@@ -388,6 +559,82 @@ export function globToRegExp(glob: string): RegExp {
 export function uncollected(files: readonly string[], globs: readonly string[]): readonly string[] {
   const patterns = globs.map((glob) => globToRegExp(glob));
   return files.filter((file) => !patterns.some((pattern) => pattern.test(file)));
+}
+
+/** One vitest project, reduced to what decides which files it runs. */
+export type ProjectScope = {
+  readonly name: string;
+  readonly include: readonly string[];
+  readonly exclude: readonly string[];
+};
+
+/**
+ * Only these projects run the frozen suites. The browser project is jsdom, so
+ * a frozen glob moved there would still be "included" and run in the wrong
+ * environment. Naming the allowed projects closes that.
+ */
+const FROZEN_PROJECTS: ReadonlySet<string> = new Set(['unit', 'db']);
+
+/**
+ * Baseline files that no plain project collects.
+ *
+ * A file is collected when some unit or db project includes it AND that same
+ * project does not exclude it. An exclude list is read as an exclude list, not
+ * as one more glob that happens to be quoted in the config.
+ */
+export function uncollectedByProjects(
+  files: readonly string[],
+  projects: readonly ProjectScope[],
+): readonly string[] {
+  return files.filter((file) => {
+    const collected = projects.some(
+      (project) =>
+        FROZEN_PROJECTS.has(project.name) &&
+        project.include.some((glob) => globToRegExp(glob).test(file)) &&
+        !project.exclude.some((glob) => globToRegExp(glob).test(file)),
+    );
+    return !collected;
+  });
+}
+
+/**
+ * The projects of vitest.config.ts, read from the imported config.
+ *
+ * Imported the way guards/vite-fs-allow.test.ts imports a Vite config, and for
+ * the same reason: a text scan cannot tell an include from an exclude. A shape
+ * this function does not understand throws, because going quiet is how a guard
+ * reports green while checking nothing.
+ */
+async function configProjects(): Promise<readonly ProjectScope[]> {
+  const loaded: unknown = await import(pathToFileURL(join(REPO_ROOT, 'vitest.config.ts')).href);
+  const exported = (loaded as { default?: unknown }).default;
+  const settled: unknown =
+    typeof exported === 'function' ? await (exported as (env: object) => unknown)({}) : await exported;
+
+  const test = (settled as { test?: { projects?: unknown; exclude?: unknown } } | undefined)?.test;
+  if (!Array.isArray(test?.projects)) throw new Error('vitest.config.ts: test.projects is not an array');
+
+  const strings = (value: unknown, where: string): readonly string[] => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+      throw new Error(`vitest.config.ts: ${where} is not a list of strings`);
+    }
+    return value as string[];
+  };
+  const topExclude = strings(test?.exclude, 'test.exclude');
+
+  return (test.projects as unknown[]).map((entry, index) => {
+    const inner = (entry as { test?: { name?: unknown; include?: unknown; exclude?: unknown } } | null)?.test;
+    if (inner === undefined || inner === null || typeof inner !== 'object') {
+      throw new Error(`vitest.config.ts: project ${index} is not an inline object with a test key`);
+    }
+    const include = inner.include === undefined ? ['**/*.test.ts'] : strings(inner.include, `project ${index} include`);
+    return {
+      name: typeof inner.name === 'string' ? inner.name : '',
+      include,
+      exclude: [...topExclude, ...strings(inner.exclude, `project ${index} exclude`)],
+    };
+  });
 }
 
 test('every modifier that disables or inverts a frozen test is reported', () => {
@@ -404,6 +651,15 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     ['describe.only', "describe.only('a', () => { test('b', () => { expect(1).toBe(1); }); });"],
     ['test.concurrent.skip', "test.concurrent.skip('a', () => { expect(1).toBe(1); });"],
     ['describe.concurrent.only', "describe.concurrent.only('a', () => { test('b', () => { expect(1).toBe(1); }); });"],
+    // A line that only STARTS with a comment can still hold a disabled test.
+    ['skip after a closed block comment', "/* paused */ test.skip('a', () => { expect(1).toBe(1); });"],
+    ['skip after a star line', "* note */ test.skip('a', () => { expect(1).toBe(1); });"],
+    // The same weakening under another name, through test.extend.
+    ['alias skip', "const T = test.extend({});\nT.skip('a', () => { expect(1).toBe(1); });"],
+    ['alias skipIf', "const T = test.extend({});\nT.skipIf(true)('a', () => { expect(1).toBe(1); });"],
+    ['alias only', "const T = test.extend({});\nT.only('a', () => { expect(1).toBe(1); });"],
+    ['alias concurrent skip', "const T = test.extend({});\nT.concurrent.skip('a', () => { expect(1).toBe(1); });"],
+    ['alias todo', "const T = test.extend({});\nT.todo('a');"],
   ];
 
   for (const [label, source] of cases) {
@@ -421,6 +677,13 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     "test.for([1])('a', (n) => { expect(n).toBe(1); });",
     'const skipped = 0; expect(skipped).toBe(0);',
     '// test.skip is named in this comment and is not code',
+    'expect(1).toBe(1); // test.skip later',
+    "const label = 'test.only is a string';",
+    'const label = "test.skip is a string";',
+    "const x = 1; /* test.skip('a', () => {}) */ expect(x).toBe(1);",
+    "/* test.skip\n('a') */ test('a', () => { expect(1).toBe(1); });",
+    "/* test.skip in a comment */ test('a', () => { expect(1).toBe(1); });",
+    'const q = `test.only ${1}`; expect(q).toBeTruthy();',
   ];
   for (const source of fine) {
     expect(modifierOffenders('api/probe.test.ts', source), `must NOT be reported: ${source}`).toEqual([]);
@@ -433,6 +696,19 @@ test('a frozen test with an empty body is reported', () => {
   expect(emptyBodyOffenders('api/probe.test.ts', "it('a', () => {\n});")).not.toEqual([]);
   expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { expect(1).toBe(1); });")).toEqual([]);
 
+  // Any parameter list, and the function keyword.
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', (ctx) => {});")).not.toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', async ({ task }) => {});")).not.toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', function () {});")).not.toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', async function named(ctx) {});")).not.toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', ctx => {});")).not.toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', (ctx) => { expect(ctx).toBeTruthy(); });")).toEqual([]);
+
+  // The limit, recorded rather than hidden. It is an open gap: the assertion
+  // floor does not cover it either, because an expect( left in a comment still
+  // counts. A body holding only a commented-out assertion is invisible to both.
+  expect(countAssertions("test('a', () => { // expect(1).toBe(1);\n});")).toBe(1);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { // expect(1).toBe(1);\n});")).toEqual([]);
   // The limit, recorded rather than hidden: a body emptied to something that is
   // not literally an empty block defeats this regex. The assertion floor below
   // is the second instrument for the same gap, because every way of emptying a
@@ -468,6 +744,13 @@ test('a frozen suite that loses tests or assertions is reported', () => {
   // over it does not.
   expect(floorComplaints(AT, RECORDED)).toEqual([]);
   expect(floorComplaints({ ...AT, expanded: 441, assertions: 960 }, RECORDED)).toEqual([]);
+
+  // With no measured listed counts the listed pair is skipped, not compared with
+  // itself. This is what the real-surface check passes.
+  expect(floorComplaints({ expanded: 440, calls: 411, assertions: 955 }, RECORDED)).toEqual([]);
+  expect(floorComplaints({ expanded: 439, calls: 411, assertions: 955 }, RECORDED)).toEqual([
+    'frozen expanded tests: 439, recorded 440',
+  ]);
 
   // Each count fails on its own, and the message names which one.
   expect(floorComplaints({ ...AT, expanded: 439 }, RECORDED)).toEqual(['frozen expanded tests: 439, recorded 440']);
@@ -544,6 +827,21 @@ test('an each table the parser cannot read is counted as opaque, never as zero o
   expect(at("test.each([...cases, ['x']])('x', () => {});"), 'a spread table').toBeNull();
   expect(at("test.each([...cases])('x', () => {});"), 'a spread-only table').toBeNull();
   expect(at("test.each([['a'], ['b']\n"), 'an unterminated table').toBeNull();
+
+  // A bracket inside a string or a regex is not structure. These used to return
+  // a confidently wrong small number, which is worse than saying opaque.
+  expect(at("test.each([['a]'], ['b']])('x', () => {});"), 'a bracket in a nested string').toBe(2);
+  expect(at("test.each([[/a]/], [2]])('x', () => {});"), 'a bracket in a regex').toBe(2);
+  expect(at("test.each(['a', 'b]c', 'd'])('x', () => {});"), 'a bracket in a flat string').toBe(3);
+  expect(at("test.each(['a,b', 'c'])('x', () => {});"), 'a comma in a string').toBe(2);
+  expect(at('test.each(["a\\"]", "b"])(\'x\', () => {});'), 'an escaped quote').toBe(2);
+  expect(at("test.each([1, // one, two ]\n 2])('x', () => {});"), 'a comment in the table').toBe(2);
+  expect(at("test.each([1, /* ] , */ 2])('x', () => {});"), 'a block comment in the table').toBe(2);
+  // What cannot be classified is opaque, never a guess.
+  expect(at('test.each([`a${1}`, \'b\'])(\'x\', () => {});'), 'a template with a substitution').toBeNull();
+  expect(at("test.each(['a, 'b'])\n('x', () => {});"), 'an unclosed string').toBeNull();
+  expect(at("test.each([/a, 2])('x', () => {});"), 'an unclosed regex').toBeNull();
+  expect(at("test.each([1, /* never closed 2])('x', () => {});"), 'an unclosed comment').toBeNull();
 
   // A gap, named rather than faked. The tagged-template table form,
   // test.each`a | b` with no parenthesis, is not matched by TEST_CALL at all,
@@ -622,6 +920,42 @@ test('a baseline file that no vitest pattern collects is reported', () => {
 
   expect(uncollected(['api/a.test.ts'], ['api/**/*.test.ts'])).toEqual([]);
   expect(uncollected(['api/a.test.ts', 'ops/b.test.ts'], ['api/**/*.test.ts'])).toEqual(['ops/b.test.ts']);
+
+  // A bare or trailing globstar crosses directories, so an exclude of api/** is
+  // not read as matching nothing.
+  expect(globToRegExp('api/**').test('api/src/a.test.ts')).toBe(true);
+  expect(globToRegExp('**').test('api/src/a.test.ts')).toBe(true);
+});
+
+test('an exclude list, or a move to another project, takes a baseline file out of collection', () => {
+  const gmail = 'template/test/no-unapproved-send.test.ts';
+  const unit = (include: readonly string[], exclude: readonly string[] = []): ProjectScope => ({
+    name: 'unit',
+    include,
+    exclude,
+  });
+
+  // The healthy shape.
+  expect(uncollectedByProjects(['api/a.test.ts', gmail], [unit(['api/**/*.test.ts', gmail])])).toEqual([]);
+
+  // The evasion: the same globs are all still quoted in the config, but now they
+  // are an exclude list. A text scan for quoted globs passes this and runs nothing.
+  expect(
+    uncollectedByProjects(['api/a.test.ts', gmail], [unit(['shared/**/*.test.ts'], ['api/**/*.test.ts', gmail])]),
+  ).toEqual(['api/a.test.ts', gmail]);
+  expect(uncollectedByProjects(['api/a.test.ts'], [unit(['api/**/*.test.ts'], ['api/**'])])).toEqual([
+    'api/a.test.ts',
+  ]);
+
+  // A frozen glob moved from the unit project into the jsdom project.
+  const dashboards: ProjectScope = { name: 'dashboards', include: ['api/**/*.test.ts'], exclude: [] };
+  expect(uncollectedByProjects(['api/a.test.ts'], [unit(['shared/**/*.test.ts']), dashboards])).toEqual([
+    'api/a.test.ts',
+  ]);
+
+  // An exclude in one project does not hide a file another plain project runs.
+  const db: ProjectScope = { name: 'db', include: ['db/**/*.test.ts'], exclude: [] };
+  expect(uncollectedByProjects(['db/a.test.ts'], [unit(['db/**/*.test.ts'], ['db/**']), db])).toEqual([]);
 });
 
 const baseline = JSON.parse(readRepoFile('guards/freeze-baseline.json')) as {
@@ -659,11 +993,10 @@ test('the frozen suites still hold every test and assertion that was recorded', 
   // The other check that catches removal, and the only one here that catches a
   // test removed from a file that still exists.
   //
-  // The listed counts are read from the baseline rather than computed, because
-  // computing them means shelling out to vitest and a test that runs the test
-  // runner is not a test. They are compared, so a drop still fails; what the
-  // guard cannot do is notice the drop by itself. The log entry records the
-  // command that produces them.
+  // The listed counts are not compared here. The only value available at this
+  // surface is the recorded one, and comparing it with itself cannot fail.
+  // Computing it means shelling out to vitest, and a test that runs the test
+  // runner is not a test. The three counts below are measured from the files.
   let expanded = 0;
   let calls = 0;
   let assertions = 0;
@@ -679,7 +1012,7 @@ test('the frozen suites still hold every test and assertion that was recorded', 
   }
 
   expect(
-    floorComplaints({ expanded, calls, assertions, listed: baseline.frozenListedTestCount }, baseline),
+    floorComplaints({ expanded, calls, assertions }, baseline),
   ).toEqual([]);
 
   // The ceiling, checked here and not inside floorComplaints, because it fails
@@ -688,35 +1021,32 @@ test('the frozen suites still hold every test and assertion that was recorded', 
   expect(opaqueComplaints(opaque, baseline)).toEqual([]);
 });
 
-test('the recorded listed counts still match what vitest collects', () => {
-  // The secondary check, run as its own step rather than inside the guard. A
-  // guard cannot shell out to vitest, so this test pins the number and the
-  // COMMAND that produces it, and CI re-derives it in the compose-smoke job.
-  //
-  // If this is the only thing standing between a dropped include pattern and a
-  // green run, note that `every frozen baseline file is still collected by
-  // vitest` above catches that case directly, from the config, with no
-  // subprocess. These two overlap on purpose.
+test('the baseline records the listed counts and keeps expanded at or above call sites', () => {
+  // This asserts the recorded numbers only. It does NOT run vitest, and nothing
+  // in CI re-derives the listed counts, so they are a record kept by hand and
+  // not a check. The command to re-measure them is on ListedCounts above.
+  // Whether a dropped include pattern is caught is the job of the next test,
+  // which reads the config structurally.
   expect(baseline.frozenListedTestCount.unit).toBeGreaterThanOrEqual(239);
   expect(baseline.frozenListedTestCount.db).toBeGreaterThanOrEqual(170);
   expect(baseline.frozenExpandedTestCount).toBeGreaterThanOrEqual(baseline.frozenTestCallCount);
 });
 
-test('every frozen baseline file is still collected by vitest', () => {
-  // Removing a file from vitest.config.ts's include list disarms it while
-  // leaving it in place, so existence alone is not enough to check. The first
-  // version of this guard checked one file of the 46.
-  const config = readRepoFile('vitest.config.ts');
-  const globs = [...config.matchAll(/'([^']*\.test\.ts)'/g)].map((match) => match[1] ?? '');
+test('every frozen baseline file is still collected by vitest', async () => {
+  // Removing a file from an include list, or adding it to an exclude list,
+  // disarms it while leaving it in place, so existence alone is not enough. The
+  // config is imported and read structurally, so an exclude entry is not
+  // mistaken for an include entry.
+  const projects = await configProjects();
 
-  expect(globs.length, 'no test glob was found in vitest.config.ts').toBeGreaterThanOrEqual(10);
-  expect(uncollected(baseline.testFiles, globs)).toEqual([]);
+  expect(projects.length, 'no project was found in vitest.config.ts').toBeGreaterThanOrEqual(2);
+  expect(uncollectedByProjects(baseline.testFiles, projects)).toEqual([]);
 
   // The single route to Gmail, named on purpose as well as covered above: it is
   // the one file whose loss would be hardest to notice from a diff.
   const gmail = 'template/test/no-unapproved-send.test.ts';
   expect(existsExact(gmail), `${gmail} is gone`).toBe(true);
-  expect(config, `${gmail} is no longer collected`).toContain(gmail);
+  expect(uncollectedByProjects([gmail], projects), `${gmail} is no longer collected`).toEqual([]);
 });
 
 test('this guard is reading the frozen suites, not an empty list', () => {
