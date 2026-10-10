@@ -70,6 +70,9 @@ This session wrote the plan and does not execute it.
 - **The log entry must not contain the string `**Superseded`.** The founder asked for `**Corrects:**`. `guards/decisions-log.test.ts:93` puts an extra obligation on any entry containing `**Superseded`: it must name the ISO date of a replacement entry that exists in the log. `**Corrects:**` carries no such obligation.
 - **No new dependency.** Everything needed is in `node:fs`, `node:os`, `node:path` or already a devDependency.
 - **No committed change to `vitest.config.ts`, `package.json`, `.github/workflows/ci.yml`, `scripts/dev-db.mjs`, `scripts/ci-seed-instance.ts` or `dashboards/vite.config.ts`.** Each is a probe surface, edited and restored within one task, and Task 9 Step 1 checks that none of them appears in the final diff.
+- **`eslint.config.js` is protected by the `ecc` `config-protection` PreToolUse hook.** Any attempt to edit it is refused with "Modifying eslint.config.js is not allowed". Task 1 is the only task that touches it, and **the founder makes that edit by hand**. No executor may work around the hook, by `sed`, by a heredoc, by a different tool, or by disabling it. An implementer refused there reports BLOCKED and stops; asking the controller to make the edit instead is permission laundering and is refused too. Found on 2026-10-09 when Task 1 was first dispatched, and not anticipated when this plan was written in this same repository.
+- **No scratch `.mjs`, `.ts` or `.js` under `.superpowers/`.** Use the session scratchpad. ESLint walks `.superpowers/` until Task 1 lands, so a scratch script there fails `pnpm lint` for a reason unrelated to the task being worked on, which is the confusion Task 1 exists to remove.
+- **After any cleanup, verify with `ls` and the real gate command, never with `find`.** A `find` with escaped parentheses errored under this shell on 2026-10-09 and its `|| echo "none"` was read as an answer, so a leftover probe file was reported removed while `pnpm lint` was still exiting 1. A check whose failure looks like a pass is worse than no check.
 - **One command per Bash call. Never chain `git commit` or `git push` onto a test run, a grep or a pipe.** Read each exit code on its own.
 - **Redirect long output to a file and read its tail,** rather than piping to `tail` and reading `PIPESTATUS`. A pipe into `tail` reported exit 139 in this environment for a command that exits 0, which is a SIGPIPE artifact and not the command's status.
 
@@ -235,9 +238,21 @@ Run: `pnpm lint > /tmp/lint-red.log 2>&1; echo "EXIT=$?"; cat /tmp/lint-red.log`
 
 Expected: **EXIT=1**, and the output names `.superpowers/probe/lint-probe.mjs` with `'process' is not defined  no-undef` and `'console' is not defined  no-undef`. Record those lines; the log entry quotes them.
 
-- [ ] **Step 3: Add the ignore entry**
+- [ ] **Step 3: The founder adds the ignore entry**
 
-Edit `eslint.config.js`. In the `NOT_OURS` array, after the `'archive/',` line, add:
+**This step is not an executor's to run.** `eslint.config.js` is protected by the
+`ecc` `config-protection` PreToolUse hook, which refuses every edit to it with
+"Modifying eslint.config.js is not allowed". An implementer that reaches this
+step reports BLOCKED, leaves the file byte unchanged, removes its probe, and
+stops. Do not route around the hook with `sed`, a heredoc, another tool, or by
+disabling it, and do not ask the controller to make the edit: the hook exists to
+make this file a founder decision, and both of those are permission laundering.
+
+Print the block below, say it goes inside `NOT_OURS` immediately after the
+`'archive/',` line, which is `eslint.config.js:47`, and wait for the founder to
+confirm it is saved. Then resume at Step 4.
+
+The founder edits `eslint.config.js`. In the `NOT_OURS` array, after the `'archive/',` line, add:
 
 ```js
   // The superpowers skill workspace: ledgers, task briefs and scratch scripts.
@@ -642,7 +657,9 @@ test('a baseline file that no vitest pattern collects is reported', () => {
 
 Run: `pnpm exec vitest run --project unit guards/freeze.test.ts > /tmp/f-red.log 2>&1; echo "EXIT=$?"; grep -E "FAIL|ReferenceError|Tests " /tmp/f-red.log`
 
-Expected: **EXIT=1**, five failing tests, each a `ReferenceError` naming the function it calls: `modifierOffenders`, `emptyBodyOffenders`, `countTests`, `globToRegExp`. This is the red that matters: the forms the founder listed are asserted and nothing implements them yet.
+Expected: **EXIT=1**, **nine** failing tests, one per probe in the block above. Each fails on a `ReferenceError` naming a function it calls: `modifierOffenders`, `emptyBodyOffenders`, `countExpandedTests`, `opaqueEachCount`, `opaqueComplaints`, `literalEachCases`, `countTests`, `floorComplaints`, `globToRegExp` or `uncollected`. This is the red that matters: the forms the founder listed are asserted and nothing implements them yet.
+
+Report the actual count. Counts in this plan are advisory, not a gate: the plan was edited after these numbers were first written, so a mismatch is more likely a stale number than a broken implementation. What is binding is that every probe fails, and fails for a missing function rather than a wrong assertion.
 
 - [ ] **Step 3: Confirm the OLD rule would have passed `skipIf`**
 
@@ -710,7 +727,7 @@ export function emptyBodyOffenders(file: string, text: string): readonly string[
 
 Run: `pnpm exec vitest run --project unit guards/freeze.test.ts > /tmp/f2.log 2>&1; echo "EXIT=$?"; grep -E "FAIL|ReferenceError|Tests " /tmp/f2.log`
 
-Expected: **EXIT=1** still, but now only two failures, for `countTests` and `globToRegExp`. The modifier probe, the empty-body probe and the tree probe all pass.
+Expected: **EXIT=1** still, but now **3 passing and 6 failing**. Step 4 defines two functions, `modifierOffenders` and `emptyBodyOffenders`, so the modifier probe, the empty-body probe and the tree probe pass. The other six still fail, because Step 6 defines everything they call. Counts advisory as above; what is binding is that exactly those three pass.
 
 - [ ] **Step 6: Write the counts, the floor and the collection rule**
 
@@ -999,15 +1016,15 @@ export function uncollected(files: readonly string[], globs: readonly string[]):
 }
 ```
 
-- [ ] **Step 7: Run it to verify all five probes pass**
+- [ ] **Step 7: Run it to verify all nine probes pass**
 
 Run: `pnpm exec vitest run --project unit guards/freeze.test.ts > /tmp/f3.log 2>&1; echo "EXIT=$?"; grep -E "FAIL|Tests " /tmp/f3.log`
 
-Expected: **EXIT=0**, 5 passed.
+Expected: **EXIT=0**, 9 passed.
 
-- [ ] **Step 8: Record the two new baseline numbers**
+- [ ] **Step 8: Record the five new baseline numbers**
 
-Edit `guards/freeze-baseline.json`. Keep `recordedAt`, `testFiles` and `unitTestCount` exactly as they are: `unitTestCount` 347 remains the record of one measurement and is still not compared. Add four keys after it:
+Edit `guards/freeze-baseline.json`. Keep `recordedAt`, `testFiles` and `unitTestCount` exactly as they are: `unitTestCount` 347 remains the record of one measurement and is still not compared. Add five keys after it:
 
 ```json
   "frozenExpandedTestCount": 440,
@@ -1037,7 +1054,7 @@ turning an expression back into a literal, is an improvement and passes.
 
 **Raising any of these is a founder decision.** Nothing in the guard writes them, and a lower count fails. The command to recompute them is in the log entry so the next person can reproduce the numbers rather than trust them.
 
-- [ ] **Step 9: Add the six real-surface checks**
+- [ ] **Step 9: Add the seven real-surface checks**
 
 Append to `guards/freeze.test.ts`:
 
@@ -1147,7 +1164,7 @@ test('this guard is reading the frozen suites, not an empty list', () => {
 
 Run: `pnpm exec vitest run --project unit guards/freeze.test.ts > /tmp/f4.log 2>&1; echo "EXIT=$?"; grep -E "FAIL|AssertionError|Tests " /tmp/f4.log`
 
-Expected: **EXIT=0**, 11 passed.
+Expected: **EXIT=0**, 16 passed.
 
 - [ ] **Step 11: Probe the collection check against the real `vitest.config.ts`**
 
@@ -1166,7 +1183,7 @@ This is the one live probe this task can run without writing into a frozen direc
 
 Run: `pnpm exec vitest run --project unit guards/freeze.test.ts > /tmp/f5.log 2>&1; echo "EXIT=$?"; tail -4 /tmp/f5.log`
 
-Expected: **EXIT=0**, 11 passed.
+Expected: **EXIT=0**, 16 passed.
 
 - [ ] **Step 13: Typecheck and lint**
 
@@ -1803,7 +1820,7 @@ test('a real registrable address in a NON-frozen test is reported', () => {
 
 Run: `pnpm exec vitest run --project unit guards/standing-rules.test.ts > /tmp/m-red.log 2>&1; echo "EXIT=$?"; grep -E "FAIL|ReferenceError|AssertionError" /tmp/m-red.log | head -8`
 
-Expected: **EXIT=1**, three failures: `mailValueAllowed('${{ secrets.OWNER_MAILBOX }}')` returns true where false is required; `isReservedDomain is not defined`; and the seed script is absent from the scanned list.
+Expected: **EXIT=1**, **five** failures, which is every test Step 1 added. `mailValueAllowed('${{ secrets.OWNER_MAILBOX }}')` returns true where false is required. `isReservedDomain is not defined`. `SCANNED_EXTENSIONS is not defined`. The seed script is absent from the scanned list. And the non-frozen-test probe calls `isReservedDomain` as well. Counts advisory as in Task 2; what is binding is that all five fail and none passes by accident.
 
 - [ ] **Step 3: Split the mail rule by kind of substitution**
 
@@ -2233,7 +2250,7 @@ and run `git commit -F /tmp/msg-task6.txt`.
 
 Run: `grep -c "^## " docs/decisions.md`
 
-Expected: 68. Step 4 checks it grew by exactly one.
+Expected: **70**. The log stood at 68 when this plan was first written, and two entries were appended on 2026-10-09, in `21ba121` and `af7166f`. Step 4 checks it grew by exactly one. Read the number the command prints rather than trusting this one.
 
 - [ ] **Step 2: Write the entry**
 
@@ -2446,7 +2463,7 @@ Expected: **EXIT=0**, 3 passed. If `every entry says why` fails, the `**Reason:*
 
 Run: `grep -c "^## " docs/decisions.md`
 
-Expected: 69.
+Expected: **71**, exactly one more than Step 1 printed.
 
 - [ ] **Step 5: Check the entry against the plain-language rule**
 
