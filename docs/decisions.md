@@ -3254,3 +3254,78 @@ failure mode is a complaint about a refactor that was deliberate, and the fix
 for that is one founder-approved line in the baseline. The parser erring toward
 opaque costs an undercount in the expanded floor, which is the direction that
 was already safe. The residual is the template form above, which no file uses.
+
+## 2026-10-10 - The freeze guard scanner moves from text to the TypeScript AST
+
+**Reason:** text scanning replaced by TypeScript AST because a regex-and-blanking
+scanner cannot classify slashes without being a tokenizer. Five rounds traded
+holes for holes.
+
+**What the five rounds found, in order, each by an independent review.** A block
+comment on a code line defeated the whole modifier rule, so
+`/* paused */ test.skip(...)` returned nothing and every count stayed put. A
+backtick inside a template hole blanked the rest of the file. A string span
+erased a test on the same line, needing only two quotes with the second free to
+sit in a comment. A regex character class manufactured a comment opener,
+because `/[//]/` is a valid regex literal and the comment branch was exempt from
+the fail-closed check. And the chain rule required the dotted chain to be
+contiguous, so `test` then a newline then `.skip(...)`, which is what a
+formatter produces from a long line, read as clean.
+
+**The pattern, not the bugs.** Each fix was correct about the case in front of
+it and each opened or left another. Round 3 traded a false red for a silent
+pass. Round 4 closed three families and opened two. Round 5 closed eight cases
+and left three families untouched. The common factor is that deciding whether a
+slash begins a regex or a division needs the surrounding grammar, which is a
+tokenizer's job. A scanner that blanks spans it has guessed at will keep
+guessing wrong, and when it guesses wrong it erases code rather than reporting
+that it could not tell.
+
+**What replaces it.** The modifier rule and the empty-body rule are rebuilt on
+`ts.createSourceFile`. Comments, strings, templates and regex literals need no
+handling at all, because the parser already knows what they are. A file with any
+syntactic diagnostic reports that it cannot be scanned, through a public API
+rather than an internal field. The rule also gets stronger in two ways the text
+version could not manage: element access with a string key, so `test["skip"]`
+is caught, and element access with a non-literal key, so `test[name]` is
+reported as unverifiable rather than passed.
+
+**What is NOT changing.** The three floors and the five recorded numbers, which
+are 437 expanded, 411 call sites, 955 assertions, 1 opaque each-table, and 239
+unit and 170 db listed. `guards/freeze-baseline.json`, `vitest.config.ts` and
+`eslint.config.js`. Nothing in the seven frozen directories. The
+`looksLikeDeclaration` disjunction, a literal title or a function second
+argument, which three reviews verified keeps `cursor.skip(10)` clean while
+catching `T.skip(title, fn)`.
+
+**The two parked false reds are expected to disappear.** A valid regex holding a
+quote after a close parenthesis, and a template string whose literal text
+contains a disabling name, were both accepted costs of the text scanner. A
+parser has no opinion about either, so their "known and accepted" comments go
+with them.
+
+**What the risk actually was, so this entry is not read as a breach.** Every
+silent pass found across the five rounds was a file nobody has written. All 46
+frozen baseline files scan with no offenders, and none of them contains the text
+`.skip`, `.only`, `.todo`, `.fails`, `skipIf` or `runIf` anywhere at all. The
+freeze was never bypassed. The guard's claim was wider than its mechanism, and
+this change is what makes the claim true rather than what rescues the freeze.
+
+**Corrects:** two gradings by the session orchestrating this work. The round 4
+implementer reported two concerns and the orchestrator graded both as producing
+a false red only; measured against the previous commit, both were silent passes
+and both were regressions introduced by the orchestrator's own prescribed
+direction. And the orchestrator twice announced that it would revert the file to
+the round 2 commit if a silent pass survived round 5; the final review measured
+all nine remaining silent passes as present in that commit too, and that commit
+additionally passes eight further cases silently, so the revert would have
+closed nothing and lost real coverage. It was abandoned rather than carried out.
+
+**Cost if wrong:** moderate and bounded. The AST walk is a different instrument,
+not a tuning of the old one, so its failure mode is different: a shape the walk
+does not visit is missed silently, where the text scanner's failure mode was
+erasing code it had misread. The mitigation is that every silent pass found in
+five rounds becomes a probe asserting an exact array, so the rebuild has to clear
+the whole measured history before it lands. The residual is that `typescript` is
+now load-bearing for a guard as well as for the typecheck, which is a dependency
+this repository already pins exactly.
