@@ -162,6 +162,26 @@ function startsRegex(chars: { readonly [index: number]: string | undefined }, pr
   return REGEX_AFTER.has(prev) || REGEX_AFTER_KEYWORD.has(wordBefore(chars, at));
 }
 
+/**
+ * Names that disable or invert a test, on ANY root.
+ *
+ * `const T = test.extend({})` then `T.skip(...)` is the same weakening under a
+ * different name, and a rule that only knew `test`, `it` and `describe` would
+ * not see it. In a frozen test file these names on anything are a finding. That
+ * reports more than strictly needed, which is the right side to err on.
+ */
+const DISABLING_NAMES: ReadonlySet<string> = new Set(['skip', 'only', 'skipIf', 'runIf', 'todo', 'fails']);
+
+/**
+ * A dotted chain whose segment disables or inverts a test.
+ *
+ * Built from DISABLING_NAMES so the two cannot drift, longest name first so
+ * `.skipIf` is not read as `.skip` with a word stuck to it. The scanner uses it
+ * to refuse to blank a span that holds a disabled test. See the note on the
+ * template and regex branches below for why that refusal is the whole rule.
+ */
+const DISABLING_CHAIN = new RegExp(`\\.(?:${[...DISABLING_NAMES].sort((a, b) => b.length - a.length).join('|')})\\b`);
+
 type Scanned = { readonly text: string; readonly problem: string | null };
 
 function scanText(text: string): Scanned {
@@ -227,12 +247,40 @@ function scanText(text: string): Scanned {
         prev = c;
         continue;
       }
+      // BLANKING ITSELF FAILS CLOSED, for a template span and a regex span.
+      //
+      // This is the rule that replaced two rounds of chasing the character
+      // before a slash. Deciding whether `)` or `]` or a property named `in`
+      // ends a value is a tokenizer's job, and every character added to the
+      // list opened a new way to misread one. The misreading is not the danger
+      // on its own. The danger is what follows it: a misread slash lets a
+      // stray backtick open a template, or runs to a second slash further down
+      // the line, and the span between them is blanked, and a blanked
+      // `test.skip` is a test this guard reports as present and passing.
+      //
+      // So the span is checked before it is erased. A span about to be blanked
+      // that holds a disabling chain is not blanked at all: the file is
+      // reported as unreadable, whichever slash was misread and whether or not
+      // it was misread. The reviewer measured the cost on 2026-10-10: not one
+      // of the 46 real frozen files contains `.skip`, `.only`, `.todo`,
+      // `.fails`, `skipIf` or `runIf` anywhere in its text, so refusing to
+      // blank one costs nothing on the real surface.
+      //
+      // A COMMENT span is exempt, deliberately. A commented-out test is the
+      // one case where a disabling chain inside a blanked span is ordinary and
+      // correct, and `/* test.skip\n('a') */` across two lines is already
+      // probed below as code that must stay clean.
       if (c === '`') {
         let j = i + 1;
         let closed = false;
+        // The literal text this template erases, hole contents excluded. Hole
+        // contents are scanned as code and never blanked, so a test.skip
+        // inside a `${ }` is real code and must not fail the file.
+        const erased: string[] = [];
         while (j < text.length) {
           const t = text[j] ?? '';
           if (t === '\\') {
+            erased.push(text.slice(j, j + 2));
             blank(j, j + 2);
             j += 2;
             continue;
@@ -249,11 +297,16 @@ function scanText(text: string): Scanned {
             j += 1;
             continue;
           }
+          erased.push(t);
           blank(j, j + 1);
           j += 1;
         }
         if (!closed) {
           fail('an unterminated template');
+          return text.length;
+        }
+        if (DISABLING_CHAIN.test(erased.join(''))) {
+          fail('a disabled test in text that reads as a template');
           return text.length;
         }
         i = j + 1;
@@ -276,6 +329,10 @@ function scanText(text: string): Scanned {
           j += 1;
         }
         if (closed) {
+          if (DISABLING_CHAIN.test(text.slice(i + 1, j))) {
+            fail('a disabled test in text that reads as a regex');
+            return text.length;
+          }
           blank(i + 1, j);
           i = j + 1;
           prev = 'x';
@@ -316,16 +373,6 @@ const CHAIN_CALL = /(?:^|[^.\w$])([A-Za-z_$][\w$]*)((?:\.[A-Za-z_$][\w$]*)+)\s*\
 
 /** The roots that vitest gives its modifiers to. Their chains use the allow list. */
 const VITEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it', 'describe']);
-
-/**
- * Names that disable or invert a test, on ANY root.
- *
- * `const T = test.extend({})` then `T.skip(...)` is the same weakening under a
- * different name, and a rule that only knew `test`, `it` and `describe` would
- * not see it. In a frozen test file these names on anything are a finding. That
- * reports more than strictly needed, which is the right side to err on.
- */
-const DISABLING_NAMES: ReadonlySet<string> = new Set(['skip', 'only', 'skipIf', 'runIf', 'todo', 'fails']);
 
 /**
  * Whether the argument list that starts at `from` looks like a test
@@ -920,10 +967,10 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     ]);
   }
 
-  // The fourth is NOT unscannable. A backtick inside a template hole is read by
-  // the hole recursion, so the file scans to the end and the skipped test after
-  // it is found. Exact on purpose: if the recursion regressed, this would turn
-  // into an unscannable report and a loose check would still pass.
+  // This next one is NOT unscannable. A backtick inside a template hole is read
+  // by the hole recursion, so the file scans to the end and the skipped test
+  // after it is found. Exact on purpose: if the recursion regressed, this would
+  // turn into an unscannable report and a loose check would still pass.
   expect(
     modifierOffenders(
       'api/probe.test.ts',
@@ -988,6 +1035,69 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     expect(emptyBodyOffenders('api/probe.test.ts', source), `${label}, no empty body`).toEqual([]);
   }
 
+  // Eight more files that read as clean while holding a disabled test, all of
+  // them valid JavaScript, all of them killed by the rule that refuses to blank
+  // a span holding a disabling chain.
+  //
+  // Three groups, one per way of misreading a slash. After `)` or `]` the slash
+  // reads as a division, so a backtick after it opens a template that closes
+  // against a second backtick lines below. After a property named `in`, `return`
+  // or `of` the keyword check reads the property name and calls the slash a
+  // regex, which then runs to the next slash on the line. After `++` or `--` the
+  // single-character check sees `+` or `-` and does the same.
+  //
+  // Chasing those three groups through the character before the slash is a
+  // tokenizer's job and two rounds were spent on it. The rule here does not care
+  // which slash was misread: the span is not blanked, the file is reported, and
+  // the disabled test cannot hide. Exact arrays, because a loose check passes
+  // whether the test is found or the file is condemned.
+  const disabled = "test.skip('hidden', () => { expect(1).toBe(1); });";
+  const asTemplate = 'api/probe.test.ts: cannot be scanned, it holds a disabled test in text that reads as a template';
+  const asRegex = 'api/probe.test.ts: cannot be scanned, it holds a disabled test in text that reads as a regex';
+  const blanked: readonly (readonly [string, string, string])[] = [
+    ['a backtick regex after a close parenthesis', 'if (a) /`/.test(s);\n' + disabled + '\nif (b) /`/.test(s);\n', asTemplate],
+    ['a backtick regex after a while condition', 'while (a) /`/.test(s);\n' + disabled + '\nwhile (b) /`/.test(s);\n', asTemplate],
+    ['a backtick regex after a close bracket', 'if (a[0]) /`/.test(s);\n' + disabled + '\nif (b[0]) /`/.test(s);\n', asTemplate],
+    ['a property named in', 'const q = a.in / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
+    ['a property named return', 'const q = obj.return / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
+    ['a property named of', 'const q = x.of / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
+    ['a post-increment before a division', 'let i = 1; i++ / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
+    ['a post-decrement before a division', 'let a = 1; a-- / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
+  ];
+  for (const [label, source, expected] of blanked) {
+    expect(modifierOffenders('api/probe.test.ts', source), label).toEqual([expected]);
+    expect(emptyBodyOffenders('api/probe.test.ts', source), `${label}, empty-body rule`).toEqual([expected]);
+  }
+
+  // A KNOWN AND ACCEPTED FALSE RED, recorded here so the next reader finds it
+  // written down rather than discovers it. A valid regex holding a quote, sitting
+  // after a close parenthesis, is read as a division and the quote then opens a
+  // string that never closes on its line, so the file is reported unreadable.
+  // The founder parked this on 2026-10-10 with a ruling: the fail-closed
+  // direction is correct, and a file this guard cannot read must fail rather
+  // than pass quietly. Closing it needs a tokenizer.
+  expect(
+    modifierOffenders('api/probe.test.ts', "if (a) /'/.test(s);\n"),
+    'a quote regex after a close parenthesis is an accepted false red',
+  ).toEqual(['api/probe.test.ts: cannot be scanned, it holds an unterminated string']);
+
+  // THE SECOND ACCEPTED FALSE RED, and it was not predicted when the rule above
+  // was specified. A real template string whose literal text happens to hold
+  // `test.only` is a span with a disabling chain in it, and the rule cannot tell
+  // it from the bogus template a misread backtick opens, so it is reported too.
+  // This input used to sit in the fine list below and is recorded here instead.
+  //
+  // The cost is bounded and was measured on 2026-10-10: not one of the 46 real
+  // frozen files contains `.skip`, `.only`, `.todo`, `.fails`, `skipIf` or
+  // `runIf` anywhere in its text, inside a string or out of it. Exempting a
+  // template that closes on its own line would clear this input, and it would
+  // also let a one-line version of the backtick case above pass silently, which
+  // is the trade this rule exists to refuse.
+  expect(
+    modifierOffenders('api/probe.test.ts', 'const q = `test.only ${1}`; expect(q).toBeTruthy();'),
+    'a template string holding test.only is an accepted false red',
+  ).toEqual([asTemplate]);
+
   for (const [label, source] of cases) {
     expect(modifierOffenders('api/probe.test.ts', source), `${label} must be reported`).not.toEqual([]);
   }
@@ -1009,7 +1119,9 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     "const x = 1; /* test.skip('a', () => {}) */ expect(x).toBe(1);",
     "/* test.skip\n('a') */ test('a', () => { expect(1).toBe(1); });",
     "/* test.skip in a comment */ test('a', () => { expect(1).toBe(1); });",
-    'const q = `test.only ${1}`; expect(q).toBeTruthy();',
+    // The template string holding `test.only` used to be here. It moved to the
+    // accepted false reds above, because the rule that refuses to blank a
+    // disabling chain cannot tell a real template from a bogus one.
     // The real pre-fix false positives, which have a parenthesis.
     "expect(1).toBe(1); // test.skip('a', () => {})",
     "const label = 'test.skip(' + x;",
