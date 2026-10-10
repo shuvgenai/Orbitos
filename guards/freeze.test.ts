@@ -1,3 +1,4 @@
+import { parseSync } from '@babel/core';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -64,26 +65,12 @@ function probeTree(relative: string, contents: string): string {
   return root;
 }
 
-/**
- * The text with every comment and every string body blanked to spaces.
- *
- * Offsets and line breaks are kept, so a match in the result points at the same
- * place in the original. String quotes are kept and only what is between them
- * is blanked, so a test title is still recognisable as a string.
- *
- * Not a full tokenizer. It knows `//` and block comments, single, double and
- * template strings, code inside a template's `${ }` (which is kept and scanned,
- * and may hold strings and templates of its own), and regex literals after a
- * character that cannot end a value. This is why the modifier rule scans this
- * and not raw lines: a line that merely starts with a comment can still hold a
- * disabled test after it.
- *
- * FAILS CLOSED. If the end of the file is reached inside a string, a template,
- * a template hole or a block comment, the scanner does not know where code
- * resumes, and blanking the rest of the file would hide every test after that
- * point. It reports a problem instead, and the rules turn that into an
- * offender. A file this guard cannot read must fail, never pass.
- */
+// The next four declarations are the last of the text scanner, and they are
+// kept for ONE reader: `literalEachCases` below, which counts the cases in an
+// `each` table by reading the text and is not allowed to change in this task.
+// The two rules that look for a weakened test no longer read the text at all.
+// If `literalEachCases` is ever parsed instead, these four go with it.
+
 /**
  * Characters after which a slash opens a regex literal and is not a division.
  *
@@ -172,298 +159,323 @@ function startsRegex(chars: { readonly [index: number]: string | undefined }, pr
  */
 const DISABLING_NAMES: ReadonlySet<string> = new Set(['skip', 'only', 'skipIf', 'runIf', 'todo', 'fails']);
 
-/**
- * A dotted chain whose segment disables or inverts a test.
- *
- * Built from DISABLING_NAMES so the two cannot drift, longest name first so
- * `.skipIf` is not read as `.skip` with a word stuck to it. The scanner uses it
- * to refuse to blank a span that holds a disabled test. See the note on the
- * template and regex branches below for why that refusal is the whole rule.
- */
-const DISABLING_CHAIN = new RegExp(`\\.(?:${[...DISABLING_NAMES].sort((a, b) => b.length - a.length).join('|')})\\b`);
+/** The roots that vitest gives its modifiers to. Their chains use the allow list. */
+const VITEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it', 'describe']);
 
-type Scanned = { readonly text: string; readonly problem: string | null };
-
-function scanText(text: string): Scanned {
-  const out = text.split('');
-  let problem: string | null = null;
-  const fail = (why: string) => {
-    problem ??= why;
-  };
-  const blank = (from: number, to: number) => {
-    for (let k = from; k < to; k += 1) if (out[k] !== '\n') out[k] = ' ';
-  };
-
-  // Scans code from `start`. Stops at the end of the text, or, inside a template
-  // hole, at the `}` that closes it, and returns that index.
-  const code = (start: number, inHole: boolean): number => {
-    let i = start;
-    let prev = '';
-    let braces = 0;
-    while (i < text.length) {
-      const c = text[i] ?? '';
-      const n = text[i + 1] ?? '';
-      if (c === '/' && n === '/') {
-        const end = text.indexOf('\n', i);
-        const stop = end < 0 ? text.length : end;
-        blank(i, stop);
-        i = stop;
-        continue;
-      }
-      if (c === '/' && n === '*') {
-        const end = text.indexOf('*/', i + 2);
-        if (end < 0) {
-          fail('an unterminated block comment');
-          blank(i, text.length);
-          return text.length;
-        }
-        blank(i, end + 2);
-        i = end + 2;
-        continue;
-      }
-      if (c === "'" || c === '"') {
-        let j = i + 1;
-        while (j < text.length && text[j] !== c && text[j] !== '\n') {
-          if (text[j] === '\\') j += 1;
-          j += 1;
-        }
-        if (j >= text.length || text[j] === '\n') {
-          // A quoted string that does not close on its own line is a syntax
-          // error in a test file, so the file is not what this scanner assumed
-          // and nothing after this point can be trusted. Report it.
-          //
-          // There is no escape hatch here on purpose. An earlier version
-          // treated a quote with no closing quote on its line as not-a-string
-          // and resumed at the next character. That resume point sits inside a
-          // regex body, so a backtick or a `/*` there opened a real span and
-          // blanked every test after it. The fix for that false positive is the
-          // regex detector above, not a hole in this rule.
-          fail('an unterminated string');
-          blank(i + 1, text.length);
-          return text.length;
-        }
-        blank(i + 1, j);
-        i = j + 1;
-        prev = c;
-        continue;
-      }
-      // BLANKING ITSELF FAILS CLOSED, for a template span and a regex span.
-      //
-      // This is the rule that replaced two rounds of chasing the character
-      // before a slash. Deciding whether `)` or `]` or a property named `in`
-      // ends a value is a tokenizer's job, and every character added to the
-      // list opened a new way to misread one. The misreading is not the danger
-      // on its own. The danger is what follows it: a misread slash lets a
-      // stray backtick open a template, or runs to a second slash further down
-      // the line, and the span between them is blanked, and a blanked
-      // `test.skip` is a test this guard reports as present and passing.
-      //
-      // So the span is checked before it is erased. A span about to be blanked
-      // that holds a disabling chain is not blanked at all: the file is
-      // reported as unreadable, whichever slash was misread and whether or not
-      // it was misread. The reviewer measured the cost on 2026-10-10: not one
-      // of the 46 real frozen files contains `.skip`, `.only`, `.todo`,
-      // `.fails`, `skipIf` or `runIf` anywhere in its text, so refusing to
-      // blank one costs nothing on the real surface.
-      //
-      // A COMMENT span is exempt, deliberately. A commented-out test is the
-      // one case where a disabling chain inside a blanked span is ordinary and
-      // correct, and `/* test.skip\n('a') */` across two lines is already
-      // probed below as code that must stay clean.
-      if (c === '`') {
-        let j = i + 1;
-        let closed = false;
-        // The literal text this template erases, hole contents excluded. Hole
-        // contents are scanned as code and never blanked, so a test.skip
-        // inside a `${ }` is real code and must not fail the file.
-        const erased: string[] = [];
-        while (j < text.length) {
-          const t = text[j] ?? '';
-          if (t === '\\') {
-            erased.push(text.slice(j, j + 2));
-            blank(j, j + 2);
-            j += 2;
-            continue;
-          }
-          if (t === '`') {
-            closed = true;
-            break;
-          }
-          if (t === '$' && text[j + 1] === '{') {
-            blank(j, j + 2);
-            j = code(j + 2, true);
-            if (j >= text.length) break;
-            blank(j, j + 1);
-            j += 1;
-            continue;
-          }
-          erased.push(t);
-          blank(j, j + 1);
-          j += 1;
-        }
-        if (!closed) {
-          fail('an unterminated template');
-          return text.length;
-        }
-        if (DISABLING_CHAIN.test(erased.join(''))) {
-          fail('a disabled test in text that reads as a template');
-          return text.length;
-        }
-        i = j + 1;
-        prev = c;
-        continue;
-      }
-      if (c === '/' && startsRegex(out, prev, i)) {
-        let j = i + 1;
-        let inClass = false;
-        let closed = false;
-        while (j < text.length && text[j] !== '\n') {
-          const ch = text[j];
-          if (ch === '\\') j += 1;
-          else if (ch === '[') inClass = true;
-          else if (ch === ']') inClass = false;
-          else if (ch === '/' && !inClass) {
-            closed = true;
-            break;
-          }
-          j += 1;
-        }
-        if (closed) {
-          if (DISABLING_CHAIN.test(text.slice(i + 1, j))) {
-            fail('a disabled test in text that reads as a regex');
-            return text.length;
-          }
-          blank(i + 1, j);
-          i = j + 1;
-          prev = 'x';
-          continue;
-        }
-      }
-      if (inHole && c === '{') braces += 1;
-      if (inHole && c === '}') {
-        if (braces === 0) return i;
-        braces -= 1;
-      }
-      if (!/\s/.test(c)) prev = c;
-      i += 1;
-    }
-    if (inHole) fail('an unterminated template hole');
-    return i;
-  };
-
-  code(0, false);
-  return { text: out.join(''), problem };
-}
-
-export function stripNonCode(text: string): string {
-  return scanText(text).text;
-}
+/** The roots whose callback body the empty-body rule reads. */
+const TEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it']);
 
 /** What a file's unreadable text is called in a report. */
 const unreadable = (file: string, why: string) => `${file}: cannot be scanned, it holds ${why}`;
 
+// THE PARSER, and why these two rules now use one.
+//
+// Five rounds of this guard read the text with a regex and blanked what it
+// thought was a comment, a string, a template or a regex. That cannot tell
+// `a.in / 2` from the start of a regex literal, or `if (a) /x/` from a
+// division, without being a tokenizer, and each round traded one hole for
+// another: the round before this one condemned eight valid files to keep eight
+// disabled tests from hiding. The founder ended it on 2026-10-10. These rules
+// parse the file and walk the tree.
+//
+// WHICH parser, and the one place this deviates from the direction it was given.
+// The direction named `ts.createSourceFile`. The pinned `typescript` 7.0.2 is
+// the native port: the only JavaScript its package exports is a version string,
+// there is no parser anywhere in it, and its one route to a tree is a protocol
+// spoken to a server binary that this release does not ship. So the parser here
+// is Babel's, reached through `@babel/core`, which is already a root
+// devDependency and already the parser eslint reads this repository with. No
+// dependency was added and no lockfile was touched. Node names below are
+// Babel's: a computed MemberExpression is what TypeScript calls an
+// ElementAccessExpression, and an uncomputed one is its
+// PropertyAccessExpression.
+//
+// FAILS CLOSED, and harder than before. A file with ANY syntax error does not
+// parse, and a file that does not parse is reported, never skipped. The text
+// scanner only noticed the four open spans it knew how to run off the end of;
+// `function f( {` passed it silently.
+
 /**
- * A call with a dotted chain on any identifier.
- *
- * Group 1 is the root, group 2 the whole chain. The leading boundary is
- * `[^.\w$]` rather than `\b`, so a property access like `helpers.test.skip`
- * does not read as a vitest call on `test`.
+ * The parser plugins a file's extension asks for, which is this parser's
+ * version of a ScriptKind. A `.tsx` file needs both, because its generics and
+ * its elements are told apart by the pair.
  */
-const CHAIN_CALL = /(?:^|[^.\w$])([A-Za-z_$][\w$]*)((?:\.[A-Za-z_$][\w$]*)+)\s*\(/g;
-
-/** The roots that vitest gives its modifiers to. Their chains use the allow list. */
-const VITEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it', 'describe']);
-
-/**
- * Whether the argument list that starts at `from` looks like a test
- * declaration: a string or template title first, OR a function second.
- *
- * Either is enough. A title alone covers `T.todo('a')`, which has no callback.
- * A function second covers `T.skip(title, () => {})`, where the title is a
- * variable. Neither is true of `cursor.skip(10)` or `qb.skip(20).take(10)`,
- * which are pagination and must stay clean. The text is the stripped text,
- * where quotes are kept and brackets inside strings are blank, so counting
- * brackets here is safe.
- */
-function looksLikeArguments(code: string, from: number): boolean {
-  if (/^\s*['"`]/.test(code.slice(from))) return true;
-
-  let depth = 0;
-  let i = from;
-  for (; i < code.length; i += 1) {
-    const ch = code[i];
-    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-    else if (ch === ')' || ch === ']' || ch === '}') {
-      if (depth === 0) return false;
-      depth -= 1;
-    } else if (ch === ',' && depth === 0) break;
-  }
-  if (i >= code.length) return false;
-  return /^\s*(?:async\s+)?(?:function\b|(?:\((?:[^()]|\([^()]*\))*\)|[\w$]+)\s*=>)/.test(code.slice(i + 1));
+type ParserPlugin = 'typescript' | 'jsx';
+function parserPlugins(file: string): readonly ParserPlugin[] {
+  if (file.endsWith('.tsx')) return ['typescript', 'jsx'];
+  if (/\.[cm]?ts$/.test(file)) return ['typescript'];
+  if (file.endsWith('.jsx')) return ['jsx'];
+  return [];
 }
 
 /**
- * Whether a non-vitest root's call looks like a test declaration.
+ * A node, as much of one as these rules read.
+ *
+ * Structural on purpose. `@babel/types` is not resolvable at the repository
+ * root, only `@babel/core` is, so the node type is described here rather than
+ * imported. Every field is read through the helpers below, which narrow from
+ * `unknown`, so a field that is not there reads as absent instead of throwing.
+ */
+type AstNode = { readonly type: string; readonly [field: string]: unknown };
+
+function isAstNode(value: unknown): value is AstNode {
+  return typeof value === 'object' && value !== null && typeof (value as { readonly type?: unknown }).type === 'string';
+}
+
+/** One child node, or null when that field holds something else. */
+function childOf(node: AstNode, field: string): AstNode | null {
+  const value: unknown = node[field];
+  return isAstNode(value) ? value : null;
+}
+
+/** The nodes in a field that holds a list, and nothing else in it. */
+function childrenOf(node: AstNode, field: string): readonly AstNode[] {
+  const value: unknown = node[field];
+  if (!Array.isArray(value)) return [];
+  const out: AstNode[] = [];
+  for (const entry of value as readonly unknown[]) if (isAstNode(entry)) out.push(entry);
+  return out;
+}
+
+/** A string field, or null. */
+function textOf(node: AstNode, field: string): string | null {
+  const value: unknown = node[field];
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Comments hang off the node they sit beside and carry a `type` of their own,
+ * so a plain walk would descend into them. A commented-out test is not a test,
+ * which is the whole reason the old scanner blanked comments, so these three
+ * fields are not walked.
+ */
+const COMMENT_FIELDS: ReadonlySet<string> = new Set(['leadingComments', 'trailingComments', 'innerComments']);
+
+/**
+ * Every node under `node`, parents before children and in source order, with
+ * each node's parent handed to the visitor.
+ *
+ * The parent is what the direction asked `setParentNodes` for. It is passed
+ * down rather than stored on the node, because `skipIf` and `runIf` put the
+ * test declaration in a SECOND call and the rule has to look up one level to
+ * find it.
+ */
+function walk(node: AstNode, parent: AstNode | null, visit: (node: AstNode, parent: AstNode | null) => void): void {
+  visit(node, parent);
+  for (const [field, value] of Object.entries(node)) {
+    if (COMMENT_FIELDS.has(field)) continue;
+    if (isAstNode(value)) {
+      walk(value, node, visit);
+      continue;
+    }
+    if (!Array.isArray(value)) continue;
+    for (const entry of value as readonly unknown[]) if (isAstNode(entry)) walk(entry, node, visit);
+  }
+}
+
+type Parsed = { readonly root: AstNode | null; readonly problem: string | null };
+
+/** Where a thrown parse error says the problem is. */
+function syntaxPlace(error: unknown): string {
+  if (typeof error !== 'object' || error === null) return 'on an unknown line';
+  const loc: unknown = (error as { readonly loc?: unknown }).loc;
+  if (typeof loc !== 'object' || loc === null) return 'on an unknown line';
+  const line: unknown = (loc as { readonly line?: unknown }).line;
+  return typeof line === 'number' ? `on line ${line}` : 'on an unknown line';
+}
+
+/**
+ * The file as a tree, or the reason it is not one.
+ *
+ * `errorRecovery` stays off deliberately. A recovered tree is a guess about
+ * what the author meant, and a guess is what this guard spent five rounds
+ * failing to make safely. A file that does not parse is reported.
+ */
+function parseFile(file: string, text: string): Parsed {
+  try {
+    const result: unknown = parseSync(text, {
+      babelrc: false,
+      configFile: false,
+      cwd: REPO_ROOT,
+      filename: file,
+      sourceType: 'module',
+      parserOpts: { errorRecovery: false, plugins: [...parserPlugins(file)] },
+    });
+    if (!isAstNode(result)) return { root: null, problem: 'nothing the parser would call a file' };
+    return { root: result, problem: null };
+  } catch (error: unknown) {
+    return { root: null, problem: `a syntax error ${syntaxPlace(error)}` };
+  }
+}
+
+/** The root of a callee that cannot be named, such as the call in `test.extend({}).skip(...)`. */
+const UNNAMED_ROOT = '(...)';
+
+/** One member in a chain: its name, or null when the key is computed from something unreadable. */
+type Segment = { readonly name: string | null };
+
+/** A callee read as a root and the chain of members between it and the call. */
+type Callee = { readonly root: string; readonly segments: readonly Segment[] };
+
+/**
+ * The name a member access reads, or null.
+ *
+ * Null twice over, for two different reasons that both end in the same answer.
+ * A computed key that is a string literal, `test["skip"]`, is read: it is the
+ * same call as `test.skip` written differently. A computed key that is anything
+ * else, `test[name]` or `test['sk' + 'ip']`, cannot be read from the file at
+ * all, and the caller turns that into a finding rather than a pass.
+ */
+function memberSegment(member: AstNode): Segment {
+  const property = childOf(member, 'property');
+  if (property === null) return { name: null };
+  if (member['computed'] !== true) {
+    return { name: property.type === 'Identifier' ? textOf(property, 'name') : null };
+  }
+  return { name: property.type === 'StringLiteral' ? textOf(property, 'value') : null };
+}
+
+/** A call's callee as a root and a member chain, or null when it has no chain. */
+function readCallee(call: AstNode): Callee | null {
+  const segments: Segment[] = [];
+  let node = childOf(call, 'callee');
+  while (node !== null && (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression')) {
+    segments.unshift(memberSegment(node));
+    node = childOf(node, 'object');
+  }
+  if (segments.length === 0) return null;
+  const name = node !== null && node.type === 'Identifier' ? textOf(node, 'name') : null;
+  return { root: name ?? UNNAMED_ROOT, segments };
+}
+
+/**
+ * Whether an argument list looks like a test declaration: a string or template
+ * title first, OR a function second.
+ *
+ * Either is enough, and this disjunction is the one the founder signed off. A
+ * title alone covers `T.todo('a')`, which has no callback. A function second
+ * covers `T.skip(title, () => {})`, where the title is a variable. Neither is
+ * true of `cursor.skip(10)`, `qb.skip(20).take(10)`, `scheduler.fails(3)`,
+ * `page.skip(1)` or `reader.skip(4)`, which are pagination and must stay clean,
+ * and neither is true of a logging call that takes no callback.
+ */
+function looksLikeArguments(call: AstNode): boolean {
+  const args = childrenOf(call, 'arguments');
+  const title = args[0];
+  if (title !== undefined && (title.type === 'StringLiteral' || title.type === 'TemplateLiteral')) return true;
+  const callback = args[1];
+  return callback !== undefined && (callback.type === 'ArrowFunctionExpression' || callback.type === 'FunctionExpression');
+}
+
+/**
+ * Whether a call on a root other than test, it or describe looks like a test
+ * declaration.
  *
  * `skipIf(cond)` and `runIf(cond)` take the condition first and the declaration
- * in a second call, so for those the second call's arguments are checked. With
- * no second call it is reported, which is conservative.
+ * in a second call, so for those the enclosing call's arguments are the ones
+ * read. With no enclosing call it is reported, which is the conservative answer.
  */
-function looksLikeDeclaration(code: string, open: number, segment: string): boolean {
-  if (segment !== 'skipIf' && segment !== 'runIf') return looksLikeArguments(code, open);
-
-  let depth = 1;
-  let i = open;
-  while (i < code.length && depth > 0) {
-    if (code[i] === '(') depth += 1;
-    if (code[i] === ')') depth -= 1;
-    i += 1;
-  }
-  if (depth !== 0) return true;
-  const next = /^\s*\(/.exec(code.slice(i));
-  return next === null ? true : looksLikeArguments(code, i + next[0].length);
+function looksLikeDeclaration(call: AstNode, parent: AstNode | null, segment: string): boolean {
+  if (segment !== 'skipIf' && segment !== 'runIf') return looksLikeArguments(call);
+  if (parent === null) return true;
+  if (parent.type !== 'CallExpression' && parent.type !== 'OptionalCallExpression') return true;
+  if (childOf(parent, 'callee') !== call) return true;
+  return looksLikeArguments(parent);
 }
 
-/** Every disabling or inverting modifier in one file's text. */
+/** Every disabling or inverting modifier in one file. */
 export function modifierOffenders(file: string, text: string): readonly string[] {
-  const { text: code, problem } = scanText(text);
-  if (problem !== null) return [unreadable(file, problem)];
+  const { root, problem } = parseFile(file, text);
+  if (root === null) return [unreadable(file, problem ?? 'nothing the parser would call a file')];
 
   const out: string[] = [];
-  for (const match of code.matchAll(CHAIN_CALL)) {
-    const root = match[1] ?? '';
-    const chain = (match[2] ?? '').split('.').filter((part) => part !== '');
-    const open = match.index + match[0].length;
-    for (const segment of chain) {
-      const bad = VITEST_ROOTS.has(root)
-        ? !HARMLESS_MODIFIERS.has(segment)
-        : DISABLING_NAMES.has(segment) && looksLikeDeclaration(code, open, segment);
-      if (bad) out.push(`${file}: ${root}.${segment}`);
+  walk(root, null, (node, parent) => {
+    if (node.type !== 'CallExpression' && node.type !== 'OptionalCallExpression') return;
+    const callee = readCallee(node);
+    if (callee === null) return;
+    const vitest = VITEST_ROOTS.has(callee.root);
+    for (const segment of callee.segments) {
+      if (segment.name === null) {
+        // A key computed at run time on a test root. Nothing in the file says
+        // which modifier this is, so it fails closed: `test[name]('a', fn)`
+        // could be `test.skip` and this guard must not call it clean.
+        if (vitest) out.push(`${file}: ${callee.root}[...] cannot be verified`);
+        continue;
+      }
+      const bad = vitest
+        ? !HARMLESS_MODIFIERS.has(segment.name)
+        : DISABLING_NAMES.has(segment.name) && looksLikeDeclaration(node, parent, segment.name);
+      if (bad) out.push(`${file}: ${callee.root}.${segment.name}`);
     }
-  }
+  });
   return out;
 }
 
 /**
- * A test whose callback body is empty.
+ * The identifier a callee finally rests on, through members and through calls.
  *
- * Only an empty block, with any parameter list, an arrow or a `function`,
- * async or not. It reads the text with comments and string bodies blanked, so a
- * test quoted in a comment or a string is not a test, and a body that holds
- * only a comment IS an empty block. A body emptied to a no-op statement, such
- * as `void 0;`, is NOT matched, and nothing else catches it either. The
- * assertion floor does not: an `expect(` left inside a comment still counts,
- * which the note on `countTests` says. That is an open gap, recorded here
- * rather than hidden. Closing it needs a real parser, and that is a decision
- * for the founder.
+ * Through calls as well, so that `test.each(table)('%s', fn)` and
+ * `test.skipIf(cond)('a', fn)` are still rooted at `test`.
  */
-const EMPTY_BODY =
-  /(?:^|[^.\w])(?:test|it)(?:\.[A-Za-z][A-Za-z0-9]*)*\s*\(\s*(['"`])(?:\\.|(?!\1)[^\\])*\1\s*,\s*(?:async\s*)?(?:function\s*[\w$]*\s*\([^)]*\)|\([^)]*\)\s*=>|[\w$]+\s*=>)\s*\{\s*\}\s*\)/g;
+function calleeRoot(call: AstNode): string | null {
+  let node = childOf(call, 'callee');
+  while (node !== null) {
+    if (node.type === 'Identifier') return textOf(node, 'name');
+    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+      node = childOf(node, 'object');
+      continue;
+    }
+    if (node.type === 'CallExpression' || node.type === 'OptionalCallExpression') {
+      node = childOf(node, 'callee');
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** Whether a statement is `void 0;`, the no-op a body gets emptied to. */
+function isVoidZero(statement: AstNode): boolean {
+  if (statement.type !== 'ExpressionStatement') return false;
+  const expression = childOf(statement, 'expression');
+  if (expression === null || expression.type !== 'UnaryExpression' || expression['operator'] !== 'void') return false;
+  const argument = childOf(expression, 'argument');
+  return argument !== null && argument.type === 'NumericLiteral' && argument['value'] === 0;
+}
+
+/**
+ * Whether a callback body runs nothing.
+ *
+ * Three shapes, not one. An empty block is the obvious one. A block of nothing
+ * but `;` and a block of nothing but `void 0;` are the two the text rule could
+ * not see, and they were a recorded open gap for four rounds: an emptied body
+ * passes the assertion floor too, because an `expect(` left behind in a comment
+ * still counts there. A body holding only a comment is an empty block to a
+ * parser, so that is caught as well.
+ */
+function isDoingNothing(body: AstNode): boolean {
+  if (body.type !== 'BlockStatement') return false;
+  return childrenOf(body, 'body').every(
+    (statement) => statement.type === 'EmptyStatement' || isVoidZero(statement),
+  );
+}
 
 export function emptyBodyOffenders(file: string, text: string): readonly string[] {
-  const { text: code, problem } = scanText(text);
-  if (problem !== null) return [unreadable(file, problem)];
-  return [...code.matchAll(EMPTY_BODY)].map(() => `${file}: a test with an empty body`);
+  const { root, problem } = parseFile(file, text);
+  if (root === null) return [unreadable(file, problem ?? 'nothing the parser would call a file')];
+
+  const out: string[] = [];
+  walk(root, null, (node) => {
+    if (node.type !== 'CallExpression' && node.type !== 'OptionalCallExpression') return;
+    const name = calleeRoot(node);
+    if (name === null || !TEST_ROOTS.has(name)) return;
+    for (const argument of childrenOf(node, 'arguments')) {
+      if (argument.type !== 'ArrowFunctionExpression' && argument.type !== 'FunctionExpression') continue;
+      const body = childOf(argument, 'body');
+      if (body !== null && isDoingNothing(body)) out.push(`${file}: a test with an empty body`);
+    }
+  });
+  return out;
 }
 
 // THREE counts, not one, because no single instrument catches every way a
@@ -907,108 +919,166 @@ async function configProjects(): Promise<readonly ProjectScope[]> {
 }
 
 test('every modifier that disables or inverts a frozen test is reported', () => {
-  const cases: readonly (readonly [string, string])[] = [
-    ['test.skip', "test.skip('a', () => { expect(1).toBe(1); });"],
-    ['test.skipIf', "test.skipIf(true)('a', () => { expect(1).toBe(1); });"],
-    ['test.runIf', "test.runIf(false)('a', () => { expect(1).toBe(1); });"],
-    ['test.only', "test.only('a', () => { expect(1).toBe(1); });"],
-    ['test.todo', "test.todo('a');"],
-    ['test.fails', "test.fails('a', () => { expect(1).toBe(2); });"],
-    ['it.skip', "it.skip('a', () => { expect(1).toBe(1); });"],
-    ['it.fails', "it.fails('a', () => { expect(1).toBe(2); });"],
-    ['describe.skip', "describe.skip('a', () => { test('b', () => { expect(1).toBe(1); }); });"],
-    ['describe.only', "describe.only('a', () => { test('b', () => { expect(1).toBe(1); }); });"],
-    ['test.concurrent.skip', "test.concurrent.skip('a', () => { expect(1).toBe(1); });"],
-    ['describe.concurrent.only', "describe.concurrent.only('a', () => { test('b', () => { expect(1).toBe(1); }); });"],
-    // A line that only STARTS with a comment can still hold a disabled test.
-    ['skip after a closed block comment', "/* paused */ test.skip('a', () => { expect(1).toBe(1); });"],
-    ['skip after a star line', "* note */ test.skip('a', () => { expect(1).toBe(1); });"],
-    // The same weakening under another name, through test.extend.
-    ['alias skip', "const T = test.extend({});\nT.skip('a', () => { expect(1).toBe(1); });"],
-    ['alias skipIf', "const T = test.extend({});\nT.skipIf(true)('a', () => { expect(1).toBe(1); });"],
-    ['alias only', "const T = test.extend({});\nT.only('a', () => { expect(1).toBe(1); });"],
-    ['alias concurrent skip', "const T = test.extend({});\nT.concurrent.skip('a', () => { expect(1).toBe(1); });"],
-    ['alias todo', "const T = test.extend({});\nT.todo('a');"],
-    // A computed title: the function is the second argument.
-    ['alias skip, computed title', "const T = test.extend({});\nT.skip(title, () => { expect(1).toBe(1); });"],
-    ['alias only, function expression', "const T = test.extend({});\nT.only(name, function () { expect(1).toBe(1); });"],
-    ['alias skipIf, computed title', "const T = test.extend({});\nT.skipIf(cond)(name, async () => { expect(1).toBe(1); });"],
-  ];
-
-  // Three inputs the scanner cannot read to the end. Each is reported as
-  // unscannable and never passes, because blanking the rest of the file would
-  // hide every test after the open span.
-  const unscannable: readonly (readonly [string, string])[] = [
-    ['unterminated template', "const s = `open\ntest.skip('a', () => { expect(1).toBe(1); });"],
-    ['unterminated string at end of file', "test('a', () => { expect(1).toBe(1); });\nconst s = 'open"],
-    ['unterminated block comment', "/* open\ntest.skip('a', () => { expect(1).toBe(1); });"],
-  ];
-  // Each one twice: as written, and with a final newline. The newline shape is
-  // the one that matters, because all 46 real frozen files end with one, and a
-  // fail-closed path that only fires on a file with no final newline guards no
-  // file this rule will ever read. An earlier version had exactly that hole.
-  for (const [label, source] of unscannable) {
-    for (const [shape, body] of [
-      ['with no final newline', source],
-      ['ending with a newline', `${source}\n`],
-    ] as const) {
-      const found = modifierOffenders('api/probe.test.ts', body);
-      expect(found, `${label} ${shape} must be reported`).toHaveLength(1);
-      expect(found[0], `${label} ${shape} must say it cannot be scanned`).toContain('cannot be scanned');
-    }
-  }
-
-  // A template hole left open is the fourth way to run off the end, and it
-  // reports the same way.
-  for (const tail of ['', '\n']) {
-    const open = 'const s = `a ${ b\n' + "test.skip('a', () => { expect(1).toBe(1); });" + tail;
-    expect(modifierOffenders('api/probe.test.ts', open), 'an unterminated template hole must be reported').toEqual([
-      'api/probe.test.ts: cannot be scanned, it holds an unterminated template hole',
-    ]);
-  }
-
-  // This next one is NOT unscannable. A backtick inside a template hole is read
-  // by the hole recursion, so the file scans to the end and the skipped test
-  // after it is found. Exact on purpose: if the recursion regressed, this would
-  // turn into an unscannable report and a loose check would still pass.
-  expect(
-    modifierOffenders(
-      'api/probe.test.ts',
-      "const md = `a ${ \"x`y\" }\n  tail`;\ntest.skip('frozen', () => { expect(1).toBe(1); });",
-    ),
-    'a backtick inside a template hole',
-  ).toEqual(['api/probe.test.ts: test.skip']);
-
-  // Valid code that holds a quote inside a regex literal reads as code, not as
-  // an unterminated string, wherever the regex sits. Each is a whole file, so it
-  // ends with a newline.
-  // Each is checked with a final newline and without one. Without one, the
-  // closing quote search runs to the end of the file, so the two shapes take
-  // different paths and only the detector above keeps both clean.
-  for (const line of [
-    "const f = (s) => /'/.test(s);",
-    "function f(s) { return /'/.test(s); }",
-    "const n = 1 + /'/.source.length;",
-    'const t = typeof /"/;',
-  ]) {
-    for (const source of [`${line}\n`, line]) {
-      expect(modifierOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
-      expect(emptyBodyOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
-    }
-  }
-
-  // Three files that a relaxed quote rule hid completely, kept as exact arrays.
+  // EVERY assertion in this test is an exact array.
   //
-  // Each holds a regex character class with a quote and a backtick in it, which
-  // is the shape a frozen file that checks quote escaping really has. Under the
-  // relaxed rule the scan resumed inside the regex body, the backtick there
-  // opened a template, and everything after it was blanked, so the skipped
-  // tests were invisible and the file read as clean. The arrays are exact
-  // because a check for "not empty" or "not clean" passes whether the test is
-  // found or the file is condemned, and those are not the same answer.
+  // Not one of them is a check for "not empty". A disabled test that is found
+  // by name and a whole file that is condemned as unreadable are different
+  // answers, and `.not.toEqual([])` passes for both. Three times in this task a
+  // real finding hid behind that, which is why the rule here is exactness even
+  // where it reads as fussy.
+  const cases: readonly (readonly [string, string, readonly string[]])[] = [
+    ['test.skip', "test.skip('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.skip']],
+    ['test.skipIf', "test.skipIf(true)('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.skipIf']],
+    ['test.runIf', "test.runIf(false)('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.runIf']],
+    ['test.only', "test.only('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.only']],
+    ['test.todo', "test.todo('a');", ['api/probe.test.ts: test.todo']],
+    ['test.fails', "test.fails('a', () => { expect(1).toBe(2); });", ['api/probe.test.ts: test.fails']],
+    ['it.skip', "it.skip('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: it.skip']],
+    ['it.fails', "it.fails('a', () => { expect(1).toBe(2); });", ['api/probe.test.ts: it.fails']],
+    [
+      'describe.skip',
+      "describe.skip('a', () => { test('b', () => { expect(1).toBe(1); }); });",
+      ['api/probe.test.ts: describe.skip'],
+    ],
+    [
+      'describe.only',
+      "describe.only('a', () => { test('b', () => { expect(1).toBe(1); }); });",
+      ['api/probe.test.ts: describe.only'],
+    ],
+    [
+      'test.concurrent.skip',
+      "test.concurrent.skip('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: test.skip'],
+    ],
+    [
+      'describe.concurrent.only',
+      "describe.concurrent.only('a', () => { test('b', () => { expect(1).toBe(1); }); });",
+      ['api/probe.test.ts: describe.only'],
+    ],
+    // A line that only STARTS with a comment can still hold a disabled test.
+    [
+      'skip after a closed block comment',
+      "/* paused */ test.skip('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: test.skip'],
+    ],
+    // The same weakening under another name, through test.extend.
+    [
+      'alias skip',
+      "const T = test.extend({});\nT.skip('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.skip'],
+    ],
+    [
+      'alias skipIf',
+      "const T = test.extend({});\nT.skipIf(true)('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.skipIf'],
+    ],
+    [
+      'alias only',
+      "const T = test.extend({});\nT.only('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.only'],
+    ],
+    [
+      'alias concurrent skip',
+      "const T = test.extend({});\nT.concurrent.skip('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.skip'],
+    ],
+    ['alias todo', "const T = test.extend({});\nT.todo('a');", ['api/probe.test.ts: T.todo']],
+    // A computed title: the function is the second argument.
+    [
+      'alias skip, computed title',
+      "const T = test.extend({});\nT.skip(title, () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.skip'],
+    ],
+    [
+      'alias only, function expression',
+      "const T = test.extend({});\nT.only(name, function () { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.only'],
+    ],
+    [
+      'alias skipIf, computed title',
+      "const T = test.extend({});\nT.skipIf(cond)(name, async () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: T.skipIf'],
+    ],
+    // A root with no name of its own. The text rule could not see this one at
+    // all: it needed an identifier to the left of the first dot, and here there
+    // is a call there. Measured against 77768e8, where it returned [].
+    [
+      'a chain on a call',
+      "test.extend({}).skip('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: (...).skip'],
+    ],
+    // Whitespace around the dot, which the text rule's regex forbade. All three
+    // of these returned [] against 77768e8: three silent misses in the shape a
+    // formatter produces on a long chain.
+    ['a line break before the dot', "test\n.skip('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.skip']],
+    ['a space before the dot', "test .skip('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.skip']],
+    ['a space after the dot', "test. skip('a', () => { expect(1).toBe(1); });", ['api/probe.test.ts: test.skip']],
+    // The same call written as an element access. Also [] against 77768e8.
+    ['a string key', 'test["skip"](\'a\', () => { expect(1).toBe(1); });', ['api/probe.test.ts: test.skip']],
+    // A key built at run time names no modifier that can be read from the file,
+    // so it fails closed rather than passing. [] against 77768e8.
+    [
+      'a computed key',
+      "test['sk'+'ip']('a', () => { expect(1).toBe(1); });",
+      ['api/probe.test.ts: test[...] cannot be verified'],
+    ],
+    ['a chain after a disabling name', "test.skip.each([1])('a %i', (n) => { expect(n).toBe(1); });", ['api/probe.test.ts: test.skip']],
+  ];
+  for (const [label, source, expected] of cases) {
+    expect(modifierOffenders('api/probe.test.ts', source), `${label} must be reported`).toEqual(expected);
+  }
+
+  // THE EIGHT FILES THE TEXT SCANNER COULD ONLY CONDEMN, now named.
+  //
+  // Each one is valid JavaScript holding one disabled test. Three families, one
+  // per way of misreading a slash: after `)` or `]` a slash reads as a division
+  // and a backtick after it opens a template that closes lines below; after a
+  // property named `in`, `return` or `of` the keyword check called the slash a
+  // regex; after `++` or `--` the single-character check did the same. Five
+  // rounds chased those through the character before the slash. The round
+  // before this one stopped chasing and refused to blank any span holding a
+  // disabling name, which turned all eight into
+  // `cannot be scanned, it holds a disabled test in text that reads as a
+  // template` or `... as a regex`: the test no longer hid, but the file was
+  // condemned and the offender was never named.
+  //
+  // A parser classifies the slash because it knows the grammar, so all eight
+  // now name the offender. Each is checked with and without a final newline.
+  const disabled = "test.skip('hidden', () => { expect(1).toBe(1); });";
+  const named = ['api/probe.test.ts: test.skip'];
+  const slashes: readonly (readonly [string, string])[] = [
+    ['A a backtick regex after a close parenthesis', 'if (a) /`/.test(s);\n' + disabled + '\nif (b) /`/.test(s);\n'],
+    ['B a backtick regex after a while condition', 'while (a) /`/.test(s);\n' + disabled + '\nwhile (b) /`/.test(s);\n'],
+    ['C a backtick regex after a close bracket', 'if (a[0]) /`/.test(s);\n' + disabled + '\nif (b[0]) /`/.test(s);\n'],
+    ['D a property named in', 'const q = a.in / 2; ' + disabled + ' const z = y / 2;\n'],
+    ['E a property named return', 'const q = obj.return / 2; ' + disabled + ' const z = y / 2;\n'],
+    ['F a property named of', 'const q = x.of / 2; ' + disabled + ' const z = y / 2;\n'],
+    ['G a post-increment before a division', 'let i = 1; i++ / 2; ' + disabled + ' const z = y / 2;\n'],
+    ['H a post-decrement before a division', 'let a = 1; a-- / 2; ' + disabled + ' const z = y / 2;\n'],
+    // F1 and F2 are two more of the same family, and both of them returned []
+    // against 77768e8: the disabled test was invisible, not condemned. F1 ends
+    // in a comment holding an apostrophe, which the old quote rule read as the
+    // start of a string. F2 puts two slashes inside a character class, which
+    // the old regex reader took for the end of the literal.
+    ['F1 a quote regex, a double-quoted title and an apostrophe in a comment', 'if (a) /\'/.test(s); test.skip("hidden", () => { expect(1).toBe(1); }); // isn\'t'],
+    ['F2 a character class holding two slashes', "if (a) /[//]/.test(s); " + disabled],
+  ];
+  for (const [label, source] of slashes) {
+    for (const [shape, body] of [
+      ['as written', source],
+      ['without its final newline', source.endsWith('\n') ? source.slice(0, -1) : source],
+    ] as const) {
+      expect(modifierOffenders('api/probe.test.ts', body), `${label} ${shape}`).toEqual(named);
+      expect(emptyBodyOffenders('api/probe.test.ts', body), `${label} ${shape}, empty-body rule`).toEqual([]);
+    }
+  }
+
+  // Three files that the relaxed quote rule of round 3 hid completely, kept
+  // because the shape is a real one: a frozen file that checks quote escaping
+  // has a regex character class holding a quote and a backtick.
   const hidden: readonly (readonly [string, string, readonly string[]])[] = [
     [
-      'two tests hidden after a quote and backtick class',
+      'two tests after a quote and backtick class',
       "function h(s) { return /['`]/.test(s); }\n" +
         "test('kept', () => { expect(1).toBe(1); });\n" +
         "test.skip('hidden', () => { expect(1).toBe(1); });\n" +
@@ -1018,7 +1088,7 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
       ['api/probe.test.ts: test.skip', 'api/probe.test.ts: test.only'],
     ],
     [
-      'one test hidden between two regex classes',
+      'one test between two regex classes',
       "function h(s) { return /['`]/.test(s); }\n" +
         "test.skip('hidden', () => { expect(1).toBe(1); });\n" +
         'function g(s) { return /[`]/.test(s); }\n',
@@ -1029,77 +1099,51 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
       'const n = 1 + /\'"/.source; test.skip("a", () => { expect(1).toBe(1); });\n',
       ['api/probe.test.ts: test.skip'],
     ],
+    // A backtick inside a template hole. The old scanner needed a recursion to
+    // read this; a parser needs nothing.
+    [
+      'a backtick inside a template hole',
+      'const md = `a ${ "x`y" }\n  tail`;\ntest.skip(\'frozen\', () => { expect(1).toBe(1); });',
+      ['api/probe.test.ts: test.skip'],
+    ],
   ];
   for (const [label, source, expected] of hidden) {
     expect(modifierOffenders('api/probe.test.ts', source), label).toEqual(expected);
     expect(emptyBodyOffenders('api/probe.test.ts', source), `${label}, no empty body`).toEqual([]);
   }
 
-  // Eight more files that read as clean while holding a disabled test, all of
-  // them valid JavaScript, all of them killed by the rule that refuses to blank
-  // a span holding a disabling chain.
+  // FAILS CLOSED, on anything that is not a file.
   //
-  // Three groups, one per way of misreading a slash. After `)` or `]` the slash
-  // reads as a division, so a backtick after it opens a template that closes
-  // against a second backtick lines below. After a property named `in`, `return`
-  // or `of` the keyword check reads the property name and calls the slash a
-  // regex, which then runs to the next slash on the line. After `++` or `--` the
-  // single-character check sees `+` or `-` and does the same.
+  // The text scanner knew four ways to run off the end of a span and reported
+  // those four. Everything else that was not valid code it read anyway, and
+  // `function f( {` passed it silently. A parser answers one question instead
+  // of four: does this file parse. The line number is in the message because
+  // the first thing a reader of a red guard needs is where to look.
   //
-  // Chasing those three groups through the character before the slash is a
-  // tokenizer's job and two rounds were spent on it. The rule here does not care
-  // which slash was misread: the span is not blanked, the file is reported, and
-  // the disabled test cannot hide. Exact arrays, because a loose check passes
-  // whether the test is found or the file is condemned.
-  const disabled = "test.skip('hidden', () => { expect(1).toBe(1); });";
-  const asTemplate = 'api/probe.test.ts: cannot be scanned, it holds a disabled test in text that reads as a template';
-  const asRegex = 'api/probe.test.ts: cannot be scanned, it holds a disabled test in text that reads as a regex';
-  const blanked: readonly (readonly [string, string, string])[] = [
-    ['a backtick regex after a close parenthesis', 'if (a) /`/.test(s);\n' + disabled + '\nif (b) /`/.test(s);\n', asTemplate],
-    ['a backtick regex after a while condition', 'while (a) /`/.test(s);\n' + disabled + '\nwhile (b) /`/.test(s);\n', asTemplate],
-    ['a backtick regex after a close bracket', 'if (a[0]) /`/.test(s);\n' + disabled + '\nif (b[0]) /`/.test(s);\n', asTemplate],
-    ['a property named in', 'const q = a.in / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
-    ['a property named return', 'const q = obj.return / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
-    ['a property named of', 'const q = x.of / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
-    ['a post-increment before a division', 'let i = 1; i++ / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
-    ['a post-decrement before a division', 'let a = 1; a-- / 2; ' + disabled + ' const z = y / 2;\n', asRegex],
+  // Each input is checked as written and with a final newline. All 46 real
+  // frozen files end with one, so a fail-closed path that only fires on a file
+  // without it guards no file this rule will ever read.
+  const unparseable: readonly (readonly [string, string, number])[] = [
+    ['an unterminated template', "const s = `open\ntest.skip('a', () => { expect(1).toBe(1); });", 1],
+    ['an unterminated string', "test('a', () => { expect(1).toBe(1); });\nconst s = 'open", 2],
+    ['an unterminated block comment', "/* open\ntest.skip('a', () => { expect(1).toBe(1); });", 1],
+    ['an unterminated template hole', 'const s = `a ${ b\n' + "test.skip('a', () => { expect(1).toBe(1); });", 2],
+    // This input used to be reported as `test.skip`, because the scanner read
+    // `* note */` as the tail of a block comment and blanked it. It is not
+    // valid code, so it is now condemned rather than named. That is the right
+    // answer: a frozen test file that does not parse is a broken frozen test
+    // file, and vitest would not run it either.
+    ['a line that is not code at all', "* note */ test.skip('a', () => { expect(1).toBe(1); });", 1],
   ];
-  for (const [label, source, expected] of blanked) {
-    expect(modifierOffenders('api/probe.test.ts', source), label).toEqual([expected]);
-    expect(emptyBodyOffenders('api/probe.test.ts', source), `${label}, empty-body rule`).toEqual([expected]);
-  }
-
-  // A KNOWN AND ACCEPTED FALSE RED, recorded here so the next reader finds it
-  // written down rather than discovers it. A valid regex holding a quote, sitting
-  // after a close parenthesis, is read as a division and the quote then opens a
-  // string that never closes on its line, so the file is reported unreadable.
-  // The founder parked this on 2026-10-10 with a ruling: the fail-closed
-  // direction is correct, and a file this guard cannot read must fail rather
-  // than pass quietly. Closing it needs a tokenizer.
-  expect(
-    modifierOffenders('api/probe.test.ts', "if (a) /'/.test(s);\n"),
-    'a quote regex after a close parenthesis is an accepted false red',
-  ).toEqual(['api/probe.test.ts: cannot be scanned, it holds an unterminated string']);
-
-  // THE SECOND ACCEPTED FALSE RED, and it was not predicted when the rule above
-  // was specified. A real template string whose literal text happens to hold
-  // `test.only` is a span with a disabling chain in it, and the rule cannot tell
-  // it from the bogus template a misread backtick opens, so it is reported too.
-  // This input used to sit in the fine list below and is recorded here instead.
-  //
-  // The cost is bounded and was measured on 2026-10-10: not one of the 46 real
-  // frozen files contains `.skip`, `.only`, `.todo`, `.fails`, `skipIf` or
-  // `runIf` anywhere in its text, inside a string or out of it. Exempting a
-  // template that closes on its own line would clear this input, and it would
-  // also let a one-line version of the backtick case above pass silently, which
-  // is the trade this rule exists to refuse.
-  expect(
-    modifierOffenders('api/probe.test.ts', 'const q = `test.only ${1}`; expect(q).toBeTruthy();'),
-    'a template string holding test.only is an accepted false red',
-  ).toEqual([asTemplate]);
-
-  for (const [label, source] of cases) {
-    expect(modifierOffenders('api/probe.test.ts', source), `${label} must be reported`).not.toEqual([]);
+  for (const [label, source, line] of unparseable) {
+    const expected = [`api/probe.test.ts: cannot be scanned, it holds a syntax error on line ${line}`];
+    for (const [shape, body] of [
+      ['as written', source],
+      ['ending with a newline', `${source}\n`],
+    ] as const) {
+      expect(modifierOffenders('api/probe.test.ts', body), `${label} ${shape} must be reported`).toEqual(expected);
+      expect(emptyBodyOffenders('api/probe.test.ts', body), `${label} ${shape}, empty-body rule`).toEqual(expected);
+    }
   }
 
   // The other half, which matters just as much. A guard that fires on correct
@@ -1119,55 +1163,113 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     "const x = 1; /* test.skip('a', () => {}) */ expect(x).toBe(1);",
     "/* test.skip\n('a') */ test('a', () => { expect(1).toBe(1); });",
     "/* test.skip in a comment */ test('a', () => { expect(1).toBe(1); });",
-    // The template string holding `test.only` used to be here. It moved to the
-    // accepted false reds above, because the rule that refuses to blank a
-    // disabling chain cannot tell a real template from a bogus one.
-    // The real pre-fix false positives, which have a parenthesis.
     "expect(1).toBe(1); // test.skip('a', () => {})",
     "const label = 'test.skip(' + x;",
-    // Pagination and other calls that are not test declarations.
+    // BOTH ACCEPTED FALSE REDS ARE GONE, and their notes went with them.
+    //
+    // A real template string whose text happens to hold `test.only` was
+    // reported by round 5, which could not tell it from the bogus template a
+    // misread backtick opens. A valid regex holding a quote after a close
+    // parenthesis was reported from round 4 on, as an unterminated string. Both
+    // were recorded as accepted costs of a text scanner and both were measured
+    // red against 77768e8. A parser reads each one correctly, so neither is a
+    // cost any more and neither needs a note explaining itself.
+    'const q = `test.only ${1}`; expect(q).toBeTruthy();',
+    "if (a) /'/.test(s);",
+    // Pagination and other calls that are not test declarations. The
+    // disjunction that keeps them clean is unchanged: a string or template
+    // title, or a function second.
     'const page = cursor.skip(10);',
     'const rows = qb.skip(20).take(10);',
     'scheduler.fails(3);',
     'const next = page.skip(1);',
     'reader.skip(4);',
+    'logger.info("done");',
   ];
   for (const source of fine) {
     expect(modifierOffenders('api/probe.test.ts', source), `must NOT be reported: ${source}`).toEqual([]);
+    expect(emptyBodyOffenders('api/probe.test.ts', source), `must NOT be reported: ${source}`).toEqual([]);
+  }
+
+  // The limit of the disjunction, named rather than hidden. A call on a root
+  // that is not test, it or describe, with a string first argument, reads as a
+  // declaration whatever it really is. `logger.only('x')` is reported. The
+  // founder ruled on 2026-10-09 that this is the right side to err on, and the
+  // four valid regex inputs above cost nothing for it.
+  expect(modifierOffenders('api/probe.test.ts', "logger.only('x');"), 'a logging call with a string').toEqual([
+    'api/probe.test.ts: logger.only',
+  ]);
+
+  // Valid code holding a quote inside a regex literal, which was the shape that
+  // cost rounds 3 and 4. Each is checked with a final newline and without one,
+  // because the two used to take different paths through the quote rule.
+  for (const line of [
+    "const f = (s) => /'/.test(s);",
+    "function f(s) { return /'/.test(s); }",
+    "const n = 1 + /'/.source.length;",
+    'const t = typeof /"/;',
+  ]) {
+    for (const source of [`${line}\n`, line]) {
+      expect(modifierOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
+      expect(emptyBodyOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
+    }
   }
 });
 
 test('a frozen test with an empty body is reported', () => {
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', async () => {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "it('a', () => {\n});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { expect(1).toBe(1); });")).toEqual([]);
+  const emptied = ['api/probe.test.ts: a test with an empty body'];
+  const reported: readonly (readonly [string, string])[] = [
+    ['an empty block', "test('a', () => {});"],
+    ['an async empty block', "test('a', async () => {});"],
+    ['a block holding only a line break', "it('a', () => {\n});"],
+    ['a parameter list', "test('a', (ctx) => {});"],
+    ['a destructured context', "test('a', async ({ task }) => {});"],
+    ['a function expression', "test('a', function () {});"],
+    ['a named async function', "test('a', async function named(ctx) {});"],
+    ['one bare parameter', "test('a', ctx => {});"],
+    ['a body holding only a comment', "test('a', () => { /* later */ });"],
+    // THE GAP THAT WAS PARKED FOR FOUR ROUNDS, CLOSED.
+    //
+    // A body emptied to a no-op statement is not an empty block in the text, so
+    // the old regex could not match it, and the assertion floor never covered
+    // it either: an `expect(` left behind in a comment still counts there, which
+    // the note on countTests says. A parser sees the statements, so a block of
+    // nothing but `;` or `void 0;` is now a body that runs nothing. Both
+    // returned [] against 77768e8.
+    ['a body of only a semicolon', "test('a', () => { ; });"],
+    ['a body of only void 0', "test('a', () => { void 0; });"],
+    ['a body of void 0 and a commented-out assertion', "test('a', () => { void 0; // expect(1).toBe(1);\n});"],
+    // A title that is not a literal no longer hides an empty body either. The
+    // old regex needed a quoted title to match at all. [] against 77768e8.
+    ['a computed title', 'test(title, () => {});'],
+  ];
+  for (const [label, source] of reported) {
+    expect(emptyBodyOffenders('api/probe.test.ts', source), `${label} must be reported`).toEqual(emptied);
+  }
 
-  // Any parameter list, and the function keyword.
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', (ctx) => {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', async ({ task }) => {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', function () {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', async function named(ctx) {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', ctx => {});")).not.toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', (ctx) => { expect(ctx).toBeTruthy(); });")).toEqual([]);
-
-  // The limit, recorded rather than hidden. It is an open gap: a body emptied to
-  // a no-op statement is not an empty block, and the assertion floor does not
-  // cover it either, because an expect( left in a comment still counts. The
-  // same family: a body of only `;` or `void 0;`, which no rule here matches.
+  // Why the assertion floor could never have been the instrument for the case
+  // above: the commented-out assertion still counts as one.
   expect(countAssertions("test('a', () => { void 0; // expect(1).toBe(1);\n});")).toBe(1);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { void 0; // expect(1).toBe(1);\n});")).toEqual([]);
-  // A body that holds only a comment is an empty block once comments are blanked.
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { /* later */ });")).not.toEqual([]);
 
-  // A test quoted in a comment or a string is not a test.
-  // A doc-comment line is only a comment inside its comment, so it is probed whole.
-  expect(emptyBodyOffenders('api/probe.test.ts', "/**\n * test('a', function () {});\n */")).toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', "/* historical: test('a', async ({ task }) => {}); */")).toEqual([]);
-  expect(emptyBodyOffenders('api/probe.test.ts', 'const doc = "test(\'a\', (ctx) => {});";')).toEqual([]);
+  const fine: readonly (readonly [string, string])[] = [
+    ['a body with an assertion', "test('a', () => { expect(1).toBe(1); });"],
+    ['a context parameter and an assertion', "test('a', (ctx) => { expect(ctx).toBeTruthy(); });"],
+    // A test quoted in a comment or a string is not a test.
+    ['a test inside a doc comment', "/**\n * test('a', function () {});\n */"],
+    ['a test inside a block comment', "/* historical: test('a', async ({ task }) => {}); */"],
+    ['a test inside a string', 'const doc = "test(\'a\', (ctx) => {});";'],
+    // An empty callback that is not a test callback.
+    ['an empty callback on another root', "onReady(() => {});"],
+    ['an empty assertion callback inside a real body', "test('a', () => { expect(() => {}).not.toThrow(); });"],
+  ];
+  for (const [label, source] of fine) {
+    expect(emptyBodyOffenders('api/probe.test.ts', source), `${label} must NOT be reported`).toEqual([]);
+  }
 
-  // A file the scanner cannot read fails instead of passing.
-  expect(emptyBodyOffenders('api/probe.test.ts', "const s = `open\ntest('a', () => {});")).not.toEqual([]);
+  // A file the parser cannot read fails instead of passing.
+  expect(emptyBodyOffenders('api/probe.test.ts', "const s = `open\ntest('a', () => {});")).toEqual([
+    'api/probe.test.ts: cannot be scanned, it holds a syntax error on line 1',
+  ]);
 });
 
 test('the rule reads a tree the way it reads the repository', () => {
