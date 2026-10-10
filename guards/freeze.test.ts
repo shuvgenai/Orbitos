@@ -72,77 +72,153 @@ function probeTree(relative: string, contents: string): string {
  * is blanked, so a test title is still recognisable as a string.
  *
  * Not a full tokenizer. It knows `//` and block comments, single, double and
- * template strings, and regex literals after a character that cannot end a
- * value. Text inside a `${ }` of a template is blanked with the rest of the
- * template, which hides code written there. That is a named gap, not a claim.
- * This is why the modifier rule scans this and not raw lines: a line that
- * merely starts with a comment can still hold a disabled test after it.
+ * template strings, code inside a template's `${ }` (which is kept and scanned,
+ * and may hold strings and templates of its own), and regex literals after a
+ * character that cannot end a value. This is why the modifier rule scans this
+ * and not raw lines: a line that merely starts with a comment can still hold a
+ * disabled test after it.
+ *
+ * FAILS CLOSED. If the end of the file is reached inside a string, a template,
+ * a template hole or a block comment, the scanner does not know where code
+ * resumes, and blanking the rest of the file would hide every test after that
+ * point. It reports a problem instead, and the rules turn that into an
+ * offender. A file this guard cannot read must fail, never pass.
  */
 const REGEX_AFTER = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';']);
 
-export function stripNonCode(text: string): string {
+type Scanned = { readonly text: string; readonly problem: string | null };
+
+function scanText(text: string): Scanned {
   const out = text.split('');
+  let problem: string | null = null;
+  const fail = (why: string) => {
+    problem ??= why;
+  };
   const blank = (from: number, to: number) => {
     for (let k = from; k < to; k += 1) if (out[k] !== '\n') out[k] = ' ';
   };
-  let i = 0;
-  let prev = '';
-  while (i < text.length) {
-    const c = text[i] ?? '';
-    const n = text[i + 1] ?? '';
-    if (c === '/' && n === '/') {
-      const end = text.indexOf('\n', i);
-      const stop = end < 0 ? text.length : end;
-      blank(i, stop);
-      i = stop;
-      continue;
-    }
-    if (c === '/' && n === '*') {
-      const end = text.indexOf('*/', i + 2);
-      const stop = end < 0 ? text.length : end + 2;
-      blank(i, stop);
-      i = stop;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') {
-      let j = i + 1;
-      while (j < text.length && text[j] !== c) {
-        if (text[j] === '\\') j += 1;
-        else if (c !== '`' && text[j] === '\n') break;
-        j += 1;
-      }
-      blank(i + 1, Math.min(j, text.length));
-      i = j + 1;
-      prev = c;
-      continue;
-    }
-    if (c === '/' && REGEX_AFTER.has(prev)) {
-      let j = i + 1;
-      let inClass = false;
-      let closed = false;
-      while (j < text.length && text[j] !== '\n') {
-        const ch = text[j];
-        if (ch === '\\') j += 1;
-        else if (ch === '[') inClass = true;
-        else if (ch === ']') inClass = false;
-        else if (ch === '/' && !inClass) {
-          closed = true;
-          break;
-        }
-        j += 1;
-      }
-      if (closed) {
-        blank(i + 1, j);
-        i = j + 1;
-        prev = 'x';
+
+  // Scans code from `start`. Stops at the end of the text, or, inside a template
+  // hole, at the `}` that closes it, and returns that index.
+  const code = (start: number, inHole: boolean): number => {
+    let i = start;
+    let prev = '';
+    let braces = 0;
+    while (i < text.length) {
+      const c = text[i] ?? '';
+      const n = text[i + 1] ?? '';
+      if (c === '/' && n === '/') {
+        const end = text.indexOf('\n', i);
+        const stop = end < 0 ? text.length : end;
+        blank(i, stop);
+        i = stop;
         continue;
       }
+      if (c === '/' && n === '*') {
+        const end = text.indexOf('*/', i + 2);
+        if (end < 0) {
+          fail('an unterminated block comment');
+          blank(i, text.length);
+          return text.length;
+        }
+        blank(i, end + 2);
+        i = end + 2;
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        let j = i + 1;
+        while (j < text.length && text[j] !== c && text[j] !== '\n') {
+          if (text[j] === '\\') j += 1;
+          j += 1;
+        }
+        if (j >= text.length || text[j] === '\n') {
+          fail('an unterminated string');
+          blank(i + 1, Math.min(j, text.length));
+          i = j;
+          continue;
+        }
+        blank(i + 1, j);
+        i = j + 1;
+        prev = c;
+        continue;
+      }
+      if (c === '`') {
+        let j = i + 1;
+        let closed = false;
+        while (j < text.length) {
+          const t = text[j] ?? '';
+          if (t === '\\') {
+            blank(j, j + 2);
+            j += 2;
+            continue;
+          }
+          if (t === '`') {
+            closed = true;
+            break;
+          }
+          if (t === '$' && text[j + 1] === '{') {
+            blank(j, j + 2);
+            j = code(j + 2, true);
+            if (j >= text.length) break;
+            blank(j, j + 1);
+            j += 1;
+            continue;
+          }
+          blank(j, j + 1);
+          j += 1;
+        }
+        if (!closed) {
+          fail('an unterminated template');
+          return text.length;
+        }
+        i = j + 1;
+        prev = c;
+        continue;
+      }
+      if (c === '/' && REGEX_AFTER.has(prev)) {
+        let j = i + 1;
+        let inClass = false;
+        let closed = false;
+        while (j < text.length && text[j] !== '\n') {
+          const ch = text[j];
+          if (ch === '\\') j += 1;
+          else if (ch === '[') inClass = true;
+          else if (ch === ']') inClass = false;
+          else if (ch === '/' && !inClass) {
+            closed = true;
+            break;
+          }
+          j += 1;
+        }
+        if (closed) {
+          blank(i + 1, j);
+          i = j + 1;
+          prev = 'x';
+          continue;
+        }
+      }
+      if (inHole && c === '{') braces += 1;
+      if (inHole && c === '}') {
+        if (braces === 0) return i;
+        braces -= 1;
+      }
+      if (!/\s/.test(c)) prev = c;
+      i += 1;
     }
-    if (!/\s/.test(c)) prev = c;
-    i += 1;
-  }
-  return out.join('');
+    if (inHole) fail('an unterminated template hole');
+    return i;
+  };
+
+  code(0, false);
+  return { text: out.join(''), problem };
 }
+
+export function stripNonCode(text: string): string {
+  return scanText(text).text;
+}
+
+/** What a file's unreadable text is called in a report. */
+const unreadable = (file: string, why: string) => `${file}: cannot be scanned, it holds ${why}`;
 
 /**
  * A call with a dotted chain on any identifier.
@@ -166,14 +242,48 @@ const VITEST_ROOTS: ReadonlySet<string> = new Set(['test', 'it', 'describe']);
  */
 const DISABLING_NAMES: ReadonlySet<string> = new Set(['skip', 'only', 'skipIf', 'runIf', 'todo', 'fails']);
 
+/**
+ * Whether a non-vitest root's call looks like a test declaration.
+ *
+ * `cursor.skip(10)` and `qb.skip(20).take(10)` are pagination, not a disabled
+ * test, so a bare name on an arbitrary root is not enough. A declaration takes
+ * a title: a string or a template as its first argument. `skipIf(cond)` and
+ * `runIf(cond)` take the condition first and the title in a second call, so for
+ * those the title is looked for after the first argument list closes. The text
+ * is the stripped text, where quotes are kept and parentheses inside strings
+ * are blank, so counting parentheses here is safe.
+ */
+function looksLikeDeclaration(code: string, open: number, segment: string): boolean {
+  const titleAt = (from: number) => /^\s*['"`]/.test(code.slice(from));
+  if (segment !== 'skipIf' && segment !== 'runIf') return titleAt(open);
+
+  let depth = 1;
+  let i = open;
+  while (i < code.length && depth > 0) {
+    if (code[i] === '(') depth += 1;
+    if (code[i] === ')') depth -= 1;
+    i += 1;
+  }
+  if (depth !== 0) return true;
+  const rest = code.slice(i);
+  const next = /^\s*\(/.exec(rest);
+  return next === null ? true : titleAt(i + next[0].length);
+}
+
 /** Every disabling or inverting modifier in one file's text. */
 export function modifierOffenders(file: string, text: string): readonly string[] {
+  const { text: code, problem } = scanText(text);
+  if (problem !== null) return [unreadable(file, problem)];
+
   const out: string[] = [];
-  for (const match of stripNonCode(text).matchAll(CHAIN_CALL)) {
+  for (const match of code.matchAll(CHAIN_CALL)) {
     const root = match[1] ?? '';
     const chain = (match[2] ?? '').split('.').filter((part) => part !== '');
+    const open = match.index + match[0].length;
     for (const segment of chain) {
-      const bad = VITEST_ROOTS.has(root) ? !HARMLESS_MODIFIERS.has(segment) : DISABLING_NAMES.has(segment);
+      const bad = VITEST_ROOTS.has(root)
+        ? !HARMLESS_MODIFIERS.has(segment)
+        : DISABLING_NAMES.has(segment) && looksLikeDeclaration(code, open, segment);
       if (bad) out.push(`${file}: ${root}.${segment}`);
     }
   }
@@ -183,18 +293,23 @@ export function modifierOffenders(file: string, text: string): readonly string[]
 /**
  * A test whose callback body is empty.
  *
- * Only the literal empty block, with any parameter list, an arrow or a
- * `function`, async or not. A body emptied to a comment or a no-op is NOT
- * matched, and nothing else catches it either. The assertion floor does not:
- * an `expect(` left inside a comment still counts, which the note on
- * `countTests` says. This is an open gap, recorded here rather than hidden.
- * Closing it needs a real parser, and that is a decision for the founder.
+ * Only an empty block, with any parameter list, an arrow or a `function`,
+ * async or not. It reads the text with comments and string bodies blanked, so a
+ * test quoted in a comment or a string is not a test, and a body that holds
+ * only a comment IS an empty block. A body emptied to a no-op statement, such
+ * as `void 0;`, is NOT matched, and nothing else catches it either. The
+ * assertion floor does not: an `expect(` left inside a comment still counts,
+ * which the note on `countTests` says. That is an open gap, recorded here
+ * rather than hidden. Closing it needs a real parser, and that is a decision
+ * for the founder.
  */
 const EMPTY_BODY =
   /(?:^|[^.\w])(?:test|it)(?:\.[A-Za-z][A-Za-z0-9]*)*\s*\(\s*(['"`])(?:\\.|(?!\1)[^\\])*\1\s*,\s*(?:async\s*)?(?:function\s*[\w$]*\s*\([^)]*\)|\([^)]*\)\s*=>|[\w$]+\s*=>)\s*\{\s*\}\s*\)/g;
 
 export function emptyBodyOffenders(file: string, text: string): readonly string[] {
-  return [...text.matchAll(EMPTY_BODY)].map(() => `${file}: a test with an empty body`);
+  const { text: code, problem } = scanText(text);
+  if (problem !== null) return [unreadable(file, problem)];
+  return [...code.matchAll(EMPTY_BODY)].map(() => `${file}: a test with an empty body`);
 }
 
 // THREE counts, not one, because no single instrument catches every way a
@@ -458,9 +573,9 @@ export function opaqueComplaints(
  * `test(` written inside a comment or a string contributes nothing.
  *
  * One thing it does NOT give, measured on 2026-10-09 and the reason it is
- * secondary rather than primary: it does not expand a `test.each`. The unit
- * project lists 420 entries while a run reports 437, and the ten-case
- * `test.each` in shared/src/agent-output.test.ts is one listed entry.
+ * secondary rather than primary: it does not expand a `test.each`. The
+ * ten-case `test.each` in shared/src/agent-output.test.ts shows as ONE listed
+ * entry, with its placeholder unresolved.
  *
  * It is RECORDED in the baseline and NOT checked by this guard. A guard that
  * shelled out to vitest would be a test that runs the test runner, and no CI
@@ -662,6 +777,21 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     ['alias todo', "const T = test.extend({});\nT.todo('a');"],
   ];
 
+  // A file the scanner cannot read is an offender, never a pass. Without this,
+  // everything after an unterminated span is blanked and every test there is hidden.
+  const unscannable: readonly (readonly [string, string])[] = [
+    ['unterminated template', "const s = `open\ntest.skip('a', () => { expect(1).toBe(1); });"],
+    ['unterminated string', "const s = 'open\ntest.skip('a', () => { expect(1).toBe(1); });"],
+    ['unterminated block comment', "/* open\ntest.skip('a', () => { expect(1).toBe(1); });"],
+    [
+      'a backtick inside a template hole',
+      "const md = `a ${ \"x`y\" }\n  tail`;\ntest.skip('frozen', () => { expect(1).toBe(1); });",
+    ],
+  ];
+  for (const [label, source] of unscannable) {
+    expect(modifierOffenders('api/probe.test.ts', source), `${label} must be reported`).not.toEqual([]);
+  }
+
   for (const [label, source] of cases) {
     expect(modifierOffenders('api/probe.test.ts', source), `${label} must be reported`).not.toEqual([]);
   }
@@ -684,6 +814,13 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     "/* test.skip\n('a') */ test('a', () => { expect(1).toBe(1); });",
     "/* test.skip in a comment */ test('a', () => { expect(1).toBe(1); });",
     'const q = `test.only ${1}`; expect(q).toBeTruthy();',
+    // The real pre-fix false positives, which have a parenthesis.
+    "expect(1).toBe(1); // test.skip('a', () => {})",
+    "const label = 'test.skip(' + x;",
+    // Pagination and other calls that are not test declarations.
+    'const page = cursor.skip(10);',
+    'const rows = qb.skip(20).take(10);',
+    'scheduler.fails(3);',
   ];
   for (const source of fine) {
     expect(modifierOffenders('api/probe.test.ts', source), `must NOT be reported: ${source}`).toEqual([]);
@@ -704,16 +841,22 @@ test('a frozen test with an empty body is reported', () => {
   expect(emptyBodyOffenders('api/probe.test.ts', "test('a', ctx => {});")).not.toEqual([]);
   expect(emptyBodyOffenders('api/probe.test.ts', "test('a', (ctx) => { expect(ctx).toBeTruthy(); });")).toEqual([]);
 
-  // The limit, recorded rather than hidden. It is an open gap: the assertion
-  // floor does not cover it either, because an expect( left in a comment still
-  // counts. A body holding only a commented-out assertion is invisible to both.
-  expect(countAssertions("test('a', () => { // expect(1).toBe(1);\n});")).toBe(1);
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { // expect(1).toBe(1);\n});")).toEqual([]);
-  // The limit, recorded rather than hidden: a body emptied to something that is
-  // not literally an empty block defeats this regex. The assertion floor below
-  // is the second instrument for the same gap, because every way of emptying a
-  // body removes its expect() calls whatever is left behind.
-  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { /* later */ });")).toEqual([]);
+  // The limit, recorded rather than hidden. It is an open gap: a body emptied to
+  // a no-op statement is not an empty block, and the assertion floor does not
+  // cover it either, because an expect( left in a comment still counts.
+  expect(countAssertions("test('a', () => { void 0; // expect(1).toBe(1);\n});")).toBe(1);
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { void 0; // expect(1).toBe(1);\n});")).toEqual([]);
+  // A body that holds only a comment is an empty block once comments are blanked.
+  expect(emptyBodyOffenders('api/probe.test.ts', "test('a', () => { /* later */ });")).not.toEqual([]);
+
+  // A test quoted in a comment or a string is not a test.
+  // A doc-comment line is only a comment inside its comment, so it is probed whole.
+  expect(emptyBodyOffenders('api/probe.test.ts', "/**\n * test('a', function () {});\n */")).toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', "/* historical: test('a', async ({ task }) => {}); */")).toEqual([]);
+  expect(emptyBodyOffenders('api/probe.test.ts', 'const doc = "test(\'a\', (ctx) => {});";')).toEqual([]);
+
+  // A file the scanner cannot read fails instead of passing.
+  expect(emptyBodyOffenders('api/probe.test.ts', "const s = `open\ntest('a', () => {});")).not.toEqual([]);
 });
 
 test('the rule reads a tree the way it reads the repository', () => {
