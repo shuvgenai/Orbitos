@@ -45,6 +45,12 @@ const NOT_OURS = [
   // Its own repository, and gitignored here.
   'landing/',
   'archive/',
+  // The superpowers skill workspace: ledgers, task briefs and scratch scripts.
+  // It is ignored through .git/info/exclude, which is local to one clone and is
+  // not committed, so CI checks out without it and has never linted it. Locally
+  // a scratch script in it drew no-undef and failed `pnpm lint` for a reason
+  // that had nothing to do with the change being linted.
+  '.superpowers/',
   '**/node_modules/',
   '**/generated/',
   '**/dist/',
