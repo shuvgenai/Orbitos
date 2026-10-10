@@ -48,5 +48,10 @@
     "template/test/no-unapproved-send.test.ts",
     "template/test/postgres-logins.test.ts"
   ],
-  "unitTestCount": 347
+  "unitTestCount": 347,
+  "frozenExpandedTestCount": 437,
+  "frozenTestCallCount": 411,
+  "frozenAssertionCount": 955,
+  "frozenListedTestCount": { "unit": 239, "db": 170 },
+  "frozenOpaqueEachCount": 1
 }
