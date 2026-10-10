@@ -84,7 +84,83 @@ function probeTree(relative: string, contents: string): string {
  * point. It reports a problem instead, and the rules turn that into an
  * offender. A file this guard cannot read must fail, never pass.
  */
-const REGEX_AFTER = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';']);
+/**
+ * Characters after which a slash opens a regex literal and is not a division.
+ *
+ * Every one of these cannot end a value, so a slash next to it has nothing to
+ * divide. The arithmetic and comparison operators are here for a measured
+ * reason: without `+` the text `1 + /'"/.source` read as a division, the quote
+ * opened a string, and the whole file after it was declared unreadable. Without
+ * `>` the same happened to every arrow function returning a regex.
+ */
+const REGEX_AFTER = new Set([
+  '',
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '<',
+  '>',
+  '^',
+  '~',
+]);
+
+/**
+ * Keywords after which a slash opens a regex literal.
+ *
+ * A character is not enough to tell the two slashes apart. In
+ * `return /'/.test(s)` the character before the slash is `n`, which ends a
+ * value everywhere else, so the single-character test says division and the
+ * quote then opens a string that never closes. The word has to be read.
+ */
+const REGEX_AFTER_KEYWORD: ReadonlySet<string> = new Set([
+  'return',
+  'typeof',
+  'case',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'yield',
+  'await',
+  'do',
+  'else',
+]);
+
+/**
+ * The word that ends just before `at`, or '' when nothing there is a word.
+ *
+ * Takes a string or an array of characters, so both scanners can use it. The
+ * scanner above passes its already blanked buffer, which means a keyword
+ * written inside a comment reads as blank and is not mistaken for code.
+ */
+function wordBefore(chars: { readonly [index: number]: string | undefined }, at: number): string {
+  let k = at - 1;
+  while (k >= 0 && /\s/.test(chars[k] ?? '')) k -= 1;
+  const end = k + 1;
+  while (k >= 0 && /[\w$]/.test(chars[k] ?? '')) k -= 1;
+  let word = '';
+  for (let m = k + 1; m < end; m += 1) word += chars[m] ?? '';
+  return word;
+}
+
+/** Whether a slash at `at` opens a regex literal rather than dividing. */
+function startsRegex(chars: { readonly [index: number]: string | undefined }, prev: string, at: number): boolean {
+  return REGEX_AFTER.has(prev) || REGEX_AFTER_KEYWORD.has(wordBefore(chars, at));
+}
 
 type Scanned = { readonly text: string; readonly problem: string | null };
 
@@ -131,19 +207,20 @@ function scanText(text: string): Scanned {
           if (text[j] === '\\') j += 1;
           j += 1;
         }
-        if (j >= text.length) {
+        if (j >= text.length || text[j] === '\n') {
+          // A quoted string that does not close on its own line is a syntax
+          // error in a test file, so the file is not what this scanner assumed
+          // and nothing after this point can be trusted. Report it.
+          //
+          // There is no escape hatch here on purpose. An earlier version
+          // treated a quote with no closing quote on its line as not-a-string
+          // and resumed at the next character. That resume point sits inside a
+          // regex body, so a backtick or a `/*` there opened a real span and
+          // blanked every test after it. The fix for that false positive is the
+          // regex detector above, not a hole in this rule.
           fail('an unterminated string');
           blank(i + 1, text.length);
           return text.length;
-        }
-        if (text[j] === '\n') {
-          // A quote that is not closed on its line is not a string. It is most
-          // likely the quote inside a regex literal the scanner took for a
-          // division, as in `(s) => /'/.test(s)`. Blank nothing and move on. A
-          // string that is really unterminated still runs to the end of the
-          // file, and that is where it fails.
-          i += 1;
-          continue;
         }
         blank(i + 1, j);
         i = j + 1;
@@ -183,7 +260,7 @@ function scanText(text: string): Scanned {
         prev = c;
         continue;
       }
-      if (c === '/' && REGEX_AFTER.has(prev)) {
+      if (c === '/' && startsRegex(out, prev, i)) {
         let j = i + 1;
         let inClass = false;
         let closed = false;
@@ -449,7 +526,7 @@ export function literalEachCases(text: string, from: number): number | null {
 
     // A regex literal, when a slash follows something that cannot end a value.
     // Inside a table that is a comma, an open bracket, a colon or an operator.
-    if (char === '/' && REGEX_AFTER.has(prev)) {
+    if (char === '/' && startsRegex(text, prev, i)) {
       let j = i + 1;
       let inClass = false;
       let closed = false;
@@ -819,10 +896,28 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
     ['unterminated string at end of file', "test('a', () => { expect(1).toBe(1); });\nconst s = 'open"],
     ['unterminated block comment', "/* open\ntest.skip('a', () => { expect(1).toBe(1); });"],
   ];
+  // Each one twice: as written, and with a final newline. The newline shape is
+  // the one that matters, because all 46 real frozen files end with one, and a
+  // fail-closed path that only fires on a file with no final newline guards no
+  // file this rule will ever read. An earlier version had exactly that hole.
   for (const [label, source] of unscannable) {
-    const found = modifierOffenders('api/probe.test.ts', source);
-    expect(found, `${label} must be reported`).toHaveLength(1);
-    expect(found[0], `${label} must say it cannot be scanned`).toContain('cannot be scanned');
+    for (const [shape, body] of [
+      ['with no final newline', source],
+      ['ending with a newline', `${source}\n`],
+    ] as const) {
+      const found = modifierOffenders('api/probe.test.ts', body);
+      expect(found, `${label} ${shape} must be reported`).toHaveLength(1);
+      expect(found[0], `${label} ${shape} must say it cannot be scanned`).toContain('cannot be scanned');
+    }
+  }
+
+  // A template hole left open is the fourth way to run off the end, and it
+  // reports the same way.
+  for (const tail of ['', '\n']) {
+    const open = 'const s = `a ${ b\n' + "test.skip('a', () => { expect(1).toBe(1); });" + tail;
+    expect(modifierOffenders('api/probe.test.ts', open), 'an unterminated template hole must be reported').toEqual([
+      'api/probe.test.ts: cannot be scanned, it holds an unterminated template hole',
+    ]);
   }
 
   // The fourth is NOT unscannable. A backtick inside a template hole is read by
@@ -840,15 +935,57 @@ test('every modifier that disables or inverts a frozen test is reported', () => 
   // Valid code that holds a quote inside a regex literal reads as code, not as
   // an unterminated string, wherever the regex sits. Each is a whole file, so it
   // ends with a newline.
+  // Each is checked with a final newline and without one. Without one, the
+  // closing quote search runs to the end of the file, so the two shapes take
+  // different paths and only the detector above keeps both clean.
   for (const line of [
     "const f = (s) => /'/.test(s);",
     "function f(s) { return /'/.test(s); }",
     "const n = 1 + /'/.source.length;",
     'const t = typeof /"/;',
   ]) {
-    const source = `${line}\n`;
-    expect(modifierOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
-    expect(emptyBodyOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
+    for (const source of [`${line}\n`, line]) {
+      expect(modifierOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
+      expect(emptyBodyOffenders('api/probe.test.ts', source), `must scan clean: ${line}`).toEqual([]);
+    }
+  }
+
+  // Three files that a relaxed quote rule hid completely, kept as exact arrays.
+  //
+  // Each holds a regex character class with a quote and a backtick in it, which
+  // is the shape a frozen file that checks quote escaping really has. Under the
+  // relaxed rule the scan resumed inside the regex body, the backtick there
+  // opened a template, and everything after it was blanked, so the skipped
+  // tests were invisible and the file read as clean. The arrays are exact
+  // because a check for "not empty" or "not clean" passes whether the test is
+  // found or the file is condemned, and those are not the same answer.
+  const hidden: readonly (readonly [string, string, readonly string[]])[] = [
+    [
+      'two tests hidden after a quote and backtick class',
+      "function h(s) { return /['`]/.test(s); }\n" +
+        "test('kept', () => { expect(1).toBe(1); });\n" +
+        "test.skip('hidden', () => { expect(1).toBe(1); });\n" +
+        "test.only('also hidden', () => { expect(1).toBe(1); });\n" +
+        'function g(s) { return /[`]/.test(s); }\n' +
+        "test('tail', () => { expect(1).toBe(1); });\n",
+      ['api/probe.test.ts: test.skip', 'api/probe.test.ts: test.only'],
+    ],
+    [
+      'one test hidden between two regex classes',
+      "function h(s) { return /['`]/.test(s); }\n" +
+        "test.skip('hidden', () => { expect(1).toBe(1); });\n" +
+        'function g(s) { return /[`]/.test(s); }\n',
+      ['api/probe.test.ts: test.skip'],
+    ],
+    [
+      'a quote and a double quote in a regex on the same line as the test',
+      'const n = 1 + /\'"/.source; test.skip("a", () => { expect(1).toBe(1); });\n',
+      ['api/probe.test.ts: test.skip'],
+    ],
+  ];
+  for (const [label, source, expected] of hidden) {
+    expect(modifierOffenders('api/probe.test.ts', source), label).toEqual(expected);
+    expect(emptyBodyOffenders('api/probe.test.ts', source), `${label}, no empty body`).toEqual([]);
   }
 
   for (const [label, source] of cases) {
