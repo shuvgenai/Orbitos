@@ -108,8 +108,9 @@ Taken in this repository on 2026-10-09, before any edit:
 
 - `guards/freeze-baseline.json` holds **46** `testFiles`, `unitTestCount` **347**, `recordedAt` `2026-10-07`. The founder's note said 32 baseline files; the real number is 46.
 - **0 of those 46** are missed by the 12 `*.test.ts` globs in `vitest.config.ts`. The collection check passes today, so the work is widening what it checks, not fixing a loss.
-- The 46 frozen baseline files hold **411** `test(`/`it(` call sites and **955** `expect(` call sites. Expanding every literal `test.each` table gives **440**: 400 plain call sites, 10 literal `each` tables holding 39 cases between them, and 1 `each` whose table is the identifier `transient` in `db/test/poll.test.ts` and cannot be expanded. `vitest list --json` reports **420** for the unit project and **170** for db, of which **239** and **170** are in frozen baseline files.
-- **`vitest list --json` does not expand a `test.each`.** Measured: `shared/src/agent-output.test.ts` holds a ten-case `test.each([0x0a, 0x0d, ...])` and shows as ONE listed entry, named `rejects a reason containing control/separator U+%s` with the placeholder unresolved, and its listed count of 12 equals its regex call-site count of 12. The unit project lists 420 while a run reports 437, a gap of 17, which is the unexpanded cases. So the listed count cannot be the instrument that catches a removed `each` case, and the founder's instruction on approval is corrected on that one point: the each-aware static count is primary and the listed count is secondary.
+- The 46 frozen baseline files hold **411** `test(`/`it(` call sites and **955** `expect(` call sites. Expanding every literal `test.each` table gives **437**: 400 plain call sites, 10 literal `each` tables holding 36 cases between them, and 1 `each` whose table is the identifier `transient` in `db/test/poll.test.ts` and cannot be expanded. Of the frozen tests, **239** are in the unit project and **170** in db, counted from `vitest list --json`.
+- **437 and not 440, and the three that moved.** An earlier measurement here said 440 and 39 cases. It was taken with a parser that counted commas plus one, before the founder's tightening replaced it with one that counts elements. Three frozen tables carry a trailing comma, so each was over-counted by one: `db/test/auth.test.ts` holds 7 cases and not 8, `db/test/poll.test.ts` 3 and not 4, and `frontdesk/src/classifier-anthropic.test.ts` 4 and not 5. Confirmed twice on 2026-10-09, by running both parsers side by side and again by the reviewer hand-checking all 11 tables.
+- **`vitest list --json` does not expand a `test.each`.** Measured: `shared/src/agent-output.test.ts` holds a ten-case `test.each([0x0a, 0x0d, ...])` and shows as ONE listed entry, named `rejects a reason containing control/separator U+%s` with the placeholder unresolved, and its listed count of 12 equals its regex call-site count of 12. So the listed count cannot be the instrument that catches a removed `each` case, and the founder's instruction on approval is corrected on that one point: the each-aware static count is primary and the listed count is secondary. No whole-project total is quoted here on purpose: adding a test to any non-frozen file moves it, which is what made an earlier version of this line stale within one task.
 - `test.skipIf` appears **3** times on this branch, at `guards/design-naming.test.ts:517`, `guards/design-naming.test.ts:529` and `guards/mock-boundary.test.ts:106`. All three are in `guards/`, none in a frozen directory, which is why nothing has gone red.
 - Mail variables in tracked config: `.env.example` `MAIL_FROM=""`, `template/.env.example` `MAIL_FROM=""`, `.github/workflows/ci.yml` `MAIL_FROM: "smoke@example.com"`, and `template/compose.yml` `MAIL_FROM: "${MAIL_FROM:?}"` **twice**. The last two live in a frozen directory, so a blanket rejection of every `$`-prefixed value would fail frozen code that cannot be edited.
 - Widening the address scan to every tracked source file would report about **80** addresses, of which **19** are real and registrable (`owner@firm.com`, `no-reply@stripe.com`, `noreply@github.com`, nine at `x.com`), all inside **frozen** test fixtures that cannot be edited.
@@ -744,7 +745,7 @@ Insert below the functions added in Step 4:
 //
 //   | Instrument            | Frozen count | Catches a removed each case |
 //   | --------------------- | ------------ | --------------------------- |
-//   | each-aware, primary   | 440          | yes                         |
+//   | each-aware, primary   | 437          | yes                         |
 //   | vitest list, secondary| unit 239, db 170 | no                      |
 //   | regex call sites      | 411          | no                          |
 
@@ -929,9 +930,16 @@ export function opaqueComplaints(
  * `test(` written inside a comment or a string contributes nothing.
  *
  * One thing it does NOT give, measured on 2026-10-09 and the reason it is
- * secondary rather than primary: it does not expand a `test.each`. The unit
- * project lists 420 entries while a run reports 437, and the ten-case
- * `test.each` in shared/src/agent-output.test.ts is one listed entry.
+ * secondary rather than primary: it does not expand a `test.each`. The
+ * ten-case `test.each` in shared/src/agent-output.test.ts shows as ONE listed
+ * entry, with its `%s` placeholder unresolved, and that file's listed count
+ * equals its call-site count exactly.
+ *
+ * No whole-project total is quoted here. An earlier version of this comment
+ * said the unit project lists 420 entries, which was true when it was written
+ * and false by the end of the task that wrote it, because this very file
+ * gained tests. A number that its own change invalidates does not belong in a
+ * comment.
  *
  * It is recorded and compared, not computed inside the guard. A guard that
  * shelled out to vitest would be a test that runs the test runner.
@@ -1027,7 +1035,7 @@ Expected: **EXIT=0**, 9 passed.
 Edit `guards/freeze-baseline.json`. Keep `recordedAt`, `testFiles` and `unitTestCount` exactly as they are: `unitTestCount` 347 remains the record of one measurement and is still not compared. Add five keys after it:
 
 ```json
-  "frozenExpandedTestCount": 440,
+  "frozenExpandedTestCount": 437,
   "frozenTestCallCount": 411,
   "frozenAssertionCount": 955,
   "frozenListedTestCount": { "unit": 239, "db": 170 },
@@ -1038,10 +1046,10 @@ All five were measured on 2026-10-09 across the 46 baseline files:
 
 | Key | Value | Direction | How it was measured |
 | --- | --- | --- | --- |
-| `frozenExpandedTestCount` | 440 | floor | 400 plain `test`/`it` call sites, plus 10 `test.each` with a literal table expanded to 39 cases, plus 1 opaque `each` contributing one |
+| `frozenExpandedTestCount` | 437 | floor | 400 plain `test`/`it` call sites, plus 10 `test.each` with a literal table expanded to 36 cases, plus 1 opaque `each` contributing one. Three of those tables carry a trailing comma, which is why counting elements gives 36 where counting commas plus one gave 39 |
 | `frozenTestCallCount` | 411 | floor | `test`/`it` call sites, one per declaration |
 | `frozenAssertionCount` | 955 | floor | `expect(` call sites |
-| `frozenListedTestCount` | unit 239, db 170 | floor | `pnpm exec vitest list --project unit --json` and the same for `db`, counting entries whose file is a frozen baseline file. The unit project lists 420 in total and db lists 170, all of which are frozen |
+| `frozenListedTestCount` | unit 239, db 170 | floor | `pnpm exec vitest list --project unit --json` and the same for `db`, counting entries whose file is a frozen baseline file. No whole-project total is recorded, because adding a test to any non-frozen file moves it |
 | `frozenOpaqueEachCount` | 1 | **ceiling** | `each` tables the text cannot expand. Exactly one today: `test.each(transient)` at `db/test/poll.test.ts:120` |
 
 **Four floors and one ceiling.** The ceiling is the founder's tightening of
@@ -1215,7 +1223,7 @@ Adds an empty-body rule, a collection check over all 46 baseline files instead
 of one, and three recorded floors in freeze-baseline.json.
 
 Three floors and not one, because no single instrument catches every way a
-frozen suite shrinks. frozenExpandedTestCount 440 expands every literal
+frozen suite shrinks. frozenExpandedTestCount 437 expands every literal
 test.each table, and it is the only one that falls when a case is deleted from
 one. frozenListedTestCount, unit 239 and db 170, comes from vitest list --json
 and is the only one immune to a test( written inside a comment.
@@ -2662,7 +2670,7 @@ than new scope:
 
 ```
 guards/freeze-baseline.json       item 1's four new recorded numbers:
-                                  frozenExpandedTestCount 440,
+                                  frozenExpandedTestCount 437,
                                   frozenTestCallCount 411,
                                   frozenAssertionCount 955, and
                                   frozenListedTestCount {unit 239, db 170}.
