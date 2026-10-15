@@ -63,9 +63,23 @@ recorded where the audit log can cite it.
 
 ## Standing Authority
 
-Enforcement is blocked pending the founder's decision. Do not design it and do
-not build it. The screens are feature-flagged off and are user interface only,
-and the contract surface stays read-only.
+Answered by the founder on 2026-10-14, option C, recorded in
+`docs/decisions.md`. Enforcement is designed now, and its shape enters
+`contract/v1` now: the grant reference, the three approval bases of Appendix
+A.6, and the server-side authority check. Designing the shape and creating a
+grant are two different things, and this file keeps them apart. The shape has to
+be designed now because an authority check cannot be added to a hash router
+later, which is finding H4 of the 2026-10-09 security review.
+
+Grant creation is refused until Checkpoint B is recorded as passed. Checkpoint B
+passed means one entry in `docs/decisions.md`, in the heading format that log
+already uses, naming the job-understanding test set, the measured result at 90%
+or better, and the date. A guard reads that record. No feature flag, environment
+variable or sentence of prose may stand in for it, because a gate a person can
+open without a commit is not a gate.
+
+Until that record exists the screens stay user interface only, stay
+feature-flagged off, and the contract surface stays read-only.
 
 ## Real data
 

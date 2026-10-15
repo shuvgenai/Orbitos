@@ -180,3 +180,86 @@ An empty state says what will appear there and the one action or condition that
 fills it.
 
 Say what a thing does, not that it is powerful, seamless or robust.
+
+## 11. When to use multiple agents and gstack-review
+
+Founder decision, 2026-10-10, recorded in `docs/decisions.md`. Follow this
+section without asking, except where it says to ask.
+
+### 11a. Multiple writing agents
+
+One thread, no writing subagents, for:
+
+- guard hardening,
+- the contract seam, which is `contract/v1`, the experimental surface, routing,
+  `ApiClient` and the mock API client,
+- the task engine core,
+- the Action Gateway, authority enforcement and the audit log,
+- any task where two agents would edit the same file.
+
+Fan out to writing agents only when all six of these hold:
+
+1. `contract/v1` is merged, and its interface is frozen for the batch.
+2. The mock API client and the demo office exist.
+3. The six-state component and the `design/` tokens are in place.
+4. S-43, the screen-inventory guard, the mock-boundary guard and axe are armed.
+5. The founder approved a plan with one task and acceptance criteria per screen
+   or unit.
+6. No two agents touch the same file. The main thread alone edits
+   `dashboards/src/shared/nav/screens.ts`, `shared/layout` and `shared/states`.
+
+Permission to fan out:
+
+- Stage 1b and 1c screen batches: granted once. Before each batch, post one line
+  naming the screens and confirming all six conditions. Five writing agents at
+  most.
+- Stream B channel adapters: ask the founder before fanning out.
+- Read-only agents, which are audits, investigations and reviews: allowed at any
+  time, because they write nothing.
+
+Each batch is its own diff, with its own fresh-session security review under
+section 7, and its own pull request for the founder to merge.
+
+Stop rule. If a batch produces a file conflict, a request to change the
+interface, or a review finding that traces back to the contract, stop fanning
+out. Fix it in a single thread, tell the founder, and resume only after the fix
+merges.
+
+### 11b. gstack-review
+
+`/gstack-review` is the phase-gate review. It never replaces the per-diff
+security review in section 7. Both run. Run it at exactly these points:
+
+1. Guard-hardening branch complete, before it merges.
+2. Contract seam complete, before any screen is built on it. Highest priority.
+   Focus: the contract matches PRD v9.0 Appendix A and sections 15.5 to 15.7,
+   nothing the 28 Fill-now screens need is missing, and the Standing Authority
+   surface is read-only.
+3. End of stage 1b, on the 15 screens together. Focus: consistency across
+   screens, contract usage, the six states in section 15.4, naming against
+   section 15.3.
+4. End of stage 1c, before Stream A merges to `main`.
+5. End of the Stream B channel adapters.
+6. Before Checkpoint A and before Checkpoint B.
+7. Every diff that touches the Action Gateway, authority enforcement or the
+   audit log, in addition to section 7. These are the paths that act in
+   someone's name.
+8. Before Checkpoint C, on staging, before any pilot.
+
+How to run it, every time:
+
+- Only on a clean tree, with no implementer or fix round running.
+- Scope it to the commits since the previous gate, never the whole history.
+- Exclude the seven frozen directories and `reference/`.
+- Report only. Fix nothing. Rank each finding Critical, Important or Minor, with
+  file and line evidence or a concrete input that proves it.
+- Bring the findings to the founder. Critical and Important go into a fix round
+  with the five-round circuit breaker. Minor findings go to `TODOS.md` with a
+  one-line ruling.
+- A phase is not done, and does not merge, while a Critical is open.
+
+### 11c. Reporting
+
+At each gate, add a line to the gate status block at the top of
+`docs/decisions.md`: the gate that passed, the `/gstack-review` result, and the
+number of findings fixed and parked.

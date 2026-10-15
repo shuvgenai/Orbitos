@@ -8,6 +8,13 @@ The authority is `docs/prd/ORBIT_OS_PRD_v9_0.md`. v8.0 and v7.0 are the
 historical record and are not corrected. Where v9.0 and an earlier entry
 disagree, v9.0 wins.
 
+**Gate status.** One line per phase gate, newest last. Each line names the gate,
+the `/gstack-review` result, and the number of findings fixed and parked. The
+rule that fills this block is section 11 of `CLAUDE.md`. It is empty until the
+first gate passes, which is the guard-hardening branch.
+
+- No gate has passed yet.
+
 ## 2026-10-05 - Orbitcrew is the customer-facing name
 
 **Decision:** Orbitcrew. ORBIT-OS stays the internal name. PRD v8.0 open
@@ -50,6 +57,14 @@ the product. It needs an explicit ruling, not an assumption.
 the answer.
 
 **Owed to the founder:** a one-page decision before any engine work begins.
+
+**Superseded by the ruling of 2026-10-14**, which answers open decision 2 as
+option C. The hold recorded above ended on that date. The one page owed to the
+founder was written as
+`docs/superpowers/decisions/2026-10-14-standing-authority-pack.md` and answered.
+What survives from this entry is the read-only contract surface and the
+flagged-off screens, which stay as they are until Checkpoint B is recorded as
+passed.
 
 ## 2026-10-05 - Stream A takes a new dashboards package, not web
 
@@ -3329,3 +3344,190 @@ five rounds becomes a probe asserting an exact array, so the rebuild has to clea
 the whole measured history before it lands. The residual is that `typescript` is
 now load-bearing for a guard as well as for the typecheck, which is a dependency
 this repository already pins exactly.
+
+## 2026-10-10 - When multiple writing agents are allowed, and where gstack-review runs
+
+**Decision:** section 11 of `CLAUDE.md` now carries two standing rules, and this
+session follows them without asking each time.
+
+The first rule is where writing subagents are allowed. Guard hardening, the
+contract seam, the task engine core, the Action Gateway with authority
+enforcement and the audit log, and any task where two agents would edit the same
+file, all stay in one thread. Fan-out needs six conditions at once: `contract/v1`
+merged with its interface frozen for the batch, the mock API client and the demo
+office in place, the six-state component and the `design/` tokens in place, S-43
+and the screen-inventory guard and the mock-boundary guard and axe armed, an
+approved plan with one task and acceptance criteria per screen or unit, and no
+two agents on the same file. Stage 1b and 1c screen batches are pre-approved up
+to five writing agents, with a one-line confirmation before each batch. Stream B
+channel adapters need the founder asked first. Read-only agents are allowed at
+any time. A file conflict, an interface change request, or a finding that traces
+back to the contract stops the fan-out until the fix merges in a single thread.
+
+The second rule is `/gstack-review` as a phase gate at eight named points, not
+as a replacement for the per-diff security review in section 7. Both run. The
+gate is report-only, scoped to the commits since the previous gate, excludes the
+seven frozen directories and `reference/`, and ranks every finding Critical,
+Important or Minor with file and line evidence. A phase does not merge while a
+Critical is open. Critical and Important enter a fix round with the five-round
+circuit breaker; Minor findings go to `TODOS.md` with a one-line ruling.
+
+The third part is reporting. A gate status block now sits at the top of this
+file, above the first entry so that no guard reads it as a decision without a
+reason. Each gate adds one line: the gate, the review result, and the counts
+fixed and parked.
+
+**Reason:** the two failures this prevents are already visible in this
+repository's history. Parallel writing agents on a shared interface produce
+diffs that conflict in the files nobody assigned, and the fix costs more than the
+parallelism saved; the stop rule and the single-editor list for
+`dashboards/src/shared/nav/screens.ts`, `shared/layout` and `shared/states`
+exist for that. And a review that runs on every diff catches a line and misses a
+phase: the contract seam is the one artefact where a wrong decision is paid for
+by all 28 Fill-now screens, so it gets a gate of its own before any screen is
+built on it. Naming the eight points removes the judgement call about whether
+this diff is big enough to warrant one.
+
+**Cost if wrong:** low and reversible on the gstack half, because a gate that
+turns out to be unnecessary costs one review and is removed from the list.
+Moderate on the fan-out half. Granting the 1b and 1c batches once means a batch
+can start on a wrong premise without the founder in the loop, and the mitigation
+is the one-line confirmation of all six conditions before each batch plus the
+stop rule. The residual risk is that the confirmation line becomes a formality
+typed without the check behind it, which no guard in this repository can detect.
+
+## 2026-10-14 - Open decision 2 answered: Standing Authority is option C
+
+**Decision:** option C. An AI teammate may hold Standing Authority inside limits
+that code enforces: an amount cap, the never-covers list of Appendix A.7, an end
+date, instant switch-off on breach, and a grant only a Leader may make. No grant
+may be created until Checkpoint B is recorded as passed. Open decision 2 is
+closed. The hold of 2026-10-05 ends here, and the one page it asked for is
+`docs/superpowers/decisions/2026-10-14-standing-authority-pack.md`.
+
+**Reason, three parts, in the founder's own terms.**
+
+One. C is not B with a delay somebody chose. The dependency already exists, because
+PRD v9.0 section 17 already states that Standing Authority cannot be switched on
+before the job-understanding test set passes. B would ship a grant mechanism
+nobody may lawfully use yet. C records the dependency instead of leaving it to
+discipline.
+
+Two. Appendix A.6 keeps its three approval bases. No PRD version bump, no second
+change to the contract, the receipt shape or the audit log later. The shape is
+written once.
+
+Three. The moat is the authority and the receipt ledger. Delegation without
+measurement is the fastest route to the one incident that destroys that moat with
+the buyers for whom isolation is the reason to purchase.
+
+**Amendment 1, the gate is enforceable or it is not a gate.** Checkpoint B
+passed is defined here, operationally, and not left to judgement. It means one
+entry in this log, in the heading format this log already uses, naming the
+job-understanding test set, the measured result at 90% or better, and the date.
+Grant creation refuses while that entry is absent. The refusal is a guard
+assertion and nothing softer: not a configuration flag, not an environment
+variable, and not a sentence of prose. A gate a person can open without a commit
+is not a gate. The guard is `guards/standing-rules.test.ts`, which already
+carries the four-condition real-data gate in this exact shape and already fails
+closed on a file it cannot read.
+
+**What that guard can and cannot do, stated now rather than discovered later.**
+It reads this log and the committed code. It fails the build when a
+grant-creating operation exists in the tree while the Checkpoint B entry does
+not, so the two can only land in the right order, each in a commit the founder
+merges. It cannot inspect a running office, for the same reason section 6a of
+`CLAUDE.md` says the real-data gate guard cannot: live values are not in the
+repository. The control against a running system is that no grant-creating code
+exists to deploy, which is a stronger position than a runtime check and only
+holds while the guard does.
+
+**Amendment 2, the gate blocks creating grants and never blocks designing the
+fields.** These are two different things and this entry keeps them apart so a
+later reader cannot collapse option C into option A. Into `contract/v1`, now, at
+full shape: the grant reference, the three approval bases of Appendix A.6, and
+the server-side authority check that carries the caller's identity and role on
+every operation. The reason is finding H4 of the 2026-10-09 security review,
+recorded in this log on that date: role is currently decided by which static
+HTML file the browser loads, the router is a hash router by design, so the
+requested screen never reaches a server and route authority cannot be added
+there later. An authority check is not retrofittable. Refusing grant creation
+until Checkpoint B is a separate switch on top of that shape.
+
+**What changed in the repository today.** The Standing Authority section of
+`docs/rules/engine.md` no longer says do not design it, and now carries the C
+position and the Checkpoint B definition. The 2026-10-05 entry points here. The
+decision pack moved to `docs/superpowers/decisions/`, matching
+`2026-10-01-stage-1-slice-1-rulings.md`, so the genre has one convention.
+
+**What did not change today, and is owed.** PRD v9.0 still records open decision
+2 as open in six places: lines 18, 23, 347, 500, 990 and 1163 of
+`docs/prd/ORBIT_OS_PRD_v9_0.md`. It is the authority document, so where it and
+this log disagree it wins, which means those lines now contradict this ruling and
+must be amended in their own commit. `dashboards/CLAUDE.md:94-95` and the
+2026-10-05 seam plan and spec also still state the old position. None was edited
+here, because this commit is the ruling and amending the product document is a
+separate change for the founder to approve.
+
+**Cost if wrong.** If C should have been A, the grant shape sits in `contract/v1`
+as a surface nothing uses, and every receipt carries a third basis no row ever
+names, until a version bump removes both. If C should have been B, the cost is
+the delay alone, and opening the gate early is one recorded entry the founder
+approves. Neither costs a rewrite, which is the point of writing the shape once.
+
+**What stays open.** The default numbers for the cap and the count per day.
+Which categories are eligible, out of `routine`, `decline_refer` and
+`board_level` in `shared/src/approvals.ts`, where `board_level` is plainly out.
+Whether Standing Authority covers connector calls or only actions leaving the
+organization through the Action Gateway. The granting screen, which is Fill
+later. The composition of the Checkpoint B test set, and whether 90% is the
+right number.
+
+## 2026-10-14 - Checkpoint A is recorded as passed, on the stage 0b spike evidence
+
+**Result:** Checkpoint A of PRD v9.0 section 17 is met, and this entry is the
+first time it is written down. The words Checkpoint A did not appear anywhere in
+this log before today, so every session since the spike has read the checkpoint
+as open and the only checkpoint met as none.
+
+**The evidence, which is a log of commands and their real output rather than a
+summary.** `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`. Its verdict
+table marks all nine stage 0b exit criteria as pass, each with the section that
+proves it. The three that are Checkpoint A as section 17 states it:
+
+- Orbi and Scout run through Paperclip and Hermes at pinned versions. Both agents
+  read back `adapter_type = hermes_local`.
+- A Scout run posts a usable draft. Section 12 of that log records two leads,
+  both `PARSED OK` through `parseAgentComment` in `shared/src/agent-output.ts`,
+  validated in code rather than by eye.
+- A second task starts with an empty session. Section 12 records one
+  `agent_task_sessions` row per issue, `ae799104` and `61a40d8e` with different
+  session ids, and the canary planted in lead A absent from lead B. The two
+  leads were run strictly in sequence, so a shared session would have shown.
+
+The security check that section 17 also names is the posture check, which the
+same log records as exiting 0 on the shipped template and exiting 1 with a named
+finding when `read_only: true` is flipped in `template/compose.yml`. It is gated
+in CI.
+
+**One correction to the date.** The spike log is named for 2026-09-30, which is
+when it was opened and when the images were pinned by digest through the registry
+HTTP API, Paperclip at tag `sha-d554c47` resolving to
+`sha256:a02ac35ac41df911af477422ea0e781cf41d2b2c600c66f0a5ac9d8c63f52c2c`.
+Section 12, the run that actually clears the checkpoint, is dated 2026-10-01
+inside the log. So the pinning is 2026-09-30 and the passing run is 2026-10-01.
+Recorded because a future reader comparing the two dates would otherwise think
+one of them is wrong.
+
+**Why this is not a line in the gate status block.** That block is governed by
+section 11c of `CLAUDE.md` and takes one line per phase gate, naming the
+`/gstack-review` result and the findings fixed and parked. Checkpoint A is a PRD
+section 17 checkpoint, which is a different thing: it had no `/gstack-review` and
+predates that rule. The block still reads that no gate has passed yet, which
+stays true, because the first phase gate is the guard-hardening branch and it is
+at task 2 of 9.
+
+**Cost if wrong:** low and recoverable. If a later reading finds one of the nine
+criteria was not actually met, the entry is corrected and the spike is rerun
+against the one criterion. The cost of leaving it unrecorded was higher and was
+being paid every session, in rereading a closed question as open.
