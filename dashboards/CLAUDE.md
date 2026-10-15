@@ -91,9 +91,11 @@ package, so add a dependency with `pnpm --filter @orbit/dashboards add <pkg>`.
    Coordinator. Front Desk is built in and is not a teammate.
 6. **Access and authority are separate.** Access is User or Org Admin, what you
    can configure. Authority is Leader, Approver, Backup approver or Budget holder,
-   what you can approve. An AI never approves.
-7. **Standing Authority is flagged off and read-only** until open decision 2 is
-   answered. `/authority` ships as a shell.
+   what you can approve. An AI approves only under a Standing Authority a Leader
+   granted, and never on its own.
+7. **Standing Authority is flagged off and read-only** until Checkpoint B is
+   recorded as passed. `/authority` ships as a shell. Answered 2026-10-14,
+   option C.
 8. **No dead buttons, no lorem ipsum, no `any`.** Every action works against the
    mock, or it is not rendered.
 9. Never log or store a secret. The frontend never creates a connection credential.

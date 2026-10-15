@@ -15,12 +15,12 @@ v9.0 is a **clarification release**. The product is the same as v8.0: an organiz
 
 **What did not change.** The product definition, the six core ideas, the job and task engine, the approval model, the budget model, the architecture, the isolation rules and the fleet console are carried from v8.0 unchanged in substance.
 
-**Honest warning, carried from v8.0 and still true.** Standing Authority (an AI teammate deciding inside limits a human set) is still **open-pending and blocks build**. v6.2's rule that an AI may never approve still stands until the founder answers. Turning loose plain English into safe, exact limits remains the hardest engineering problem in the product.
+**Honest warning, amended 2026-10-14.** Standing Authority (an AI teammate deciding inside limits a human set) is **answered as option C**. A teammate may hold it inside limits code enforces, and **no grant may be created until Checkpoint B is recorded as passed**, so nothing decides on its own before the job-understanding test set is measured at 90% or better. v6.2's rule that an AI may never approve is retired on that condition and on no other. Turning loose plain English into safe, exact limits remains the hardest engineering problem in the product.
 
 **Checklist for this document**
 
 - [ ] Confirm the three new features in §8 and §9 (U-19, A-14, A-15).
-- [ ] Answer open decision 2, Standing Authority. It blocks build.
+- [x] Answer open decision 2, Standing Authority. Answered 2026-10-14 as option C: authority inside code-enforced limits, and no grant before Checkpoint B is recorded as passed.
 - [ ] Decide the five connector decisions in §13. Safe defaults apply until you do.
 - [ ] Confirm the first connector catalog in Appendix A.2.
 - [ ] Confirm the real-data gate now has four conditions, not three (§14).
@@ -344,7 +344,7 @@ The Org Admin builds the organization inside the product, hires and assigns AI t
 | A-20 | Jobs library | Every standing job in plain English with status, owner, department, last run and cost. | Kept |
 | A-21 | Job review | Approve, edit or retire jobs people described. Nothing goes live until the right person approves. | Kept |
 | A-22 | Job limits | Set amounts, counts, hours and cost limits on a job. Code enforces them. | Kept |
-| A-23 | Standing Authority | A Leader lets a teammate decide inside a numeric limit with an end date. **Feature-flagged off and read-only until open decision 2 is answered.** | Kept, blocked |
+| A-23 | Standing Authority | A Leader lets a teammate decide inside a numeric limit with an end date, enforced by code and never by the teammate. **Read-only and feature-flagged off until Checkpoint B is recorded as passed.** Answered 2026-10-14, option C. | Kept, gated on Checkpoint B |
 | A-24 | Job history | Every wording change, who approved it and when, with the option to go back. | Kept |
 | A-25 | Starter phrases | Example job sentences per department. Examples, not templates. | Kept |
 | A-26 | Conflict check | Warns when two jobs claim the same kind of work, and blocks activation until a person resolves it. | Kept |
@@ -497,9 +497,9 @@ Nothing consequential happens without a recorded person or a recorded Standing A
 
 - **Per-action approval:** a person says yes to one specific action, tied to one task and one decision.
 - **Standing template approval:** a person approves a fixed piece of text once. Only that exact text may go out under it; any wording change needs approval again.
-- **Standing Authority:** a Leader lets an AI teammate decide inside hard limits. **Open decision 2. Not approved for build.**
+- **Standing Authority:** a Leader lets an AI teammate decide inside hard limits. **Answered 2026-10-14, option C: approved for build, and no grant may be created until Checkpoint B is recorded as passed.**
 
-**How Standing Authority is kept safe** (design, not yet approved)
+**How Standing Authority is kept safe** (approved 2026-10-14, option C; no grant until Checkpoint B is recorded as passed)
 
 - A Leader grants it in writing, and the grant names the teammate, the category, a **numeric** limit (amount, count per day, or both), and an end date.
 - Fixed code enforces the limit, not the AI. A request over the limit, or in another category, goes to a person automatically.
@@ -970,6 +970,7 @@ flowchart LR
 | 1 | Customer-facing name | **Orbitcrew.** ORBIT-OS remains the internal name. Customers never see Paperclip, Hermes, OpenClaw or MCP. |
 | 6 | Release date | **No November 2026 launch.** The date is set after the engine spike passes and the five streams are sized. Checkpoints are gates, not dates. |
 | 7 | OrbitumAI as the test office | **Approved in principle**, on test accounts only until the four conditions in §14.3 are met. |
+| 2 | Standing Authority | **Option C, 2026-10-14.** A teammate may decide inside limits code enforces: an amount cap, the never-covers list in A.7, an end date, instant switch-off on breach, and a grant only a Leader may make. **No grant may be created until Checkpoint B is recorded as passed.** The grant reference, the three approval bases and the server-side authority check enter `contract/v1` now. Ruling in `docs/decisions.md`. |
 
 ### 18.2 Resolved in v9.0 (clarifications, not new choices)
 
@@ -987,7 +988,6 @@ flowchart LR
 
 | # | Decision | Suggestion | Status |
 | --- | --- | --- | --- |
-| 2 | **Standing Authority:** may an AI teammate decide inside limits a Leader sets? | Yes, with code-enforced limits, an end date, instant switch-off on breach, and the never-covers list | **OPEN-PENDING. Blocks build.** §12's rules are not approved. The contract exposes `listGrants` only, read-only, no create, no revoke, no check. Screens are flagged off and read-only. v6.2's "AI may never approve" still stands. |
 | 3 | Can customers describe their own teammate roles, or only hire ready-made ones? | Ready-made only at launch; the Super Admin adds roles after review. Note: U-19 and A-14 let a User *request* a teammate, which is not the same as describing a new role | Open |
 | 4 | Face ID or Touch ID | Allow only as a confirm step on a signed-in phone, not as a way to sign in | Open |
 | 5 | Home Screen widget | Ship push and lock-screen actions in the web app; add a native shell only if customers ask | Open |
@@ -1160,5 +1160,6 @@ copy-then-remove plan for approval.
 
 **Document version:** 9.0
 **Supersedes:** ORBIT_OS_PRD_v8_0.md (2026-10-02)
-**Status:** Build-ready except open decision 2 (Standing Authority) and CD-1 to CD-5
+**Status:** Build-ready. Standing Authority grants stay gated on Checkpoint B. CD-1 to CD-5 remain open and safe defaults apply until they are answered.
+**Amended:** 2026-10-14, open decision 2 answered as option C: a teammate may hold authority inside limits code enforces, and no grant may be created until Checkpoint B is recorded as passed. Ruling in `docs/decisions.md`.
 **Owner:** Shuv Chowdhury · shuv@orbitumai.com · OrbitumAI (Brewongo.ai LLC)
