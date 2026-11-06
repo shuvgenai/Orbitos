@@ -106,8 +106,35 @@ test('N5: comments that mention the send are ignored, code that calls it is not'
   expect(surface('/* c */ gmail.sendInThread(a);')).toBe(true);
 });
 
-test('N5: the scan reaches the directories the old hand-written list missed', () => {
+// The coverage canary. SCAN_ROOTS is ['.'], so the scan already reaches everything that is
+// not a dependency, build output or a test -- but "everything" is only worth asserting
+// against directories someone could plausibly add a send to, and that list has to name real
+// paths or the canary rots.
+//
+// It named `landing/src/` until 2026-11-06 and had been failing since the root page landed.
+// That was never a hole in the gateway guard: the four tests above kept passing and the scan
+// was already reading the landing entry. But a red file means `pnpm test:unit` is red, and a
+// gateway check nobody can run green is a gateway check everybody learns to ignore.
+//
+// WHY THE TEST MOVED AND NOT THE ENTRY. `landing/src/` was the shape of an earlier plan in
+// which the landing page lived in its OWN repo, cloned in at `landing/` -- which is what
+// .gitignore line 1 still says and what `/landing/` is still reserved for. FD-29 superseded
+// that and put the root page inside this repo at src/apps/landing/. Moving the entry to
+// `landing/src/` to satisfy the old assertion would drop it back inside an ignored
+// directory, which is exactly the bug the FD-29 session had just finished fixing: an
+// unanchored `landing/` had made the whole root page invisible to git.
+const MUST_BE_SCANNED = [
+  // Every Vite entry's app code. A send added to any screen is the risk this guards.
+  'src/apps/landing/',
+  'src/apps/user/',
+  'src/apps/org-admin/',
+  'src/apps/fleet/',
+  // Build and ops scripts, which run outside any app and were missed by the old list.
+  'scripts/',
+];
+
+test('N5: the scan reaches every entry and the scripts, not just the backend packages', () => {
   const files = SCAN_ROOTS.flatMap(sourceFiles).map((f) => f.replaceAll('\\', '/'));
-  expect(files.some((f) => f.startsWith('landing/src/'))).toBe(true);
-  expect(files.some((f) => f.startsWith('scripts/'))).toBe(true);
+  const unreached = MUST_BE_SCANNED.filter((dir) => !files.some((f) => f.startsWith(dir)));
+  expect(unreached, 'directories the send scan never reads').toEqual([]);
 });
