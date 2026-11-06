@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 // Local runs read DATABASE_URL from .env.local; CI sets it in the workflow.
@@ -20,6 +22,19 @@ export default defineConfig({
             'template/test/engine.test.ts',
             'template/test/no-unapproved-send.test.ts',
           ],
+        },
+      },
+      {
+        // The three dashboards. Its own project so the backend `unit` project keeps its Node
+        // environment and is untouched: Prompt 1 must not change what the backend suite runs.
+        plugins: [react()],
+        resolve: { alias: { '@': resolve(__dirname, 'src') } },
+        test: {
+          name: 'web',
+          environment: 'jsdom',
+          globals: true,
+          setupFiles: ['src/test/setup.ts'],
+          include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
         },
       },
       {

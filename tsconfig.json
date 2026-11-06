@@ -12,5 +12,5 @@
     "types": ["node"]
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "**/node_modules", "landing", "archive", "**/generated/**"]
+  "exclude": ["node_modules", "**/node_modules", "landing", "archive", "**/generated/**", "src", "dashboards", "e2e", "vite.config.ts", "tailwind.config.ts"]
 }

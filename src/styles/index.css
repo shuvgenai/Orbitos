@@ -1,0 +1,78 @@
+/* The frozen token package is the only source of colour, type, radius and focus values.
+   FD-16, PRD 15.1. design/tokens.test.ts proves this file's source agrees with DESIGN.md. */
+@import '../../design/tokens.css';
+
+/* DESIGN.md names the family "Inter Variable". Google Fonts registers the family as plain
+   "Inter", so loading it from there would leave the token silently falling back to
+   system-ui. @fontsource-variable/inter registers the matching name. */
+@import '@fontsource-variable/inter/index.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  body {
+    /* DESIGN.md: body text is at least 16px. The prototype computed to 14px -- see
+       docs/plan.md 5-R3, where 15 of 26 targets were also under 44px. */
+    font-family: var(--font-sans);
+    font-size: var(--font-size-body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* DESIGN.md UX-7: 3px solid --color-ink, offset 3px. */
+  :focus-visible {
+    outline: var(--focus-ring) solid var(--color-ink);
+    outline-offset: 3px;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
+
+@layer components {
+  /* A native <progress> with the design system's look: 1px line, no shadow, ink fill. */
+  .orbit-progress {
+    appearance: none;
+    border: var(--border-divider) solid var(--color-line);
+    border-radius: var(--radius-button);
+    background: var(--color-canvas);
+    overflow: hidden;
+  }
+
+  .orbit-progress::-webkit-progress-bar {
+    background: var(--color-canvas);
+  }
+
+  .orbit-progress::-webkit-progress-value {
+    background: var(--color-ink);
+  }
+
+  .orbit-progress::-moz-progress-bar {
+    background: var(--color-ink);
+  }
+}
+
+@layer utilities {
+  /* One red, errors only (PRD 15.2). */
+  .text-error {
+    color: var(--color-danger);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
