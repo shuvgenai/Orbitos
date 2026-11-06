@@ -5,6 +5,25 @@ role-gated dashboards built in React against a typed mock API. The pinned Paperc
 Hermes stack, the `orbitcrew` database schema and its migrations live in a **different**
 repo (`shuvgenai/orbitos-infra`) and nothing here depends on them yet.
 
+## STOP — the Build Prompts contain known errors
+
+**`ORBIT-OS_Claude_Code_Build_Prompts.md` contains known errors. Read
+`docs/spec-errata.md` BEFORE running any prompt from it, and apply every E-entry that
+touches the prompt you are about to run. The repo copy is not corrected in place — see
+FD-17 on why copies are not edited.**
+
+18 of its statements are stale against FD-18 to FD-25: the nine agent templates, the
+ten-tool catalog, three authorities, a single budget number, `org.js` as the source of five
+people it does not contain, and an Agent map screen the PRD deletes by name. Its acceptance
+checks name roles that no longer exist.
+
+**This is enforced, not trusted.** `src/test/errata.test.ts` runs in `pnpm test:web` and
+holds one exact anchor from each E-entry's *old* text. It fails when an anchor is no longer
+findable in the repo copy, because that means one of two things, and both need a human:
+the canonical copy was corrected and re-copied down (so mark the entry `STATUS: applied`),
+or the repo copy was edited in place, which FD-17 forbids. A stale errata list is worse
+than none, and this is what stops it going stale silently.
+
 ## Read in this order
 
 1. **`ORBIT_OS_PRD_v9_0.md`** — the spec. §7 access roles and authorities, §15 design,
@@ -24,6 +43,22 @@ repo (`shuvgenai/orbitos-infra`) and nothing here depends on them yet.
   Every decision binding on this repo is summarised below, so you do not need that repo
   open to work here.
 - Where the PRD and the Build Prompts disagree, the **PRD** wins — then fix the prompt.
+
+#### Settled 2026-11-05 — the answers to Prompt 0 (FD-18 to FD-25)
+
+These eight close Prompt 0 and bind this repo. **Read `docs/spec-errata.md` before trusting
+any list in the Build Prompts** — 18 of its statements are stale against these.
+
+| FD | Decision |
+|---|---|
+| **FD-18** | **Seed data comes only from PRD Appendix A.** Five hireable roles (Finance Clerk, Sales Analyst, Support Triager, HR Coordinator, Operations Reporter) plus **Orbi**, the Coordinator — always present, exactly one, never removable, **not hired**. The prototype's nine are retired to `docs/backlog.md`. Appendix A.2 is the connector catalog: **QuickBooks, Intercom and Salesforce are out**; every first permission is read-only. `Agent.budget` is A.5's **three** numbers. |
+| **FD-19** | **No Agent map.** §15.6 deletes it; it folds into the Team tab of `#/agents` as a plain list. No `#/map` route, no map nav item. |
+| **FD-20** | **Phase 1 builds the prototype's fourteen screens, not §15.8's 52.** A recorded deviation — `D-3` in the infra repo's `governing/deviations.md`. Do not quietly widen it, and do not quietly narrow it either. |
+| **FD-21** | **`assets/data/people.js` is the source for the five demo people.** The Build Prompts' `org.js` is a defect (`DEF-3`, errata E-7). |
+| **FD-22** | **Four authorities** — `leader`, `approver`, `backup`, `budget`, matching `orbitcrew.authority` in migration `0002`. `AccessRole` matches `orbitcrew.access_role`: `user`, `admin`, `super`. |
+| **FD-23** | **Maximum tree depth three**, enforced in the validator now. Orbi is level 1; the board does not count a level. |
+| **FD-24** | **The mock ticker writes activity receipts** when it moves a teammate to `running`. |
+| **FD-25** | **Budget defaults are PROPOSED** and await confirmation. Named constants, one file. |
 
 ### Those first three files are copies
 
@@ -132,30 +167,47 @@ imports, lints or type-checks it. Run it to *use* it:
 python3 -m http.server 8080    # inside reference/orbit-os-frontend
 ```
 
-Seed data to copy **from** (never edit): `assets/data/jobs.js` (9 job templates — Atlas,
-Scout, Echo, Ledger, Compass, Beacon, Pulse, Quill, Relay), `assets/data/mcps.js` (the
-10-tool catalog), `assets/data/org.js` (BrightPath Advisors), `assets/data/fleet.js` (3
-sample offices), `assets/config.js` (3 default guardrails, 5 suggestions),
-`assets/data/people.js`, `assets/data/tasks.js`.
+**Seed lists come from PRD Appendix A, not from here — FD-18.** The roster in
+`assets/data/jobs.js` and the catalog in `assets/data/mcps.js` are **superseded**: Appendix
+A.1 fixes five hireable roles plus Orbi, Appendix A.2 fixes eight connectors, and Appendix A
+forbids restating either list anywhere else. The prototype's nine are parked in
+`docs/backlog.md`.
 
-Prompt 1 builds `src/shared/seeds` from `reference/orbit-os-frontend/assets/` directly.
-There is no extract folder and no reconstruction anywhere; do not create one.
+What the prototype is still the source of (never edit any of it):
+
+| File | Still the source of | Superseded |
+|---|---|---|
+| `assets/data/jobs.js` | the **sentences** for Orbi, Sales Analyst, Support Triager and Operations Reporter, via counterparts `coordinator`, `scout`, `beacon`, `pulse` — name substituted, nothing else in the sentence changed (Appendix C instruction 2) | the roster itself, and the single `budget` number |
+| `assets/data/mcps.js` | the can / ask first / never **shape and copy**, and the three access modes | which connectors exist, and their first permission |
+| `assets/data/org.js` | the office, department and request shapes; the `fresh`/`demo` seed structure | the teammate count, and **it is not the source of the five people** — FD-21 |
+| `assets/data/people.js` | **the five demo people**, in full | — |
+| `assets/data/fleet.js` | the 3 sample offices and the 4 provisioning steps | — |
+| `assets/config.js` | the 3 default guardrails and 5 suggestions | — |
+| `assets/data/tasks.js` | the receipt shape and the activity generator | — |
+
+Prompt 1 builds `src/shared/seeds` from `reference/orbit-os-frontend/assets/` and PRD
+Appendix A, with a provenance comment on every entry naming its source file and key, or
+`PROVENANCE: PROPOSED` where none exists. There is no extract folder and no reconstruction
+anywhere; do not create one.
 
 ---
 
-## Known spec gap — report it, do not resolve it
+## The `org.js` spec gap — RESOLVED 2026-11-05 by FD-21
 
 The Build Prompts name **`assets/data/org.js`** as the source of the demo office's five
-people: Maria Santos (admin), David Park (leader), Jordan Lee, Priya Nair, Marcus Reed.
+people. **It holds no person records at all** — it iterates `window.People` from
+**`assets/data/people.js`**, and the only literal names in it are an audit author and the copy
+"Paused by Jordan Lee".
 
-**`org.js` holds only Maria Santos and Jordan Lee.** David Park, Priya Nair and Marcus Reed
-are in **`assets/data/people.js`**, which the copy-from list does not mention.
+**`people.js` is the source.** The Build Prompts are wrong, recorded as `DEF-3` in the infra
+repo and as errata **E-7**. The fix belongs in the canonical copy on claude.ai, not in the
+repo copy.
 
-**Do not invent a value and do not pick a file.** The open question is which file the spec
-means, not what the five names are. Prompt 0 reports it in `docs/plan.md`.
-
-The same rule holds for anything else the spec expects and the prototype does not contain:
-**report the gap, never fill it.**
+The rule that produced this answer still stands for everything else: **anything the spec
+expects and the prototype does not contain is a gap to report, never to fill.** Two live
+examples, both from FD-18: the Finance Clerk and the HR Coordinator have no counterpart copy
+in the prototype, so their job line, instructions and tools carry `PROVENANCE: PROPOSED` in
+the seed and are listed for the founder — not quietly written as though they had a source.
 
 ---
 
