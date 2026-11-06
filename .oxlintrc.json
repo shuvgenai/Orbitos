@@ -1,0 +1,89 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "react",
+    "jsx-a11y",
+    "unicorn",
+    "oxc"
+  ],
+  "env": {
+    "browser": true,
+    "es2022": true
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn"
+  },
+  "rules": {
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/anchor-has-content": "error",
+    "jsx-a11y/aria-props": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/aria-unsupported-elements": "error",
+    "jsx-a11y/click-events-have-key-events": "error",
+    "jsx-a11y/heading-has-content": "error",
+    "jsx-a11y/label-has-associated-control": "error",
+    "jsx-a11y/no-autofocus": "error",
+    "jsx-a11y/no-redundant-roles": "error",
+    "jsx-a11y/role-has-required-aria-props": "error",
+    "react/jsx-key": "error",
+    "react/no-children-prop": "error",
+    "typescript/no-explicit-any": "error",
+    "no-console": [
+      "error",
+      {
+        "allow": [
+          "warn",
+          "error"
+        ]
+      }
+    ],
+    "no-restricted-globals": [
+      "error",
+      "localStorage",
+      "sessionStorage"
+    ],
+    "react/react-in-jsx-scope": "off",
+    "no-await-in-loop": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/shared/api/mock/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-globals": "off"
+      }
+    },
+    {
+      "files": [
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "src/test/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-globals": "off",
+        "typescript/no-explicit-any": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "reference/**",
+    "design/**",
+    "dist/**",
+    "node_modules/**",
+    "archive/**",
+    "api/**",
+    "db/**",
+    "frontdesk/**",
+    "ops/**",
+    "shared/**",
+    "web/**",
+    "worker/**",
+    "template/**",
+    "scripts/**",
+    "landing/**"
+  ]
+}
