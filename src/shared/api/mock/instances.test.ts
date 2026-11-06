@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { STORE_KEY } from '@/shared/seeds/config';
+import type { StoreState } from '@/shared/schemas';
 import { demo } from '@/shared/seeds/office';
 import { DOCUMENT_VERSION, MockStore } from './store';
 
@@ -120,40 +121,40 @@ describe('a v1 document is migrated, not lost', () => {
   });
 });
 
-describe('a FULL v1 office survives the migration intact', () => {
-  /**
-   * The sparse fixture above is not the document a developer actually has. This one is a
-   * launched demo office -- departments, people, six teammates with prompts and perf rows,
-   * requests, connections, receipts, audit -- written in the v1 shape, which is what is
-   * sitting in a real browser right now. If anything is going to be lost, it is lost here.
-   */
-  const asV1 = () => {
-    const s = demo() as Record<string, unknown>;
-    return { ...s, v: 1 };
-  };
+/**
+ * The sparse fixture above is not the document a developer actually has. This is a launched
+ * demo office -- departments, people, six teammates with prompts and perf rows, requests,
+ * connections, receipts, audit -- written in the v1 shape, which is what was sitting in a
+ * real browser. If anything is going to be lost, it is lost here.
+ *
+ * `demo()` already returns a StoreState with `v: STORE_VERSION`, which was 1, so the v1 shape
+ * is exactly what it produces -- no cast and no reshaping needed.
+ */
+const fullV1 = (): StoreState => demo();
 
+describe('a FULL v1 office survives the migration intact', () => {
   it('keeps every collection, element for element', () => {
-    const before = asV1();
+    const before = fullV1();
     localStorage.setItem(STORE_KEY, JSON.stringify(before));
     const after = new MockStore('1.4.2').get()!;
 
-    // Counts first, so a later deep-equal cannot pass on two empty things.
-    expect(after.departments.length).toBe((before['departments'] as unknown[]).length);
-    expect(after.people.length).toBe((before['people'] as unknown[]).length);
-    expect(after.agents.length).toBe((before['agents'] as unknown[]).length);
-    expect(after.requests.length).toBe((before['requests'] as unknown[]).length);
-    expect(after.activity.length).toBe((before['activity'] as unknown[]).length);
-    expect(after.audit.length).toBe((before['audit'] as unknown[]).length);
+    // Counts first, so the deep equal below cannot pass on two empty things.
+    expect(after.departments.length).toBe(before.departments.length);
+    expect(after.people.length).toBe(before.people.length);
+    expect(after.agents.length).toBe(before.agents.length);
+    expect(after.requests.length).toBe(before.requests.length);
+    expect(after.activity.length).toBe(before.activity.length);
+    expect(after.audit.length).toBe(before.audit.length);
     expect(after.agents.length).toBeGreaterThan(1);
     expect(after.people.length).toBeGreaterThan(1);
 
     // Then the whole office, field for field. `fleet` is the only key the migration drops,
     // and a v1 demo document never had one.
-    expect(after).toEqual({ ...before, v: 1 });
+    expect(after).toEqual(before);
   });
 
   it('keeps the office launched, so the ticker and the fleet status still agree', () => {
-    localStorage.setItem(STORE_KEY, JSON.stringify(asV1()));
+    localStorage.setItem(STORE_KEY, JSON.stringify(fullV1()));
     const store = new MockStore('1.4.2');
     expect(store.get()?.org.launched).toBe(true);
     expect(store.get()?.org.step).toBe(5);
@@ -161,7 +162,7 @@ describe('a FULL v1 office survives the migration intact', () => {
 
   it('keeps a teammate prompt, its version history and its guardrails', () => {
     // The things a developer would actually notice missing.
-    const before = asV1();
+    const before = fullV1();
     localStorage.setItem(STORE_KEY, JSON.stringify(before));
     const agent = new MockStore().get()!.agents.find((a) => a.versions.length > 0)!;
     expect(agent.prompt.length).toBeGreaterThan(0);
@@ -173,9 +174,11 @@ describe('a FULL v1 office survives the migration intact', () => {
     // This is what makes a backup-before-reload worth taking: the migration happens in
     // memory, so an untouched reload leaves the v1 bytes on disk and nothing is committed to
     // the new shape until the first write -- which, for a LAUNCHED office, is the ticker.
-    const raw = JSON.stringify(asV1());
+    const raw = JSON.stringify(fullV1());
     localStorage.setItem(STORE_KEY, raw);
-    new MockStore('1.4.2');
+    // Constructed and deliberately unused: loading is the whole action under test.
+    const store = new MockStore('1.4.2');
+    expect(store.get()?.org.launched).toBe(true);
     expect(localStorage.getItem(STORE_KEY)).toBe(raw);
     expect(read().v).toBe(1);
   });

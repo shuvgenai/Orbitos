@@ -81,14 +81,61 @@ describe('the ApiClient seam', () => {
     expect(found).toContain('listAgents');
     expect(found).toContain('provisionOffice');
   });
+});
 
-  it('no office-facing operation takes an office identifier', () => {
+/**
+ * Parameter NAMES, not the whole signature.
+ *
+ * The first version of this check tested the raw parameter text for the literal `officeId`,
+ * and `listAgents(orgId: string)` sailed straight through -- which is the MORE likely name of
+ * the two, because FD-1 is org-scoped and every table carries `org_id`. Verified by injecting
+ * it and watching the test pass when it should have failed.
+ *
+ * Reading names only also keeps `saveOffice(patch: Partial<Pick<Office, ...>>)` from tripping
+ * it: `Office` is the current office's own type and is not a scope selector.
+ */
+const SCOPE_NAME = /office|org|tenant|instance|workspace/i;
+
+/** `a: string, b?: number` -> ['a', 'b']. Destructured parameters have no name to read. */
+function paramNames(params: string): string[] {
+  if (!params.trim()) return [];
+  return params
+    .split(',')
+    .map((p) => p.split(':')[0]?.trim().replace(/[?.]/g, '') ?? '')
+    .filter((n) => n && /^[A-Za-z_$][\w$]*$/.test(n));
+}
+
+describe('the office identifier', () => {
+  it('appears in no office-facing operation, under any of its likely names', () => {
     const offenders = methods()
       .filter((m) => !MAY_SPAN.includes(m.name))
-      .filter((m) => /officeid/i.test(m.params) || /\bFleetOffice\b/.test(m.params))
+      .filter(
+        (m) =>
+          paramNames(m.params).some((n) => SCOPE_NAME.test(n)) ||
+          /\bFleetOffice\b/.test(m.params),
+      )
       .map((m) => `${m.name}(${m.params})`);
     expect(offenders).toEqual([]);
   });
+
+  it('the name check really does read names, and really does catch each spelling', () => {
+    // Without this the check above could pass by parsing nothing, which is how the version
+    // it replaces managed to look green.
+    expect(paramNames('officeId: string')).toEqual(['officeId']);
+    expect(paramNames('id: string, byName: string')).toEqual(['id', 'byName']);
+    expect(paramNames('patch: Partial<Pick<Office, \'name\'>>')).toEqual(['patch']);
+    expect(paramNames('')).toEqual([]);
+    for (const spelling of ['officeId', 'orgId', 'tenantId', 'instanceId', 'workspaceId', 'office']) {
+      expect(SCOPE_NAME.test(spelling), spelling).toBe(true);
+    }
+    // And it does not flag the parameter names the interface legitimately uses.
+    for (const fine of ['id', 'byName', 'patch', 'draft', 'token', 'password', 'key', 'mode']) {
+      expect(SCOPE_NAME.test(fine), fine).toBe(false);
+    }
+  });
+});
+
+describe('the ApiClient seam, continued', () => {
 
   it('EVERY operation is classified, so a new one cannot slip in unclassified', () => {
     // The assertion that does the real work, and the first version of this test got it

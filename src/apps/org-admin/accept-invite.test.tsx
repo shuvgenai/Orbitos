@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ApiProvider } from '@/shared/api/provider';
 import { MockApiClient } from '@/shared/api/mock';
 import { ToastProvider } from '@/shared/ui/Toast';
-import { INVITE_TTL_MS } from '@/shared/lib/invite';
+import { INVITE_MESSAGE, INVITE_TTL_MS } from '@/shared/lib/invite';
 import { AcceptInvite } from './AcceptInvite';
 
 /**
@@ -129,23 +129,36 @@ describe('an invitation that cannot be used', () => {
     client.dispose();
   });
 
-  // Mounts the screen twice and provisions an office, so it needs more than the 5s default
-  // when the suite runs in parallel.
-  it('says the same thing for an unknown token as for a tampered one', async () => {
+  /**
+   * One message for an unknown token and for a tampered one, so the URL is not a token
+   * oracle.
+   *
+   * Asserted as two cases against ONE SHARED CONSTANT rather than by mounting the screen
+   * twice inside a single test and comparing the two strings. The comparing version was
+   * flaky: two renders plus a provision in one test exceeded the default timeout under
+   * parallel load, and it only ever failed when the machine was busy. Pinning both to
+   * `INVITE_MESSAGE.unknown` is also the stronger assertion -- it fixes the sentence, where
+   * comparing two renders would have passed if both had changed together.
+   */
+  it.each([
+    ['an unknown token', '0'.repeat(64)],
+    ['a tampered token', `${'a'.repeat(63)}f`],
+  ])('shows the generic refusal for %s', async (_label, token) => {
+    const client = mount(token);
+    expect(await screen.findByRole('alert')).toHaveTextContent(INVITE_MESSAGE.unknown);
+    // It does not say whether the invitation ever existed.
+    expect(document.body.textContent).not.toMatch(/exist|not found|unknown token/i);
+    client.dispose();
+  });
+
+  it('a tampered real token is refused, not accepted', async () => {
+    // The pair above uses synthetic tokens; this one proves a REAL token with one character
+    // changed does not open the door.
     const token = await issueInvite();
-
-    const a = mount('0'.repeat(64));
-    const unknown = (await screen.findByRole('alert')).textContent;
-    a.dispose();
-    document.body.innerHTML = '';
-
-    const b = mount(`${token.slice(0, -1)}f`);
-    const tampered = (await screen.findByRole('alert')).textContent;
-    b.dispose();
-
-    // One message for both, so the URL is not a token oracle.
-    expect(unknown).toBe(tampered);
-  }, 20_000);
+    const client = mount(`${token.slice(0, -1)}${token.endsWith('f') ? '0' : 'f'}`);
+    expect(await screen.findByRole('alert')).toHaveTextContent(INVITE_MESSAGE.unknown);
+    client.dispose();
+  });
 
   it('names no other sign-in and offers no link away (Prompt 1.5: refuse, never redirect)', async () => {
     const client = mount('0'.repeat(64));
