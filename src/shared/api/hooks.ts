@@ -17,6 +17,7 @@ export const keys = {
   receipts: ['receipts'] as const,
   audit: ['audit'] as const,
   offices: ['offices'] as const,
+  invites: ['invites'] as const,
   session: ['session'] as const,
 };
 
@@ -68,6 +69,16 @@ export function useAudit() {
 export function useFleetOffices() {
   const api = useApi();
   return useQuery({ queryKey: keys.offices, queryFn: () => api.listOffices() });
+}
+
+/**
+ * Every invitation issued. OPERATOR AND DEV ONLY -- see `InviteDevPanel`. A customer entry
+ * calling this would be reading operator metadata, which is why nothing in src/apps/user or
+ * src/apps/org-admin does.
+ */
+export function useFleetInvites() {
+  const api = useApi();
+  return useQuery({ queryKey: keys.invites, queryFn: () => api.listInvites() });
 }
 
 export function useSession() {

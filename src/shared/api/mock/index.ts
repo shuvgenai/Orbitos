@@ -34,7 +34,17 @@ import type {
   StoreState,
   ToolMode,
 } from '@/shared/schemas';
-import type { FleetOffice, ProvisionInput } from '@/shared/schemas/fleet';
+import type { FleetOffice } from '@/shared/schemas/fleet';
+import { provisionInputSchema, type ProvisionInput } from '@/shared/schemas/provision';
+import type { FleetMeta, Invite, InvitePreview } from '@/shared/schemas/invite';
+import {
+  INVITE_MESSAGE,
+  INVITE_TTL_MS,
+  inviteState,
+  inviteUrl,
+  newInviteToken,
+  type InviteState,
+} from '@/shared/lib/invite';
 import {
   CONNECT_SIM_MS,
   DEFAULT_BUDGET,
@@ -47,7 +57,7 @@ import {
   TICKER_MS,
 } from '@/shared/seeds/config';
 import { mintRuntimeRef } from './runtime-ref';
-import { receiptFeed, sampleDoing, uid } from '@/shared/seeds/office';
+import { blank, fresh, receiptFeed, sampleDoing, uid } from '@/shared/seeds/office';
 import { toolName } from '@/shared/seeds/tools';
 import { MockStore, type Source } from './store';
 
@@ -74,6 +84,21 @@ export type MockOptions = {
   sampleOffices?: readonly FleetOffice[];
   instanceVersion?: string;
   provisionSteps?: ReadonlyArray<readonly [string, string]>;
+  /**
+   * Marks this client as the OPERATOR surface, where every office-facing read returns zero
+   * rows.
+   *
+   * It is the mock's stand-in for Prompt 1.5 rule 3 -- "Super Admin gets no policy on
+   * `agents`, `requests` or any content table" -- and FD-31 constraint 6. Holding every
+   * instance in one document makes that boundary a discipline rather than a wall, so it is
+   * enforced here at the seam and asserted in `boundary.test.ts`.
+   *
+   * Named without the operator's own words on purpose: the mock ships in all three bundles,
+   * and `customer-surface.test.ts` greps them.
+   */
+  fleetSide?: boolean;
+  /** Injectable clock, so an expiry test needs no timer tricks. */
+  now?: () => number;
 };
 
 export class MockApiClient implements ApiClient {
@@ -85,23 +110,41 @@ export class MockApiClient implements ApiClient {
   private sampleOffices: readonly FleetOffice[];
   private instanceVersion: string;
   private provisionSteps: ReadonlyArray<readonly [string, string]>;
+  private fleetSide: boolean;
+  private now: () => number;
+  /** Returned by every office-facing read when there is no office to read. Never mutated. */
+  private readonly nothing: StoreState = blank();
 
   constructor(opts: MockOptions = {}) {
-    this.store = opts.store ?? new MockStore();
+    this.instanceVersion = opts.instanceVersion ?? '0.0.0';
+    this.store = opts.store ?? new MockStore(this.instanceVersion);
     this.simulate = opts.simulate ?? true;
     this.sampleOffices = opts.sampleOffices ?? [];
-    this.instanceVersion = opts.instanceVersion ?? '0.0.0';
     this.provisionSteps = opts.provisionSteps ?? [];
+    this.fleetSide = opts.fleetSide ?? false;
+    this.now = opts.now ?? nowMs;
     this.startTicker();
   }
 
   /* ------------------------------------------------------------------ plumbing */
 
+  /**
+   * THE CURRENT INSTANCE -- what every office-facing operation reads, and the reason none of
+   * them takes an office identifier (FD-31 constraint 1).
+   *
+   * Two cases answer with an empty office rather than throwing: nothing is bound yet, and
+   * the operator surface, which reaches no customer content at all.
+   */
   private s(): StoreState {
-    return this.store.get();
+    if (this.fleetSide) return this.nothing;
+    return this.store.get() ?? this.nothing;
   }
 
   private u(fn: (s: StoreState) => void, source: Source = 'user'): void {
+    // The operator writes nothing into an office through the office-facing surface. The one
+    // way an operator action reaches an office is `store.updateInstance`, used by the fleet
+    // operations below, which writes the S-23 audit row into that office's own audit.
+    if (this.fleetSide) return;
     this.store.update(fn, source);
   }
 
@@ -645,65 +688,251 @@ export class MockApiClient implements ApiClient {
 
   /* ------------------------------------------------------------------- fleet */
 
+  /**
+   * Every office, from the instances in the document plus the operator's fixtures.
+   *
+   * COUNTS AND STATUS ONLY (PRD 7.1, 10 preamble, Prompt 1.5 rule 3). `agents` and `cost`
+   * are rolled up from an instance -- which is what S-38's nightly numbers send -- and
+   * nothing else crosses: no teammate name, no person, no request, no receipt. `adminEmail`,
+   * `version` and `health` come from the operator's own metadata, never from a live read of
+   * an office's people. Asserted in `boundary.test.ts`.
+   */
   async listOffices(): Promise<FleetOffice[]> {
-    const s = this.s();
-    const live: FleetOffice = {
-      id: 'ws_current',
-      name: s.org.name,
-      domain: s.org.domain,
-      status: s.org.launched ? 'live' : 'onboarding',
-      agents: s.agents.length,
-      cost: Number(s.agents.reduce((t, a) => t + a.perf.cost7, 0).toFixed(2)),
-      version: this.instanceVersion,
-      health: 'ok',
-      admin: s.people.find((p) => p.access === 'admin')?.email ?? '',
+    const doc = this.store.document();
+    const rows = Object.entries(doc.instances).map(([id, state]) =>
+      this.rowFor(id, state, doc.fleetMeta[id]),
+    );
+    return [...rows, ...this.sampleOffices.map((o) => copy(o))];
+  }
+
+  private rowFor(id: string, state: StoreState, meta: FleetMeta | undefined): FleetOffice {
+    return {
+      id,
+      name: state.org.name,
+      domain: state.org.domain,
+      status: this.statusOf(state),
+      agents: state.agents.length,
+      cost: Number(state.agents.reduce((t, a) => t + a.perf.cost7, 0).toFixed(2)),
+      version: meta?.version ?? this.instanceVersion,
+      health: meta?.health ?? 'ok',
+      admin: meta?.adminEmail ?? '',
     };
-    const provisioned = (s.fleet ?? []) as FleetOffice[];
-    return [live, ...provisioned, ...this.sampleOffices];
+  }
+
+  /**
+   * Derived, never stored, so a row cannot disagree with the office behind it.
+   *
+   * `awaiting` is an office whose invitation nobody has accepted: it has a document and no
+   * Org Admin in it. That is why accepting an invitation moves a row from "Awaiting
+   * onboarding" to "Org Admin onboarding" without anything having to set a field.
+   */
+  private statusOf(state: StoreState): FleetOffice['status'] {
+    if (state.org.launched) return 'live';
+    return state.people.some((p) => p.access === 'admin') ? 'onboarding' : 'awaiting';
   }
 
   async getFleetOffice(id: string): Promise<FleetOffice | undefined> {
     return (await this.listOffices()).find((o) => o.id === id);
   }
 
-  async provisionOffice(input: ProvisionInput): Promise<Result> {
+  /**
+   * S-01: set up a new office, and A-04: invite its Org Admin.
+   *
+   * `byName` is the operator, PASSED IN as data exactly as `togglePause(id, byName)` is. The
+   * mock ships in all three bundles, so a literal operator name written here would land in
+   * the customer ones and fail `customer-surface.test.ts`.
+   *
+   * **The office and its invitation are created before the steps run, not after.** The four
+   * steps are a progress display over work that is already done, which is the honest shape
+   * for a mock: the previous version recorded the row only once the last step finished, so a
+   * reload mid-run lost the office entirely and a second tab saw no progress at all. Every
+   * interruption now leaves a complete, usable office with a live invitation.
+   */
+  async provisionOffice(
+    input: ProvisionInput,
+    byName: string,
+  ): Promise<Result<{ officeId: string; token: string; url: string }>> {
+    const parsed = provisionInputSchema.safeParse(input);
+    if (!parsed.success) return refuse(...parsed.error.issues.map((i) => i.message));
+    const clean = {
+      name: parsed.data.name.trim(),
+      domain: parsed.data.domain.trim().toLowerCase(),
+      email: parsed.data.email.trim(),
+      adminName: parsed.data.adminName.trim(),
+    };
+
+    // One office per domain. Without this a double submit made a second office, and two rows
+    // on one domain is not a state the fleet console can explain to anyone.
+    const taken = (await this.listOffices()).some((o) => o.domain.toLowerCase() === clean.domain);
+    if (taken) return refuse(`An office already uses ${clean.domain}.`);
+
+    const at = this.now();
+    const officeId = uid('ws_');
+    const token = newInviteToken();
+
+    const state = fresh();
+    state.org.name = clean.name;
+    state.org.domain = clean.domain;
+    // No Org Admin until the invitation is accepted. That absence IS the "Awaiting
+    // onboarding" status, and it is what the accept step fills in.
+    state.people = [];
+    state.audit = [];
+
+    this.store.updateDocument((d) => {
+      d.instances[officeId] = state;
+      d.fleetMeta[officeId] = {
+        version: this.instanceVersion,
+        health: 'ok',
+        adminEmail: clean.email,
+        createdAt: at,
+      };
+      d.invites.push({
+        token,
+        officeId,
+        email: clean.email,
+        name: clean.adminName,
+        issuedBy: byName,
+        issuedAt: at,
+        expiresAt: at + INVITE_TTL_MS,
+        usedAt: null,
+      });
+      // S-23: the operator's action is logged INSIDE the affected office, where that office's
+      // owner can read it -- not in a fleet-level log they cannot see.
+      this.store.auditIn(state, byName, `Office created for ${clean.name}`);
+      this.store.auditIn(
+        state,
+        byName,
+        `Invitation issued to ${clean.email} as Org Admin, expires in 7 days`,
+      );
+    });
+
     this.provision = { i: 0, input, done: false };
     for (let i = 0; i < this.provisionSteps.length; i += 1) {
       await sleep(PROVISION_STEP_MS);
       this.provision = { ...this.provision, i: i + 1 };
-      this.u(() => {}, 'job');
+      this.store.updateDocument(() => {}, 'job');
     }
-    this.u((s) => {
-      s.fleet = [
-        ...((s.fleet ?? []) as FleetOffice[]),
-        {
-          id: uid('ws_'),
-          name: input.name.trim(),
-          domain: input.domain.trim(),
-          status: 'awaiting',
-          agents: 0,
-          cost: 0,
-          version: this.instanceVersion,
-          health: 'ok',
-          admin: input.email.trim(),
-        },
-      ];
-    });
     this.provision = { ...this.provision, done: true };
-    return accept(undefined);
+
+    return accept({ officeId, token, url: inviteUrl(this.origin(), token) });
   }
 
   provisionProgress(): { i: number; done: boolean } | null {
     return this.provision ? { i: this.provision.i, done: this.provision.done } : null;
   }
 
+  /* --------------------------------------------------------------- invitations */
+
+  /**
+   * What the accept screen may show before anyone has proved anything: the office being
+   * joined, and who it was meant for. Never the office's contents.
+   *
+   * Takes a TOKEN, not an office id, and that distinction is the point. In production the
+   * invitation link is served by that office's own deployment, so the token is what routes --
+   * which is why this does not breach FD-31 constraint 1.
+   */
+  async getInvite(token: string): Promise<Result<InvitePreview>> {
+    const doc = this.store.document();
+    const invite = doc.invites.find((i) => i.token === token);
+    const state = inviteState(invite, this.now());
+    if (state !== 'valid' || !invite) return refuse(INVITE_MESSAGE[state === 'valid' ? 'unknown' : state]);
+    const office = doc.instances[invite.officeId];
+    if (!office) return refuse(INVITE_MESSAGE.unknown);
+    return accept({
+      officeName: office.org.name,
+      name: invite.name,
+      email: invite.email,
+      expiresAt: invite.expiresAt,
+    });
+  }
+
+  /**
+   * A-04, redeemed: single use, 7-day expiry, and the Org Admin signed in.
+   *
+   * **THE PASSWORD IS CHECKED FOR SHAPE AND THEN DISCARDED.** Nothing here is enforcement
+   * (FD-26): there is no credential store in the browser, a plaintext password in
+   * localStorage would be worse than none, and a hash would make this look like the gate it
+   * is not. Sign-in continues to compare against `VITE_DEV_PASSWORD` until Prompt 1.5 items
+   * 1 to 3 land. docs/auth.md says so in the same words.
+   */
+  async acceptInvite(token: string, password: string): Promise<Result<{ officeId: string }>> {
+    const problems = passwordProblems(password);
+    if (problems.length) return refuse(...problems);
+
+    const doc = this.store.document();
+    const invite = doc.invites.find((i) => i.token === token);
+    const state = inviteState(invite, this.now());
+    if (state !== 'valid' || !invite) return refuse(INVITE_MESSAGE[state === 'valid' ? 'unknown' : state]);
+    const officeId = invite.officeId;
+    if (!doc.instances[officeId]) return refuse(INVITE_MESSAGE.unknown);
+
+    const at = this.now();
+    const personId = uid('p_');
+    this.store.updateDocument((d) => {
+      const target = d.invites.find((i) => i.token === token);
+      // Marked spent in the SAME write that creates the person, so there is no window in
+      // which the person exists and the invitation is still open.
+      if (target) target.usedAt = at;
+      const office = d.instances[officeId]!;
+      office.people.push({
+        id: personId,
+        name: invite.name,
+        email: invite.email,
+        title: 'Org Admin',
+        deptId: null,
+        access: 'admin',
+        authorities: [],
+      });
+      office.session.userId = personId;
+      this.store.auditIn(office, invite.name, 'Accepted the invitation and signed in');
+      // The invitee's own office is now the one the customer entries read.
+      d.boundOfficeId = officeId;
+    });
+
+    return accept({ officeId });
+  }
+
+  /**
+   * Every invitation issued. OPERATOR AND DEV ONLY -- it is how the fleet console offers
+   * "Copy invite link" after the fact, and how the link is reachable on localhost while no
+   * mail service exists to carry it (FD-32).
+   */
+  async listInvites(): Promise<Array<Invite & { url: string; state: InviteState }>> {
+    const now = this.now();
+    return this.store.document().invites.map((i) =>
+      Object.assign(copy(i), {
+        url: inviteUrl(this.origin(), i.token),
+        state: inviteState(i, now),
+      }),
+    );
+  }
+
+  private origin(): string {
+    return typeof window === 'undefined' ? 'http://localhost:5173' : window.location.origin;
+  }
+
   /* ----------------------------------------------------------------- session */
 
+  /**
+   * The operator's session is held at the document level, not inside an office: they have no
+   * row in one (migration 0010, `super_has_no_org`), so there is no office it could live in.
+   *
+   * This is also what keeps `fleetSide`'s write block from locking the operator out of their
+   * own console. Signing in is not a write into a customer office, and treating it as one was
+   * a real regression until `provision-screen.test.ts` caught it.
+   */
   async getSession(): Promise<Session> {
+    if (this.fleetSide) return copy(this.store.document().operatorSession);
     return copy(this.s().session);
   }
 
   async signInAs(userId: string | null): Promise<Result> {
+    if (this.fleetSide) {
+      this.store.updateDocument((d) => {
+        d.operatorSession.userId = userId;
+      });
+      return accept(undefined);
+    }
     this.u((s) => {
       s.session.userId = userId;
     });
@@ -712,18 +941,50 @@ export class MockApiClient implements ApiClient {
 
   /* --------------------------------------------------------------- dev tools */
 
+  /**
+   * Dev tools' two seed buttons. **REFUSED ON THE OPERATOR SURFACE.**
+   *
+   * They reach `store.reset` directly rather than through `u()`, so blocking office-facing
+   * writes did not block them -- and the fleet entry renders the shared Dev tools, with both
+   * buttons beside the invitations panel. One click there replaced a real customer's office
+   * with the demo seed, under that customer's own id. Reproduced in `boundary.test.ts`
+   * before this guard existed.
+   *
+   * There is no legitimate operator use for either: replacing an office's contents is the
+   * office's own business, and the operator holds no policy on it (Prompt 1.5 rule 3).
+   */
   async loadDemo(): Promise<Result> {
+    if (this.fleetSide) return refuse('An office is not the operator console to reseed.');
     this.store.reset('demo');
     return accept(undefined);
   }
 
   async resetFresh(): Promise<Result> {
+    if (this.fleetSide) return refuse('An office is not the operator console to reseed.');
     this.store.reset('fresh');
     return accept(undefined);
   }
 
   async setSimulation(on: boolean): Promise<Result> {
     this.simulate = on;
+    return accept(undefined);
+  }
+
+  /**
+   * Point the office-facing operations at a different instance. **DEV ONLY**, and the one
+   * place an office identifier appears outside the fleet and invitation surfaces.
+   *
+   * It is not a production operation and `SupabaseApiClient` will refuse it: in production
+   * "which office am I in" is decided by which deployment's URL you opened, not by an API
+   * call. It exists so one browser can walk between the offices it has provisioned without
+   * clearing storage. `seam.test.ts` lists it as an explicit, visible exemption rather than
+   * letting it pass unnoticed.
+   */
+  async bindOffice(officeId: string): Promise<Result> {
+    if (!this.store.document().instances[officeId]) return refuse('That office does not exist.');
+    this.store.updateDocument((d) => {
+      d.boundOfficeId = officeId;
+    });
     return accept(undefined);
   }
 
@@ -807,3 +1068,20 @@ export const validateOrgState = validateOrg;
 export const requiredToolsOf = requiredTools;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** The shortest password the accept screen will take. A shape rule, not a strength policy. */
+export const MIN_PASSWORD_CHARS = 8;
+
+/**
+ * A SHAPE check, and deliberately nothing more.
+ *
+ * It is not a strength policy and must not grow into one here: the real rules belong to
+ * Supabase Auth (Prompt 1.5 item 1), and a list of rules written in the browser would be
+ * the second place they live and the first place they go stale.
+ */
+export function passwordProblems(password: string): string[] {
+  if (!password.trim()) return ['Choose a password.'];
+  if (password.length < MIN_PASSWORD_CHARS)
+    return [`Use at least ${MIN_PASSWORD_CHARS} characters.`];
+  return [];
+}
