@@ -26,6 +26,10 @@ export default {
     boxShadow: { none: 'none' },
     dropShadow: { none: '0 0 #0000' },
     extend: {
+      // 860px is the breakpoint Prompt 1 item 8 names for the nav, and the founder's
+      // instruction of 2026-11-06 for the root page's two columns. Tailwind's `lg` is
+      // 1024, which is not the same thing and was being used by mistake.
+      screens: { shell: '860px' },
       fontFamily: { sans: 'var(--font-sans)' },
       fontSize: { base: 'var(--font-size-body)' },
       borderRadius: { button: 'var(--radius-button)' },

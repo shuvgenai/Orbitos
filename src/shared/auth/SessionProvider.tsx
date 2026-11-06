@@ -124,9 +124,14 @@ export function SessionProvider({
   const signOut = useCallback(async () => {
     await api.signInAs(null);
     setProfile(null);
-    // Back to this entry's own login path, never another entry's (Prompt 1.5 item 7).
-    window.location.hash = '#/login';
-  }, [api]);
+    // Back to this entry's OWN login path, never another entry's (Prompt 1.5 item 7).
+    //
+    // Under FD-30 the landed path and the login path are different URLs served by the same
+    // file -- /orgadmin and /org/login, for instance -- so the URL has to change. It is done
+    // with replaceState rather than a navigation: the guard already renders the login the
+    // moment the profile is null, so a reload would only throw the app away and rebuild it.
+    window.history.replaceState(null, '', portal.loginPath);
+  }, [api, portal.loginPath]);
 
   const value = useMemo<SessionState>(
     () => ({ profile, signIn, signOut, portal }),

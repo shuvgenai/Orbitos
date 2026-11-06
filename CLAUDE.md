@@ -62,6 +62,8 @@ any list in the Build Prompts** — 18 of its statements are stale against these
 | **FD-26** | **Prompt 1.5 items 4-7 are built; items 1-3 (Supabase, the schema and RLS, `SupabaseApiClient`) are OWED.** Until they land **nothing is enforced** -- every auth check is a screen-level convenience. See `docs/auth.md`. |
 | **FD-27** | **Operator strings stay out of the customer bundles, structurally.** `Portal.allow` is data, not a type; each entry owns its `portal.ts`. No shared module enumerates the three roles. Asserted in `src/shared/seeds/customer-surface.test.ts` against `dist`. |
 | **FD-28** | **OPEN:** `axe-core` is MPL-2.0 against CLAUDE.md's "permissive only", installed as a dev-only dependency. Needs a ruling. |
+| **FD-30** | **The portal URLs are `/user`, `/orgadmin`, `/superadmin`**, signed in at `/login`, `/org/login`, `/superadmin/login`. Old paths redirect. Allow lists unchanged. The root page carries TWO sign-ins (User, Org Admin) and never names the operator one. The root page **scrolls** -- the content spec's "one screen" is a recorded deviation. |
+| **FD-29** | **A root page at `/`**, from `orbitcrew-landing-page-content.md`, with ONE secondary Sign in link to `/login`. Added scope: `/` is in neither the PRD nor the Build Prompts. **Dev server only** -- hosting is undecided and a marketing page may belong on `orbitumai.com`. Errata L-1 to L-10. |
 
 ### Those first three files are copies
 
@@ -141,9 +143,14 @@ ORBIT-OS, Paperclip, Hermes, runtime ids and adapter names are correct there.
 
 | Entry | `<title>` |
 |---|---|
-| `dashboards/user/index.html` | OrbitCrew |
-| `dashboards/org-admin/index.html` | OrbitCrew |
-| `dashboards/fleet/index.html` | ORBIT-OS |
+| `dashboards/user/index.html` → `/user` | OrbitCrew |
+| `dashboards/orgadmin/index.html` → `/orgadmin` | OrbitCrew |
+| `dashboards/superadmin/index.html` → `/superadmin` | ORBIT-OS |
+| `dashboards/landing/index.html` → `/` | OrbitCrew — The first hire that never needs onboarding |
+
+> PRD §15.3's own table still names `dashboards/{user,org-admin,fleet}/index.html`. **FD-30
+> renamed them**, and a founder decision outranks the PRD until the PRD is amended — which it
+> still needs. Errata E-23 to E-37 carry the rename into the two build documents.
 
 The naming rule does **not** apply to `reference/orbit-os-frontend/` — §15.3 says so
 explicitly. Its titles stay as they are, and nobody ships them.
