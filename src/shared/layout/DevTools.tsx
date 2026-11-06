@@ -1,21 +1,29 @@
 import { useState } from 'react';
-import { useApi, useSession } from '@/shared/api/hooks';
-import { useToast } from '@/shared/ui/Toast';
+import { useApi, usePeople } from '@/shared/api/hooks';
+import { useSession } from '@/shared/auth/SessionProvider';
 import { Button } from '@/shared/ui/Button';
-import type { AccessRole, Person } from '@/shared/schemas';
-import { otherEntries } from './entries';
-import { navigate } from './router';
+import { useToast } from '@/shared/ui/Toast';
+
+/** A cross-entry link. Supplied by the entry, so no entry knows another's paths. */
+export type DevLink = { label: string; href: string };
+
+const NO_LINKS: readonly DevLink[] = Object.freeze([]);
 
 /**
- * Development only; `import.meta.env.DEV` gates the mount in AppShell, so it is not in a
- * production bundle at all.
+ * Development only; `import.meta.env.DEV` gates the mount, so it is not in a production
+ * bundle.
+ *
+ * "Sign in as" is the shared spec's own development identity switch. It writes the session
+ * through MockApiClient, which SessionProvider is subscribed to, so the whole entry
+ * re-evaluates its guard -- including refusing the new identity if that entry does not
+ * admit it. That is the fastest way to see the matrix work by hand.
  */
-export function DevTools({ accessRole, people }: { accessRole: AccessRole; people: Person[] }) {
+export function DevTools({ links = NO_LINKS }: { links?: readonly DevLink[] }) {
   const api = useApi();
-  const { data: session } = useSession();
+  const { profile, portal } = useSession();
+  const { data: people = [] } = usePeople();
   const { notify } = useToast();
   const [simulate, setSimulate] = useState(true);
-  const users = people.filter((p) => p.access === 'user');
 
   return (
     <details className="border-t border-line bg-paper px-4 py-3 lg:px-8">
@@ -23,29 +31,24 @@ export function DevTools({ accessRole, people }: { accessRole: AccessRole; peopl
         Dev tools (hidden in production)
       </summary>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        {accessRole === 'user' ? (
-          <label className="flex items-center gap-2 text-base">
-            Sign in as
-            <select
-              aria-label="Sign in as"
-              value={session?.userId ?? ''}
-              onChange={(e) => {
-                void api.signInAs(e.target.value || null);
-              }}
-              className="min-h-touch rounded-button border border-line bg-paper px-3 text-base"
-            >
-              {users.length ? (
-                users.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))
-              ) : (
-                <option value="">No users yet</option>
-              )}
-            </select>
-          </label>
-        ) : null}
+        <label className="flex items-center gap-2 text-base">
+          Sign in as
+          <select
+            aria-label="Sign in as"
+            value={profile?.id ?? ''}
+            onChange={(e) => {
+              void api.signInAs(e.target.value || null);
+            }}
+            className="min-h-touch rounded-button border border-line bg-paper px-3 text-base"
+          >
+            <option value="">Signed out</option>
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.access})
+              </option>
+            ))}
+          </select>
+        </label>
 
         <Button
           onClick={() => {
@@ -57,10 +60,7 @@ export function DevTools({ accessRole, people }: { accessRole: AccessRole; peopl
 
         <Button
           onClick={() => {
-            void api.resetFresh().then(() => {
-              notify('Fresh onboarding');
-              navigate(accessRole === 'user' ? 'home' : accessRole === 'super' ? 'fleet' : 'onboarding');
-            });
+            void api.resetFresh().then(() => notify('Fresh onboarding'));
           }}
         >
           Start fresh onboarding
@@ -78,13 +78,17 @@ export function DevTools({ accessRole, people }: { accessRole: AccessRole; peopl
           Simulate live activity
         </label>
 
-        {otherEntries(accessRole).map((e) => (
+        <span className="text-base text-muted">
+          This sign-in admits: {portal.allow.join(', ')}
+        </span>
+
+        {links.map((l) => (
           <a
-            key={e.role}
-            href={e.base}
+            key={l.href}
+            href={l.href}
             className="flex min-h-touch items-center rounded-button border border-line px-4 text-base hover:bg-canvas"
           >
-            Open {e.label}
+            {l.label}
           </a>
         ))}
       </div>

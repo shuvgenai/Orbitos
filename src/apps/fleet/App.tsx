@@ -1,4 +1,5 @@
 import { useFleetOffices } from '@/shared/api/hooks';
+import { RequireAccess } from '@/shared/auth/RequireAccess';
 import { AppShell } from '@/shared/layout/AppShell';
 import { Placeholder } from '@/shared/layout/Placeholder';
 import { useRoute } from '@/shared/layout/router';
@@ -8,6 +9,7 @@ import { Pill } from '@/shared/ui/Pill';
 import { money } from '@/shared/lib/format';
 import { FLEET_STATUS_LABELS, type FleetOffice } from '@/shared/schemas/fleet';
 import { navigate } from '@/shared/layout/router';
+import { fleetNav } from './nav';
 
 /**
  * The operator surface. PRD 15.3 exempts it: ORBIT-OS, runtime ids and adapter names are
@@ -33,13 +35,27 @@ const SCREENS: Record<string, { title: string; body: string }> = {
 };
 
 export function App() {
+  return (
+    <RequireAccess>
+      <Screens />
+    </RequireAccess>
+  );
+}
+
+function Screens() {
   const route = useRoute('fleet');
   const { data: offices = [] } = useFleetOffices();
   const screen = SCREENS[route.name] ?? SCREENS['fleet']!;
   const live = offices.filter((o) => o.status === 'live').length;
 
   return (
-    <AppShell accessRole="super" route={route.name} screenTitle={screen.title}>
+    <AppShell
+      route={route.name}
+      screenTitle={screen.title}
+      nav={fleetNav()}
+      scopeName="All offices"
+      scopeSub="Operator console"
+    >
       {route.name === 'fleet' ? (
         <>
           <StatList

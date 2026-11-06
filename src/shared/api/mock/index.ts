@@ -46,12 +46,7 @@ import {
   PROVISION_STEP_MS,
   TICKER_MS,
 } from '@/shared/seeds/config';
-import {
-  INSTANCE_VERSION,
-  PROVISION_STEPS,
-  SAMPLE_OFFICES,
-  mintRuntimeRef,
-} from '@/shared/seeds/fleet-registry';
+import { mintRuntimeRef } from './runtime-ref';
 import { receiptFeed, sampleDoing, uid } from '@/shared/seeds/office';
 import { toolName } from '@/shared/seeds/tools';
 import { MockStore, type Source } from './store';
@@ -69,7 +64,17 @@ const nowMs = () => Date.now();
  */
 const copy = <T>(v: T): T => structuredClone(v);
 
-export type MockOptions = { simulate?: boolean; store?: MockStore };
+export type MockOptions = {
+  simulate?: boolean;
+  store?: MockStore;
+  /**
+   * Operator fixtures, supplied only by the fleet entry. Keeping them out of the mock's own
+   * imports is what keeps other customers' names out of a customer's bundle (FD-1).
+   */
+  sampleOffices?: readonly FleetOffice[];
+  instanceVersion?: string;
+  provisionSteps?: ReadonlyArray<readonly [string, string]>;
+};
 
 export class MockApiClient implements ApiClient {
   private store: MockStore;
@@ -77,10 +82,16 @@ export class MockApiClient implements ApiClient {
   private timer: ReturnType<typeof setInterval> | null = null;
   private jobActive = false;
   private provision: { i: number; input: ProvisionInput; done: boolean } | null = null;
+  private sampleOffices: readonly FleetOffice[];
+  private instanceVersion: string;
+  private provisionSteps: ReadonlyArray<readonly [string, string]>;
 
   constructor(opts: MockOptions = {}) {
     this.store = opts.store ?? new MockStore();
     this.simulate = opts.simulate ?? true;
+    this.sampleOffices = opts.sampleOffices ?? [];
+    this.instanceVersion = opts.instanceVersion ?? '0.0.0';
+    this.provisionSteps = opts.provisionSteps ?? [];
     this.startTicker();
   }
 
@@ -643,12 +654,12 @@ export class MockApiClient implements ApiClient {
       status: s.org.launched ? 'live' : 'onboarding',
       agents: s.agents.length,
       cost: Number(s.agents.reduce((t, a) => t + a.perf.cost7, 0).toFixed(2)),
-      version: INSTANCE_VERSION,
+      version: this.instanceVersion,
       health: 'ok',
       admin: s.people.find((p) => p.access === 'admin')?.email ?? '',
     };
     const provisioned = (s.fleet ?? []) as FleetOffice[];
-    return [live, ...provisioned, ...SAMPLE_OFFICES];
+    return [live, ...provisioned, ...this.sampleOffices];
   }
 
   async getFleetOffice(id: string): Promise<FleetOffice | undefined> {
@@ -657,7 +668,7 @@ export class MockApiClient implements ApiClient {
 
   async provisionOffice(input: ProvisionInput): Promise<Result> {
     this.provision = { i: 0, input, done: false };
-    for (let i = 0; i < PROVISION_STEPS.length; i += 1) {
+    for (let i = 0; i < this.provisionSteps.length; i += 1) {
       await sleep(PROVISION_STEP_MS);
       this.provision = { ...this.provision, i: i + 1 };
       this.u(() => {}, 'job');
@@ -672,7 +683,7 @@ export class MockApiClient implements ApiClient {
           status: 'awaiting',
           agents: 0,
           cost: 0,
-          version: INSTANCE_VERSION,
+          version: this.instanceVersion,
           health: 'ok',
           admin: input.email.trim(),
         },

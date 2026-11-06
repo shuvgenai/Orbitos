@@ -1,10 +1,13 @@
-import { useAgents, useMe, useOffice } from '@/shared/api/hooks';
+import { useAgents, useOffice, useRequests } from '@/shared/api/hooks';
+import { RequireAccess } from '@/shared/auth/RequireAccess';
+import { useSession } from '@/shared/auth/SessionProvider';
 import { AppShell } from '@/shared/layout/AppShell';
 import { Placeholder } from '@/shared/layout/Placeholder';
 import { useRoute } from '@/shared/layout/router';
-import { StatList } from '@/shared/ui/StatList';
-import { ScreenState } from '@/shared/ui/ScreenState';
 import { money } from '@/shared/lib/format';
+import { ScreenState } from '@/shared/ui/ScreenState';
+import { StatList } from '@/shared/ui/StatList';
+import { userNav } from './nav';
 
 const SCREENS: Record<string, { title: string; body: string }> = {
   home: {
@@ -22,18 +25,36 @@ const SCREENS: Record<string, { title: string; body: string }> = {
 };
 
 export function App() {
+  // The guard sits in front of every screen. Signed out, any route renders this entry's
+  // login; signed in with the wrong access, a refusal. Never a redirect.
+  return (
+    <RequireAccess>
+      <Screens />
+    </RequireAccess>
+  );
+}
+
+function Screens() {
   const route = useRoute('home');
+  const { profile } = useSession();
   const { data: office } = useOffice();
   const { data: agents = [] } = useAgents();
-  const me = useMe();
+  const { data: requests = [] } = useRequests();
   const screen = SCREENS[route.name] ?? SCREENS['home']!;
-  const mine = agents.filter((a) => a.ownerId === me?.id);
+
+  // A person sees only the teammates they own. The database is the real gate once
+  // Prompt 1.5's RLS half lands (FD-26); this filter is for the screen, not for security.
+  const mine = agents.filter((a) => a.ownerId === profile?.id);
   const running = mine.filter((a) => a.status === 'running').length;
 
   return (
-    <AppShell accessRole="user" route={route.name} screenTitle={screen.title}>
-      {/* The live summary is real in Prompt 1 because the shell's nav counts are, and it is
-          the one thing that proves the mock, the gate and the cross-tab sync all work. */}
+    <AppShell
+      route={route.name}
+      screenTitle={screen.title}
+      nav={userNav(requests, profile?.id)}
+      scopeName={office?.name ?? ''}
+      scopeSub={office?.domain ?? ''}
+    >
       {route.name === 'home' && office?.launched && mine.length > 0 ? (
         <>
           <p className="mb-6 text-base">

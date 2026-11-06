@@ -5,7 +5,7 @@ import { DEMO_PEOPLE } from './people';
 import { ALL_ROLES, HIREABLE_ROLES, ORBI } from './roles';
 import { TOOLS } from './tools';
 import { BASE_GUARDRAILS, SUGGESTED_GUARDRAILS } from './config';
-import { PROVISION_STEPS, SAMPLE_OFFICES } from './fleet-registry';
+import { PROVISION_STEPS, SAMPLE_OFFICES } from '@/apps/fleet/registry';
 
 /**
  * One test per fixed list in PRD Appendix A, which fails if the list changes without a

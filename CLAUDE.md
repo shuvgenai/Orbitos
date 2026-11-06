@@ -58,7 +58,10 @@ any list in the Build Prompts** — 18 of its statements are stale against these
 | **FD-22** | **Four authorities** — `leader`, `approver`, `backup`, `budget`, matching `orbitcrew.authority` in migration `0002`. `AccessRole` matches `orbitcrew.access_role`: `user`, `admin`, `super`. |
 | **FD-23** | **Maximum tree depth three**, enforced in the validator now. Orbi is level 1; the board does not count a level. |
 | **FD-24** | **The mock ticker writes activity receipts** when it moves a teammate to `running`. |
-| **FD-25** | **Budget defaults are PROPOSED** and await confirmation. Named constants, one file. |
+| **FD-25** | **Budget defaults APPROVED AS DEMO SEED ONLY.** $25/mo, $2/day, 12 turns. **Not shipping defaults**: PRD section 12 needs a unit-economics sheet first, and it does not exist. |
+| **FD-26** | **Prompt 1.5 items 4-7 are built; items 1-3 (Supabase, the schema and RLS, `SupabaseApiClient`) are OWED.** Until they land **nothing is enforced** -- every auth check is a screen-level convenience. See `docs/auth.md`. |
+| **FD-27** | **Operator strings stay out of the customer bundles, structurally.** `Portal.allow` is data, not a type; each entry owns its `portal.ts`. No shared module enumerates the three roles. Asserted in `src/shared/seeds/customer-surface.test.ts` against `dist`. |
+| **FD-28** | **OPEN:** `axe-core` is MPL-2.0 against CLAUDE.md's "permissive only", installed as a dev-only dependency. Needs a ruling. |
 
 ### Those first three files are copies
 

@@ -1,13 +1,19 @@
 import type { FleetOffice } from '@/shared/schemas/fleet';
 
 /**
- * The operator registry. PROVENANCE: reference/orbit-os-frontend/assets/data/fleet.js --
- * three sample offices and the four provisioning steps, verbatim.
+ * The operator registry. FLEET ENTRY ONLY.
  *
- * Split from fleet-runtime.ts on purpose: MockApiClient needs this to answer listOffices,
- * and the mock ships in all three bundles, so anything in here reaches the customer apps.
- * Nothing in this file contains an upstream name. See fleet-runtime.ts for the half that
- * does and must not.
+ * PROVENANCE: reference/orbit-os-frontend/assets/data/fleet.js -- three sample offices and
+ * the four provisioning steps, verbatim.
+ *
+ * Moved here out of src/shared/seeds because MockApiClient imported it to answer
+ * listOffices, and the mock ships in all three bundles. That put OrbitumAI's own domain and
+ * two other customers' names -- Northwind Logistics and Harbor & Co -- into every customer
+ * bundle. PRD 15.3 does not name those strings, but FD-1 is instance-per-org: one
+ * customer's bundle carrying another customer's name is wrong whether or not a rule lists
+ * it. Measured in dist, both before and after.
+ *
+ * The mock now takes these as an option, which only this entry passes.
  */
 export const SAMPLE_OFFICES: FleetOffice[] = [
   {
@@ -54,12 +60,3 @@ export const PROVISION_STEPS: ReadonlyArray<readonly [string, string]> = [
 ] as const;
 
 export const INSTANCE_VERSION = '1.4.2';
-
-/**
- * An opaque reference minted when a teammate is provisioned.
- *
- * It deliberately carries no upstream name, because this runs in the Org Admin app at
- * launch. The operator-visible profile and adapter names are composed from it in
- * fleet-runtime.ts, which only the fleet entry imports.
- */
-export const mintRuntimeRef = (): string => `agt_${Math.random().toString(36).slice(2, 8)}`;

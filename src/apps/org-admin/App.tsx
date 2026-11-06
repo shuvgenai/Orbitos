@@ -1,4 +1,5 @@
 import { useAgents, useOffice, useRequests } from '@/shared/api/hooks';
+import { RequireAccess } from '@/shared/auth/RequireAccess';
 import { AppShell } from '@/shared/layout/AppShell';
 import { Placeholder } from '@/shared/layout/Placeholder';
 import { useRoute } from '@/shared/layout/router';
@@ -7,6 +8,7 @@ import { money } from '@/shared/lib/format';
 import { needsAttention } from '@/shared/lib/validate';
 import { Banner } from '@/shared/ui/Banner';
 import { attentionCause } from '@/shared/lib/validate';
+import { orgAdminNav } from './nav';
 
 /**
  * Routes come from CLAUDE.md's Org Admin list, minus the Agent map: FD-19 deletes it and
@@ -44,6 +46,14 @@ const SCREENS: Record<string, { title: string; body: string }> = {
 };
 
 export function App() {
+  return (
+    <RequireAccess>
+      <Screens />
+    </RequireAccess>
+  );
+}
+
+function Screens() {
   const { data: office } = useOffice();
   const route = useRoute(office?.launched ? 'dashboard' : 'onboarding');
   const { data: agents = [] } = useAgents();
@@ -55,7 +65,13 @@ export function App() {
   const attention = agents.filter((a) => needsAttention(a, 'readiness'));
 
   return (
-    <AppShell accessRole="admin" route={route.name} screenTitle={screen.title}>
+    <AppShell
+      route={route.name}
+      screenTitle={screen.title}
+      nav={orgAdminNav(office, requests)}
+      scopeName={office?.name ?? ''}
+      scopeSub={office?.domain ?? ''}
+    >
       {route.name === 'dashboard' && office?.launched ? (
         <>
           <p className="mb-6 text-base">

@@ -4,10 +4,14 @@ import type { OrgTemplate } from '@/shared/schemas';
 export const STORE_KEY = 'orbitcrew.v1';
 export const STORE_VERSION = 1;
 
-/** PRD 15.3 / FD-5: OrbitCrew, capital O, capital C, one word. */
+/**
+ * PRD 15.3 / FD-5: OrbitCrew, capital O, capital C, one word.
+ *
+ * The operator console's name is NOT here. It lives in src/apps/fleet/portal.ts, because
+ * this module is in every bundle and 15.3 bans that word from the customer surfaces --
+ * including, as measured, from a string table they never render.
+ */
 export const APP_NAME_CUSTOMER = 'OrbitCrew';
-/** PRD 15.3 exempts the fleet console; ORBIT-OS is correct there. */
-export const APP_NAME_OPERATOR = 'ORBIT-OS';
 
 /** PROVENANCE: assets/config.js `BASE_GUARDS` — three defaults, verbatim. */
 export const BASE_GUARDRAILS: string[] = [

@@ -20,7 +20,7 @@ export const agentRuntimeSchema = z.object({
   runtimeAgentId: z.string(),
   /** The isolated runtime profile this teammate is reached through. */
   runtimeProfile: z.string(),
-  /** The adapter registry key. See the note in src/shared/seeds/fleet.ts. */
+  /** The adapter registry key. See the note in src/shared/seeds/fleet-runtime.ts. */
   adapterKey: z.string(),
 });
 
