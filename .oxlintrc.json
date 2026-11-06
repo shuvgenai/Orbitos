@@ -67,6 +67,15 @@
         "no-restricted-globals": "off",
         "typescript/no-explicit-any": "off"
       }
+    },
+    {
+      "files": [
+        "e2e/**/*.ts"
+      ],
+      "rules": {
+        "unicorn/consistent-function-scoping": "off",
+        "no-console": "off"
+      }
     }
   ],
   "ignorePatterns": [

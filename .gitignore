@@ -1,5 +1,9 @@
-# Landing page lives in its own repo
-landing/
+# The separate landing-page repo, if it is ever cloned in here.
+# ANCHORED with a leading slash on purpose: an unanchored `landing/` matches a directory of
+# that name at ANY depth, which silently swallowed src/apps/landing/ and
+# dashboards/landing/ -- the whole root page (FD-29) was invisible to git and would never
+# have been committed.
+/landing/
 
 # Secrets
 .env
@@ -19,3 +23,8 @@ node_modules/
 
 # Vite build output
 dist/
+
+# Playwright
+e2e/shots/
+test-results/
+playwright-report/

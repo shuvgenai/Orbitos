@@ -182,7 +182,7 @@ describe('a signed-in profile at the wrong entry sees a refusal, never a redirec
     expect(document.querySelectorAll('a')).toHaveLength(0);
   });
 
-  it('sign-out clears the session and returns to this entry own login', async () => {
+  it('sign-out clears the session and returns to this entry own login path', async () => {
     localStorage.clear();
     const api = new MockApiClient({ simulate: false });
     await api.loadDemo();
@@ -205,7 +205,7 @@ describe('a signed-in profile at the wrong entry sees a refusal, never a redirec
 
     await waitFor(() => expect(screen.queryByLabelText('Email address')).toBeInTheDocument());
     expect((await api.getSession()).userId).toBeNull();
-    expect(window.location.hash).toBe('#/login');
+    expect(window.location.pathname).toBe('/org/login');
   });
 });
 

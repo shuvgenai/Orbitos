@@ -10,7 +10,7 @@ import { APP_NAME_CUSTOMER } from '@/shared/seeds/config';
 export const PORTAL: Portal = {
   label: 'Org Admin',
   title: APP_NAME_CUSTOMER,
-  base: '/org-admin/',
+  base: '/orgadmin',
   loginPath: '/org/login',
   allow: ['admin'],
   heading: 'Sign in',

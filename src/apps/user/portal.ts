@@ -11,7 +11,7 @@ import { APP_NAME_CUSTOMER } from '@/shared/seeds/config';
 export const PORTAL: Portal = {
   label: 'User',
   title: APP_NAME_CUSTOMER,
-  base: '/user/',
+  base: '/user',
   loginPath: '/login',
   allow: ['user', 'admin'],
   heading: 'Sign in',

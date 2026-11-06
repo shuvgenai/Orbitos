@@ -13,8 +13,8 @@ const APP_NAME_OPERATOR = 'ORBIT-OS';
 export const PORTAL: Portal = {
   label: 'Super Admin',
   title: APP_NAME_OPERATOR,
-  base: '/fleet/',
-  loginPath: '/admin/login',
+  base: '/superadmin',
+  loginPath: '/superadmin/login',
   allow: ['super'],
   heading: 'Operator sign-in',
   sub: 'Every customer office, at the operations level.',
