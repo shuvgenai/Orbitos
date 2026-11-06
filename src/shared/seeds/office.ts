@@ -4,7 +4,7 @@ import {
   DEFAULT_CONNECTION_LIMITS,
   STORE_VERSION,
 } from './config';
-import { mintRuntimeRef } from './fleet-registry';
+import { mintRuntimeRef } from '@/shared/api/mock/runtime-ref';
 import { DEMO_PEOPLE, FRESH_ADMIN } from './people';
 import { ALL_ROLES, DEFAULT_BUDGET, ORBI, type TeammateRole } from './roles';
 

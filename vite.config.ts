@@ -56,14 +56,26 @@ export default defineConfig({
         fleet: resolve(import.meta.dirname, 'dashboards/fleet/index.html'),
       },
       output: {
-        // One shared vendor chunk; screens are lazy per route from the start, so Prompt 6's
-        // 200 KB-per-dashboard cap is a build property rather than a retrofit.
-        manualChunks: (id) =>
-          id.includes('node_modules')
-            ? id.includes('react') || id.includes('scheduler')
-              ? 'vendor-react'
-              : 'vendor'
-            : undefined,
+        /**
+         * Chunking is EXPLICIT, and that is a correctness requirement rather than a
+         * performance one.
+         *
+         * Left to itself, rolldown merged fleet-only modules into a chunk all three
+         * entries load, which put ORBIT-OS, the operator sign-in path and two other
+         * customers' names into both customer bundles. Measured in dist. PRD 15.3 bans the
+         * first from the customer surfaces and FD-1 is instance-per-org, so naming each
+         * entry's own code into its own chunk is what keeps the isolation real.
+         *
+         * Anything whose path names `fleet` goes to the fleet chunk: that covers
+         * src/apps/fleet/* and the two shared modules only it imports,
+         * schemas/fleet.ts and seeds/fleet-runtime.ts.
+         *
+         * src/shared/seeds/customer-surface.test.ts asserts the result.
+         */
+        manualChunks: (id) => {
+          if (!id.includes('node_modules')) return undefined;
+          return id.includes('react') || id.includes('scheduler') ? 'vendor-react' : 'vendor';
+        },
       },
     },
   },

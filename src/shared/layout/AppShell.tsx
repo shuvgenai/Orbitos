@@ -1,48 +1,50 @@
 import { useEffect } from 'react';
-import { useOffice, usePeople, useRequests } from '@/shared/api/hooks';
-import type { AccessRole } from '@/shared/schemas';
-import { useMe } from '@/shared/api/hooks';
-import { DevTools } from './DevTools';
-import { ENTRIES, documentTitle } from './entries';
-import { defaultRoute, navFor } from './nav';
+import { useSession } from '@/shared/auth/SessionProvider';
+import { DevTools, type DevLink } from './DevTools';
+import type { NavItem } from './nav';
 import { href } from './router';
 
+const NO_LINKS: readonly DevLink[] = Object.freeze([]);
+
 /**
- * One shell for all three entries. Sidebar above 860px, a horizontal bar below it, which is
- * the breakpoint Prompt 1 item 8 names.
+ * One shell for all three entries. Sidebar above 1024px, a horizontal bar below it.
+ *
+ * It takes the Portal rather than a role, and the nav rather than building it: that is what
+ * keeps every entry's own strings in its own bundle. The shell knows it is rendering "a"
+ * portal and never which one.
  */
 export function AppShell({
-  accessRole,
   route,
   screenTitle,
+  nav,
+  scopeName,
+  scopeSub,
+  devLinks = NO_LINKS,
   children,
 }: {
-  accessRole: AccessRole;
   route: string;
   screenTitle: string;
+  nav: NavItem[];
+  scopeName: string;
+  scopeSub: string;
+  devLinks?: readonly DevLink[];
   children: React.ReactNode;
 }) {
-  const { data: office } = useOffice();
-  const { data: requests = [] } = useRequests();
-  const { data: people = [] } = usePeople();
-  const me = useMe();
-  const items = navFor(accessRole, { office, requests, me });
+  const { portal, profile, signOut } = useSession();
 
   useEffect(() => {
-    document.title = documentTitle(accessRole, screenTitle);
-  }, [accessRole, screenTitle]);
-
-  const scopeName = accessRole === 'super' ? 'All offices' : (office?.name ?? '');
-  const scopeSub = accessRole === 'super' ? 'Operator console' : (office?.domain ?? '');
+    // PRD 15.3: `<screen> . OrbitCrew` on the customer entries, `. ORBIT-OS` on fleet.
+    document.title = `${screenTitle} · ${portal.title}`;
+  }, [portal.title, screenTitle]);
 
   return (
     <div className="min-h-screen bg-canvas text-ink lg:flex">
       <aside
-        aria-label={`${ENTRIES[accessRole].label} navigation`}
+        aria-label={`${portal.label} navigation`}
         className="border-b border-line bg-paper lg:min-h-screen lg:w-60 lg:shrink-0 lg:border-b-0 lg:border-r"
       >
         <div className="border-b border-line px-4 py-4">
-          <p className="text-base font-semibold">{ENTRIES[accessRole].title}</p>
+          <p className="text-base font-semibold">{portal.title}</p>
           <p className="text-base text-muted">by OrbitumAI</p>
         </div>
         <div className="border-b border-line px-4 py-3">
@@ -50,7 +52,7 @@ export function AppShell({
           <p className="text-base text-muted">{scopeSub}</p>
         </div>
         <nav className="flex flex-wrap gap-1 p-2 lg:flex-col">
-          {items.map((item) =>
+          {nav.map((item) =>
             item.heading ? (
               <p key={item.name} className="px-3 pt-3 text-base text-muted lg:pt-4">
                 {item.label}
@@ -74,10 +76,17 @@ export function AppShell({
             ),
           )}
         </nav>
-        {me && accessRole !== 'super' ? (
+        {profile ? (
           <div className="border-t border-line px-4 py-3">
-            <p className="text-base font-medium">{me.name}</p>
-            <p className="text-base text-muted">{ENTRIES[accessRole].label}</p>
+            <p className="text-base font-medium">{profile.name}</p>
+            <p className="text-base text-muted">{portal.label}</p>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="mt-2 flex min-h-touch items-center rounded-button border border-line px-3 text-base hover:bg-canvas"
+            >
+              Sign out
+            </button>
           </div>
         ) : null}
       </aside>
@@ -89,10 +98,8 @@ export function AppShell({
         <main id="main" className="min-w-0 flex-1 px-4 py-6 lg:px-8">
           {children}
         </main>
-        {import.meta.env.DEV ? <DevTools accessRole={accessRole} people={people} /> : null}
+        {import.meta.env.DEV ? <DevTools links={devLinks} /> : null}
       </div>
     </div>
   );
 }
-
-export { defaultRoute };

@@ -1,9 +1,12 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiClient } from './client';
-import { MockApiClient } from './mock';
+import { MockApiClient, type MockOptions } from './mock';
 
 const ApiContext = createContext<ApiClient | null>(null);
+
+/** Stable, so the client is not rebuilt on every render. */
+const EMPTY_OPTIONS: MockOptions = Object.freeze({});
 
 export function useApi(): ApiClient {
   const api = useContext(ApiContext);
@@ -17,13 +20,13 @@ export function useApi(): ApiClient {
  * Prompt 1, as instructed, and `supabase` falls back to it with a console note rather than
  * crashing a dashboard.
  */
-function createClient(): ApiClient {
+function createClient(options: MockOptions): ApiClient {
   const mode = import.meta.env['VITE_API_MODE'] ?? 'mock';
   if (mode !== 'mock') {
     // eslint-disable-next-line no-console
     console.warn(`VITE_API_MODE=${mode} is not built yet (Prompt 1.5). Using MockApiClient.`);
   }
-  return new MockApiClient();
+  return new MockApiClient(options);
 }
 
 /* ------------------------------------------------------------------ the ticker gate */
@@ -92,11 +95,14 @@ export function useHoldTickerWhile(open: boolean): void {
 export function ApiProvider({
   children,
   client,
+  options = EMPTY_OPTIONS,
 }: {
   children: React.ReactNode;
   client?: ApiClient;
+  /** Operator fixtures, passed only by the fleet entry. See MockOptions. */
+  options?: MockOptions;
 }) {
-  const api = useMemo(() => client ?? createClient(), [client]);
+  const api = useMemo(() => client ?? createClient(options), [client, options]);
   const queryClient = useMemo(
     () =>
       new QueryClient({

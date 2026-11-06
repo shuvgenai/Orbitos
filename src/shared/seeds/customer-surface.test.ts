@@ -28,6 +28,30 @@ const ASSETS = join(DIST, 'assets');
 /** PRD 15.3's customer-surface ban, as far as a bundle grep can see it. */
 const BANNED = /paperclip|hermes|openclaw|adapter/i;
 
+/**
+ * The operator surface, added with Prompt 1.5's role guards.
+ *
+ * Case-SENSITIVE, because `OrbitCrew` is correct in a customer bundle and `Orbitcrew` is
+ * not (Prompt 1.5 bans the lowercase c), and because `OrbitumAI` is correct -- the shell
+ * says "by OrbitumAI" -- while `orbitumai.com` is an operator address.
+ *
+ * `super` is deliberately NOT here. It is a JavaScript keyword: `super()` appears 13 times
+ * in the vendor chunk inside transpiled classes from TanStack Query and Radix. A test for
+ * the bare word could never pass, and an unpassable test teaches the next person to delete
+ * it. What is testable is every string that would actually identify the operator console,
+ * and all of those are below.
+ */
+const OPERATOR_ONLY = [
+  'ORBIT-OS',
+  'Super Admin',
+  '/admin/login',
+  'All offices',
+  'Operator sign-in',
+  'orbitumai.com',
+  'op_shuv',
+  'Orbitcrew',
+];
+
 /** The chunks an entry's HTML pulls in, by name. */
 function chunksFor(entry: string): string[] {
   const html = readFileSync(join(HTML, entry, 'index.html'), 'utf8');
@@ -67,6 +91,30 @@ describe.runIf(existsSync(HTML))('the built customer bundles carry no upstream n
       .filter((f) => f.endsWith('.js'))
       .filter((f) => BANNED.test(readFileSync(join(ASSETS, f), 'utf8')));
     for (const f of dirty) expect(customer.has(f), `${f} is shared and names an upstream word`).toBe(false);
+  });
+
+  it.each(['user', 'org-admin'])('%s loads no chunk naming the operator surface', (entry) => {
+    const offenders: string[] = [];
+    for (const chunk of chunksFor(entry)) {
+      const path = join(ASSETS, chunk);
+      if (!existsSync(path)) continue;
+      const text = readFileSync(path, 'utf8');
+      for (const word of OPERATOR_ONLY) {
+        if (text.includes(word)) offenders.push(`${chunk}: ${word}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the fleet entry does carry them, so the exemption is really in use', () => {
+    const text = chunksFor('fleet')
+      .map((c) => join(ASSETS, c))
+      .filter((p) => existsSync(p))
+      .map((p) => readFileSync(p, 'utf8'))
+      .join('');
+    for (const word of ['ORBIT-OS', 'Super Admin', '/admin/login']) {
+      expect(text.includes(word), word).toBe(true);
+    }
   });
 
   it('every title is right: OrbitCrew, OrbitCrew, ORBIT-OS (PRD 15.3)', () => {
