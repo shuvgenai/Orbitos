@@ -20,6 +20,8 @@ export function AppShell({
   scopeName,
   scopeSub,
   devLinks = NO_LINKS,
+  devExtra,
+  devOfficeTools = true,
   children,
 }: {
   route: string;
@@ -28,6 +30,13 @@ export function AppShell({
   scopeName: string;
   scopeSub: string;
   devLinks?: readonly DevLink[];
+  /**
+   * An entry's own Dev tools panel. A SLOT, carrying no strings of its own, so the shared
+   * Dev tools stays free of any one entry's words -- it ships in all three bundles.
+   */
+  devExtra?: React.ReactNode;
+  /** False on the operator entry, which has no office to sign into or reseed. */
+  devOfficeTools?: boolean;
   children: React.ReactNode;
 }) {
   const { portal, profile, signOut } = useSession();
@@ -98,7 +107,7 @@ export function AppShell({
         <main id="main" className="min-w-0 flex-1 px-4 py-6 lg:px-8">
           {children}
         </main>
-        {import.meta.env.DEV ? <DevTools links={devLinks} /> : null}
+        {import.meta.env.DEV ? <DevTools links={devLinks} extra={devExtra} officeTools={devOfficeTools} /> : null}
       </div>
     </div>
   );

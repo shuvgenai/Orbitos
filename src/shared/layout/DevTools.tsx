@@ -18,7 +18,25 @@ const NO_LINKS: readonly DevLink[] = Object.freeze([]);
  * re-evaluates its guard -- including refusing the new identity if that entry does not
  * admit it. That is the fastest way to see the matrix work by hand.
  */
-export function DevTools({ links = NO_LINKS }: { links?: readonly DevLink[] }) {
+export function DevTools({
+  links = NO_LINKS,
+  extra,
+  officeTools = true,
+}: {
+  links?: readonly DevLink[];
+  /** The entry's own panel. A slot, so no entry's strings reach the other two bundles. */
+  extra?: React.ReactNode;
+  /**
+   * Whether this entry may use the office-scoped controls -- "Sign in as", and the two seed
+   * buttons.
+   *
+   * The operator entry may not, and these are hidden rather than left to fail: the client
+   * refuses both seeds there (replacing a customer's office is not the operator's business),
+   * and "Sign in as" would be empty anyway because the operator reads zero people. A button
+   * that always refuses is worse than no button.
+   */
+  officeTools?: boolean;
+}) {
   const api = useApi();
   const { profile, portal } = useSession();
   const { data: people = [] } = usePeople();
@@ -31,6 +49,7 @@ export function DevTools({ links = NO_LINKS }: { links?: readonly DevLink[] }) {
         Dev tools (hidden in production)
       </summary>
       <div className="mt-3 flex flex-wrap items-center gap-3">
+        {officeTools ? (
         <label className="flex items-center gap-2 text-base">
           Sign in as
           <select
@@ -49,22 +68,27 @@ export function DevTools({ links = NO_LINKS }: { links?: readonly DevLink[] }) {
             ))}
           </select>
         </label>
+        ) : null}
 
-        <Button
-          onClick={() => {
-            void api.loadDemo().then(() => notify('Demo office loaded'));
-          }}
-        >
-          Load demo office
-        </Button>
+        {officeTools ? (
+          <>
+            <Button
+              onClick={() => {
+                void api.loadDemo().then(() => notify('Demo office loaded'));
+              }}
+            >
+              Load demo office
+            </Button>
 
-        <Button
-          onClick={() => {
-            void api.resetFresh().then(() => notify('Fresh onboarding'));
-          }}
-        >
-          Start fresh onboarding
-        </Button>
+            <Button
+              onClick={() => {
+                void api.resetFresh().then(() => notify('Fresh onboarding'));
+              }}
+            >
+              Start fresh onboarding
+            </Button>
+          </>
+        ) : null}
 
         <label className="flex min-h-touch items-center gap-2 text-base">
           <input
@@ -91,6 +115,8 @@ export function DevTools({ links = NO_LINKS }: { links?: readonly DevLink[] }) {
             {l.label}
           </a>
         ))}
+
+        {extra}
       </div>
     </details>
   );

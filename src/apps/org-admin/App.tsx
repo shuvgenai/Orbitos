@@ -9,6 +9,7 @@ import { needsAttention } from '@/shared/lib/validate';
 import { Banner } from '@/shared/ui/Banner';
 import { attentionCause } from '@/shared/lib/validate';
 import { orgAdminNav } from './nav';
+import { AcceptInvite } from './AcceptInvite';
 
 /**
  * Routes come from CLAUDE.md's Org Admin list, minus the Agent map: FD-19 deletes it and
@@ -46,6 +47,21 @@ const SCREENS: Record<string, { title: string; body: string }> = {
 };
 
 export function App() {
+  const route = useRoute('dashboard');
+
+  /**
+   * The invitation link is the ONE route in this entry that renders OUTSIDE the guard.
+   *
+   * An invitee is signed out by definition -- they have no account until they accept -- so
+   * `RequireAccess` in front of this would hand them a sign-in form for the office they are
+   * being invited to. The route is checked here, before the guard, rather than inside it.
+   *
+   * It is not a hole in the guard: the token is the only thing that opens it, it is good once
+   * and for seven days (A-04), and every other route in the entry is still behind
+   * `RequireAccess`.
+   */
+  if (route.name === 'invite' && route.arg) return <AcceptInvite token={route.arg} />;
+
   return (
     <RequireAccess>
       <Screens />

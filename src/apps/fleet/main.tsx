@@ -19,6 +19,13 @@ const FLEET_OPTIONS = {
   sampleOffices: SAMPLE_OFFICES,
   instanceVersion: INSTANCE_VERSION,
   provisionSteps: PROVISION_STEPS,
+  /**
+   * Every office-facing read on this entry returns zero rows. It is the mock's stand-in for
+   * Prompt 1.5 rule 3 -- "Super Admin gets no policy on `agents`, `requests` or any content
+   * table" -- and the one line that makes the boundary real rather than a convention nobody
+   * checks. `boundary.test.ts` fails if it is removed.
+   */
+  fleetSide: true,
 } as const;
 
 const root = document.getElementById('root');
