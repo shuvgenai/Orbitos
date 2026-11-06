@@ -88,6 +88,21 @@ export function agentFromRole(
   };
 }
 
+/**
+ * An office document with nothing in it.
+ *
+ * What an office-facing read returns when there is no office to read: nothing is bound yet,
+ * or the caller is the operator surface, which holds no policy on any content table
+ * (Prompt 1.5 rule 3). It is a legitimate state rather than an error, so the shape is real
+ * and every list in it is empty.
+ */
+export function blank(): StoreState {
+  const s = base();
+  s.org.name = '';
+  s.org.domain = '';
+  return s;
+}
+
 /** A brand-new office: the Org Admin, and Orbi. PROVENANCE: org.js `Seeds.fresh`. */
 export function fresh(): StoreState {
   resetUid();

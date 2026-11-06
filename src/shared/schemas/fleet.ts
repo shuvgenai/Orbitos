@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
 /**
+ * Fleet-only schemas.
+ *
+ * `provisionInputSchema` USED TO LIVE HERE AND MUST NOT COME BACK. The mock validates it, the
+ * mock ships in all three bundles, and importing a runtime Zod value out of this file drags
+ * `adapterKey` -- a real key name, kept at runtime -- into a chunk the customer entries load.
+ * That is not hypothetical: it happened, and `customer-surface.test.ts` failed on
+ * `nav-*.js: adapter`. It now lives in ./provision.ts, which carries no such word.
+ *
  * Fleet-only schemas. Imported by src/apps/fleet and by the fleet half of the mock, and by
  * nothing the customer apps import.
  *
@@ -50,15 +58,6 @@ export const fleetOfficeSchema = z.object({
   admin: z.string(),
 });
 
-export const provisionInputSchema = z.object({
-  name: z.string().min(2, 'Enter the business name.'),
-  domain: z
-    .string()
-    .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i, 'Enter a domain like office.acme.com.'),
-  email: z
-    .string()
-    .regex(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, 'Enter the Org Admin email.'),
-});
 
 export const provisionJobSchema = z.object({
   i: z.number().int(),
@@ -72,5 +71,4 @@ export type AgentRuntime = z.infer<typeof agentRuntimeSchema>;
 export type FleetStatus = z.infer<typeof fleetStatusSchema>;
 export type Health = z.infer<typeof healthSchema>;
 export type FleetOffice = z.infer<typeof fleetOfficeSchema>;
-export type ProvisionInput = z.infer<typeof provisionInputSchema>;
 export type ProvisionJob = z.infer<typeof provisionJobSchema>;

@@ -18,7 +18,10 @@ import type {
   StoreState,
   ToolMode,
 } from '@/shared/schemas';
-import type { FleetOffice, ProvisionInput } from '@/shared/schemas/fleet';
+import type { FleetOffice } from '@/shared/schemas/fleet';
+import type { ProvisionInput } from '@/shared/schemas/provision';
+import type { Invite, InvitePreview } from '@/shared/schemas/invite';
+import type { InviteState } from '@/shared/lib/invite';
 
 /**
  * The seam. Prompt 1 item 5 fixes the operation list; FD-2 and Prompt 1.5 make
@@ -106,16 +109,63 @@ export interface ApiClient {
   listAudit(): Promise<AuditEntry[]>;
 
   /* ---- fleet (operator surface only) ---- */
+  /**
+   * THE ONLY OPERATIONS THAT SPAN OFFICES, with the invitations below and the dev-only
+   * `bindOffice`.
+   *
+   * Every office-facing operation above acts on the CURRENT office and takes no office
+   * identifier, and that is a hard rule rather than a style choice (FD-31 constraint 1). In
+   * production each office is its own deployment with its own database (FD-1, PRD 14.1) and
+   * the fleet console sees it only through the nightly numbers rollup (S-38). If an
+   * office-facing method ever grows an `officeId`, the mock has taught this frontend
+   * something production cannot do. `seam.test.ts` fails if one does.
+   */
   listOffices(): Promise<FleetOffice[]>;
   getFleetOffice(id: string): Promise<FleetOffice | undefined>;
-  provisionOffice(input: ProvisionInput): Promise<Result>;
+  /**
+   * S-01 plus A-04: create the office and issue its Org Admin's invitation, atomically.
+   *
+   * `byName` is the operator, passed in as data so no operator string is compiled into the
+   * shared client. Returns the invitation, because **there is no mail service in this stack
+   * and nothing here pretends one sent anything** (FD-32): the caller surfaces the link.
+   */
+  provisionOffice(
+    input: ProvisionInput,
+    byName: string,
+  ): Promise<Result<{ officeId: string; token: string; url: string }>>;
+
+  /* ---- invitations (A-04) ---- */
+  /**
+   * Keyed by TOKEN, never by office id: in production the link is served by the office's own
+   * deployment, so the token is what routes. Both refuse with the words a screen can show --
+   * "already been used", "expired" -- and an unknown token reads the same as a tampered one.
+   */
+  getInvite(token: string): Promise<Result<InvitePreview>>;
+  acceptInvite(token: string, password: string): Promise<Result<{ officeId: string }>>;
+  /**
+   * Operator and dev only: how the console offers "Copy invite link" while no mail service
+   * exists.
+   *
+   * `state` is resolved HERE rather than by the caller, because used-or-expired depends on a
+   * clock and a clock read inside a React render is impure. The client owns the clock.
+   */
+  listInvites(): Promise<Array<Invite & { url: string; state: InviteState }>>;
 
   /* ---- session ---- */
   getSession(): Promise<Session>;
   signInAs(userId: string | null): Promise<Result>;
 
-  /* ---- dev only; a real client may refuse all three ---- */
+  /* ---- dev only; a real client may refuse all four ---- */
   loadDemo(): Promise<Result>;
   resetFresh(): Promise<Result>;
   setSimulation(on: boolean): Promise<Result>;
+  /**
+   * Point the office-facing operations at another office. **DEV ONLY.**
+   *
+   * The one place outside the fleet and invitation surfaces where an office identifier
+   * appears, and `seam.test.ts` names it as an explicit exemption rather than letting it
+   * pass unnoticed. In production this operation does not exist: which office you are in is
+   * decided by the deployment whose URL you opened.
+   */
+  bindOffice(officeId: string): Promise<Result>;
 }
