@@ -24,6 +24,21 @@ the canonical copy was corrected and re-copied down (so mark the entry `STATUS: 
 or the repo copy was edited in place, which FD-17 forbids. A stale errata list is worse
 than none, and this is what stops it going stale silently.
 
+## Images are pinned by digest — `VERSIONS.md`
+
+`pgvector/pgvector:pg16`, `redis:7-alpine` and `node:24.14.1-slim` were floating tags in
+`compose.dev.yml`, `template/compose.yml` and `Dockerfile` until 2026-11-09. They now carry
+index digests, recorded in **`VERSIONS.md`** with the upgrade steps, and
+`template/test/image-pins.test.ts` fails if any of them floats again, if the dev and
+instance stacks drift apart, or if the engine refs in `.github/workflows/ci.yml` lose their
+digests.
+
+**The engine's own pins are NOT recorded here.** `orbitos-infra` `infra/VERSIONS.md` is
+canonical for what runs. This repo also carries `template/engine/pinned-versions.json`,
+which disagrees with it, and `ci.yml` repeats those values a third time — an **open**
+question recorded as `FD-35` in `orbitos-infra` `governing/founder-decisions.md`. Do not
+"tidy" either file until that is decided.
+
 ## Read in this order
 
 1. **`ORBIT_OS_PRD_v9_0.md`** — the spec. §7 access roles and authorities, §15 design,

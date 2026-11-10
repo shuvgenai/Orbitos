@@ -1,5 +1,7 @@
 # One image recipe for the four ORBIT programs; APP selects which one runs.
-FROM node:24.14.1-slim AS base
+# Digest-pinned 2026-11-09; see VERSIONS.md. A tag alone lets two builds of the same commit
+# produce different software.
+FROM node:24.14.1-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c AS base
 RUN corepack enable
 WORKDIR /app
 
