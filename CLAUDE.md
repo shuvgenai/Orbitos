@@ -35,9 +35,14 @@ digests.
 
 **The engine's own pins are NOT recorded here.** `orbitos-infra` `infra/VERSIONS.md` is
 canonical for what runs. This repo also carries `template/engine/pinned-versions.json`,
-which disagrees with it, and `ci.yml` repeats those values a third time — an **open**
-question recorded as `FD-35` in `orbitos-infra` `governing/founder-decisions.md`. Do not
-"tidy" either file until that is decided.
+which disagrees with it, and `ci.yml` lines 37-38 repeat those values a third time.
+
+**FD-35 is decided (2026-11-10): this stack will consume infra's built image**, and that
+port is what removes the other two copies. **Until it lands, this repo's engine is a
+declared dev harness and `pinned-versions.json` stays** — it is a build input that
+`pnpm stack:up`, the Slice 1 runbook and the CI smoke job all require, so deleting it early
+breaks them. A decided FD is not permission to tidy the file today. See `TODOS.md` for the
+port and `VERSIONS.md` for the record.
 
 ## Read in this order
 
