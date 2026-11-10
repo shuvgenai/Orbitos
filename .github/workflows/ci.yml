@@ -69,5 +69,12 @@ jobs:
           p=$(docker compose -f template/compose.yml exec -T -e PGPASSWORD="$PAPERCLIP_DB_PASSWORD" postgres psql -h 127.0.0.1 -U paperclip_app -d paperclip -tAc "select current_database()")
           test "$p" = paperclip || { echo "paperclip_app login failed: $p"; exit 1; }
       - run: curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:8081/healthz
+      # A smoke job that fails without saying why costs a whole run to learn anything. This
+      # one failed for four days on a missing variable and now fails on "api-1 is
+      # unhealthy", with no container output captured either time.
+      - if: failure()
+        run: |
+          docker compose -f template/compose.yml ps -a
+          docker compose -f template/compose.yml logs --no-color --tail=120
       - if: always()
         run: docker compose -f template/compose.yml down -v
