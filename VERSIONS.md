@@ -33,11 +33,16 @@ against, and what the restore drill proved.
 
 This repo also carries `template/engine/pinned-versions.json`, a 2026-09-30 record that
 **disagrees** with infra's (a different Paperclip digest, and Hermes as a Docker Hub image
-rather than a commit built from source), and `.github/workflows/ci.yml` repeats those same
-values a third time. That conflict is **open** — see `FD-35` in `orbitos-infra`
-`governing/founder-decisions.md`. Nothing about it was changed here, because resolving it is
-a founder decision and one of the two options the founder offered turns out not to be
-available.
+rather than a commit built from source), and `.github/workflows/ci.yml` lines 37-38 repeat
+those same values a third time.
+
+**Decided 2026-11-10 (FD-35 in `orbitos-infra` `governing/founder-decisions.md`): this stack
+will consume infra's built image**, and the second and third copies go with that port.
+**The interim, which is binding until then: this repo's engine is a declared dev harness,
+and `pinned-versions.json` STAYS.** It is a build input, not a version record —
+`pnpm stack:up`, `docs/runbooks/slice-1-local.md` and the CI smoke job all require the two
+refs it supplies, so deleting it early breaks them. "Decided" is not permission to tidy it
+now; the port is the thing that removes it. Tracked in `TODOS.md`.
 
 ## Upgrading one of these
 

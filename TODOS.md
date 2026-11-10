@@ -2,6 +2,33 @@
 
 ## Infrastructure
 
+### Consume infra's built engine image instead of building our own (FD-35)
+
+**What:** Point `template/compose.yml`'s `paperclip` service at infra's built image —
+`localhost/orbitos/paperclip-hermes` as pinned in `orbitos-infra` `infra/VERSIONS.md`, or a
+published digest-pinned build of it — instead of building `template/engine/Dockerfile` from
+`PAPERCLIP_REF` and `HERMES_REF`.
+
+**Why:** There are three records of the engine's versions and two of them disagree with the
+one that runs. infra's is canonical: it is what the ten migrations were applied against and
+what the restore drill proved. Decided by the founder on 2026-11-10 — FD-35 and its
+addendum in `orbitos-infra` `governing/founder-decisions.md`.
+
+**Why it is a port and not an edit:** infra builds Hermes from commit `bf0203a79` with
+`uv sync --frozen`, so there is no image digest for `FROM ${HERMES_REF}` to consume — the
+two records cannot be made to agree while the two engines are built differently. What this
+template adds on top has to come with it: the two Hermes profiles (`orbi`, `scout`), the
+`--source` shim, `paperclip-adapters.json`, and the posture checks that read them.
+
+**What it removes when it lands:** `template/engine/pinned-versions.json` and the
+`PAPERCLIP_REF`/`HERMES_REF` env pair in `.github/workflows/ci.yml` (lines 37-38), leaving
+one engine record. **Until then both stay** — `pnpm stack:up`,
+`docs/runbooks/slice-1-local.md` and the CI smoke job require them, and the interim wording
+is in `VERSIONS.md`, `CLAUDE.md` and `template/engine/README.md`.
+
+**Files:** `template/compose.yml`, `template/engine/*`, `template/test/engine.test.ts`,
+`ops/src/posture*.ts`, `.github/workflows/ci.yml`, `VERSIONS.md`.
+
 ### Switch Scout and Orbi to the `hermes_gateway` adapter
 
 **What:** Change both agents from Paperclip's `hermes_local` adapter to `hermes_gateway`, with Hermes as its own API server in its own container (profiles under `/p/<profile>/`, one `API_SERVER_KEY` per profile).

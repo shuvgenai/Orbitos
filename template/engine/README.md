@@ -1,5 +1,16 @@
 # Engine container (Paperclip + Hermes)
 
+> **This is a declared DEV HARNESS, not the engine that runs.** `infra/VERSIONS.md` in
+> `orbitos-infra` is the canonical record of the engine: it is what the migrations were
+> applied against and what the restore drill proved, and it builds Hermes from commit
+> `bf0203a79` rather than from a published image. **FD-35 (decided 2026-11-10) is to make
+> this stack consume infra's built image**, after which this template's own pins and the
+> `PAPERCLIP_REF`/`HERMES_REF` copies in `.github/workflows/ci.yml` both go.
+>
+> Until that port lands, **`pinned-versions.json` stays**: `pnpm stack:up`,
+> `docs/runbooks/slice-1-local.md` and the CI smoke job all require those two refs.
+> Deleting it early breaks them. It is a build input, not a version record.
+
 One container holds both programs. Paperclip's `hermes_local` adapter spawns a local `hermes`
 binary, so a Hermes on another host or in another container is unreachable (Eng v3 D3).
 
