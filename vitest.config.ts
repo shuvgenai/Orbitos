@@ -19,6 +19,7 @@ export default defineConfig({
             'frontdesk/**/*.test.ts',
             'api/**/*.test.ts',
             'template/test/compose.test.ts',
+            'template/test/image-pins.test.ts',
             'template/test/engine.test.ts',
             'template/test/no-unapproved-send.test.ts',
           ],
