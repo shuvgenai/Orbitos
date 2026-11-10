@@ -40,8 +40,20 @@ jobs:
       PAPERCLIP_AUTH_SECRET: smoke
       PAPERCLIP_SIGNING_SECRET: smoke
       ENGINE_ANTHROPIC_API_KEY: smoke
+      # Added 2026-11-10, because this job had been FAILING on them since the frontdesk
+      # services landed: compose requires them with ${VAR:?} and the env block was never
+      # updated, so every run died at interpolation with "required variable ... is missing
+      # a value" before a single container started. The `test` job stayed green, which is
+      # why it went unnoticed.
+      APPROVAL_LINK_SECRET: smoke-approval-link-secret-32ch # compose wants >= 32 characters
+      PUBLIC_BASE_URL: http://127.0.0.1:8080
+      MAIL_FROM: smoke@example.invalid # .invalid is reserved, so nothing can ever deliver
+      SETUP_HOST_DIR: /tmp/orbit-setup
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # SETUP_HOST_DIR is a read-only bind mount (tone-samples.md, facts.md). Created
+      # explicitly rather than left to the daemon, so the mount is a directory we chose.
+      - run: mkdir -p /tmp/orbit-setup
       # --scale paperclip=0 keeps the engine out of this job on purpose. The built engine image is
       # 8.82 GB, which does not fit a hosted runner's disk alongside the rest of the stack. Its
       # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
