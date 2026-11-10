@@ -83,3 +83,34 @@ test('the engine refs CI passes are digest-pinned', () => {
   expect(refs.length, 'neither engine ref was found in ci.yml').toBeGreaterThan(0);
   for (const [, name, value] of refs) expect(value, name).toMatch(DIGEST);
 });
+
+// Workflow actions are the other thing CI pulls from a name rather than a hash. A tag is
+// mutable: whoever owns the action can move `v5` to any commit, and it runs with this repo's
+// token. Pinned by commit SHA with the version in a trailing comment, which is how the infra
+// repo's own workflow does it, so the readable version is not lost to the hash.
+test('every workflow action is pinned by commit SHA (SEC-6)', () => {
+  const workflows = ['../../.github/workflows/ci.yml'];
+  let seen = 0;
+  for (const rel of workflows) {
+    const text = read(rel);
+    for (const line of text.split(/\r?\n/)) {
+      const m = /^\s*-?\s*uses:\s*(\S+)/.exec(line);
+      if (!m) continue;
+      const ref = m[1]!;
+      if (ref.startsWith('./') || ref.startsWith('docker://')) continue; // local or image, not a tag
+      seen += 1;
+      expect(ref, `${rel}: ${ref}`).toMatch(/@[0-9a-f]{40}$/);
+    }
+  }
+  expect(seen, 'no `uses:` lines were found — the test is not reading what it thinks').toBeGreaterThan(0);
+});
+
+// A SHA with no version comment is reproducible and unreviewable: nobody can tell whether it
+// is current without resolving it by hand.
+test('each pinned action keeps its version in a comment', () => {
+  const text = read('../../.github/workflows/ci.yml');
+  for (const line of text.split(/\r?\n/)) {
+    if (!/^\s*-?\s*uses:\s*\S+@[0-9a-f]{40}/.test(line)) continue;
+    expect(line, line.trim()).toMatch(/#\s*v?\d+\.\d+\.\d+/);
+  }
+});
