@@ -1,6 +1,14 @@
 // Provision a fresh ORBIT instance: one workspace, one owner, one Gmail connection.
 //
-//   node --import tsx ops/seed-instance.mjs
+// It runs INSIDE the `dbgen` build stage, not from a checkout — see the note on absolute
+// imports below. `.github/workflows/ci.yml` invokes it as:
+//
+//   docker build --target dbgen -t orbit-dbgen .
+//   docker run --rm --network <project>_data -w /app/api \
+//     -v "$PWD/ops/seed-instance.mjs:/app/ops/seed-instance.mjs:ro" \
+//     -e DATABASE_URL=... -e TOKEN_ENCRYPTION_KEY=... -e OWNER_EMAIL=... \
+//     -e GMAIL_REFRESH_TOKEN=... -e GMAIL_EMAIL_ADDRESS=... -e GMAIL_HISTORY_ID=... \
+//     orbit-dbgen node --import tsx /app/ops/seed-instance.mjs
 //
 // WHY THIS FILE EXISTS. `api/src/main.ts` and `frontdesk/src/main.ts` both refuse to start
 // unless there is EXACTLY ONE GmailConnection row. Until now the only way to create it was a
