@@ -29,6 +29,36 @@ is in `VERSIONS.md`, `CLAUDE.md` and `template/engine/README.md`.
 **Files:** `template/compose.yml`, `template/engine/*`, `template/test/engine.test.ts`,
 `ops/src/posture*.ts`, `.github/workflows/ci.yml`, `VERSIONS.md`.
 
+### Stop shipping `db` into the `web` and `worker` images
+
+**What:** `Dockerfile` copies the generated `db` package into all four program images. Only
+`api` and `frontdesk` import `@orbit/db`. Give the runtime two stages — one with `db`, one
+without — and put a `target:` on each service in `template/compose.yml`.
+
+**Why it is a stopgap and not the fix:** `COPY` cannot be conditional, so one recipe with one
+runtime stage cannot scope this. The unconditional copy is what makes `api` and `frontdesk`
+start at all; before it they crash-looped on
+`Cannot find module '/app/<app>/node_modules/@orbit/db/src/client.ts'` and had done since the
+frontdesk services landed. Shipping a 1.7 MB package plus a generated client into two images
+that do not import it is waste, not a defect — on an instance-per-customer product it is
+still worth removing.
+
+**The alternative that was costed and rejected (2026-11-11):** have the api stop importing
+`@orbit/db` at all. Rejected on measurement, not taste:
+
+- `frontdesk` imports it in **10 files / 16 import sites**, including `enqueueJob`,
+  `claimDueJobs`, `completeJob`, `logDecisionCall` and the Gmail watermark functions — so
+  changing only the api leaves the identical crash in the identical place.
+- Something still has to own Prisma. Moving it into `shared` would put it in **all four**
+  images, which is the thing this entry exists to avoid.
+- The premise does not hold: `shared/package.json`'s exports also resolve to `./src/*.ts`, so
+  a cross-package TypeScript import at runtime is this repo's house style — all four programs
+  run `node --import tsx src/main.ts` and there is no build step. The deep import was never
+  the defect. **The missing `COPY` was**, together with a `prisma generate` that no image ever
+  ran.
+
+**Files:** `Dockerfile`, `template/compose.yml`, `template/test/image-pins.test.ts`.
+
 ### Switch Scout and Orbi to the `hermes_gateway` adapter
 
 **What:** Change both agents from Paperclip's `hermes_local` adapter to `hermes_gateway`, with Hermes as its own API server in its own container (profiles under `/p/<profile>/`, one `API_SERVER_KEY` per profile).
