@@ -78,3 +78,65 @@ jobs:
           docker compose -f template/compose.yml logs --no-color --tail=120
       - if: always()
         run: docker compose -f template/compose.yml down -v
+
+  # --- make a red run visible -----------------------------------------------------------
+  # `compose-smoke` was red for four days and red looked normal, because `test` stayed green
+  # and nothing reported the run at all. A CI nobody reads is the same shape as a guard that
+  # cannot fail.
+  #
+  # A required status check was the obvious answer and it is the wrong one here: every run on
+  # this repo is a direct push to `main` by the repo admin, and a required check does not gate
+  # that — it only gates merges. It would have changed nothing about the four days.
+  #
+  # So the signal is an issue, ASSIGNED to the repo owner. Assignment is what makes it a
+  # notification rather than another thing to go and look at: GitHub's default watch setting
+  # does not mail you about an issue the bot opened, but it always mails you about one you
+  # were assigned. The issue is reused rather than reopened per failure, so a long red streak
+  # is one thread, and the `ci-green` job closes it when the run goes green — an alarm that
+  # never clears gets ignored exactly like the one it replaces.
+  ci-red:
+    needs: [test, compose-smoke]
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the CI-is-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: 'CI is red on ${{ github.ref_name }}'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="Run failed: $RUN_URL
+          Commit: \`${{ github.sha }}\` — ${{ github.event.head_commit.message }}
+          Jobs: test=${{ needs.test.result }}, compose-smoke=${{ needs['compose-smoke'].result }}"
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+                --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body" \
+              --assignee "${{ github.repository_owner }}"
+          fi
+
+  ci-green:
+    needs: [test, compose-smoke]
+    if: success() && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Close the CI-is-red issue if one is open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: 'CI is red on ${{ github.ref_name }}'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+                --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue close "$n" --repo "$GITHUB_REPOSITORY" \
+              --comment "Green again: $RUN_URL"
+          else
+            echo "no open CI-is-red issue"
+          fi
