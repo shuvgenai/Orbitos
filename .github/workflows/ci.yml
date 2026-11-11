@@ -30,7 +30,9 @@ jobs:
       RESEND_API_KEY: smoke
       GMAIL_CLIENT_ID: smoke
       GMAIL_CLIENT_SECRET: smoke
-      TOKEN_ENCRYPTION_KEY: smoke
+      # Not `smoke`: the api and frontdesk validate this at boot with
+      # /^[0-9a-fA-F]{64}$/ and refuse to start. Obvious filler, but valid filler.
+      TOKEN_ENCRYPTION_KEY: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
       ANTHROPIC_API_KEY: smoke
       # The engine service is scaled to zero below, but Compose still interpolates its variables
       # while parsing the file, so they have to be set.
@@ -45,7 +47,10 @@ jobs:
       # updated, so every run died at interpolation with "required variable ... is missing
       # a value" before a single container started. The `test` job stayed green, which is
       # why it went unnoticed.
-      APPROVAL_LINK_SECRET: smoke-approval-link-secret-32ch # compose wants >= 32 characters
+      # 34 characters. The previous value was 31 against a 32-character minimum, and it is
+      # the api that enforces it at boot, not compose — so the job got past interpolation and
+      # died one layer deeper, which is why this was still red after the variables were added.
+      APPROVAL_LINK_SECRET: smoke-approval-link-secret-32chars
       PUBLIC_BASE_URL: http://127.0.0.1:8080
       MAIL_FROM: smoke@example.invalid # .invalid is reserved, so nothing can ever deliver
       SETUP_HOST_DIR: /tmp/orbit-setup
@@ -106,10 +111,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TITLE: 'CI is red on ${{ github.ref_name }}'
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Through `env`, never interpolated into the script. A `${{ }}` expression is pasted
+          # into the script TEXT before bash sees it, so a commit message is executed, not
+          # quoted — and this repo writes messages full of backticks. The first run of this job
+          # died exactly that way: `github.event_name: command not found`, the step's own alarm
+          # killed by the commit it was reporting. It is also the standard Actions
+          # script-injection hole, so the fix is the same either way.
+          HEAD_MSG: ${{ github.event.head_commit.message }}
+          SHA: ${{ github.sha }}
+          R_TEST: ${{ needs.test.result }}
+          R_SMOKE: ${{ needs['compose-smoke'].result }}
         run: |
           body="Run failed: $RUN_URL
-          Commit: \`${{ github.sha }}\` — ${{ github.event.head_commit.message }}
-          Jobs: test=${{ needs.test.result }}, compose-smoke=${{ needs['compose-smoke'].result }}"
+          Commit: $SHA — $(printf '%s' "$HEAD_MSG" | head -1)
+          Jobs: test=$R_TEST, compose-smoke=$R_SMOKE"
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
                 --search "$TITLE in:title" --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
