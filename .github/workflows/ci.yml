@@ -54,17 +54,41 @@ jobs:
       PUBLIC_BASE_URL: http://127.0.0.1:8080
       MAIL_FROM: smoke@example.invalid # .invalid is reserved, so nothing can ever deliver
       SETUP_HOST_DIR: /tmp/orbit-setup
+      # NOTE on frontdesk's four per-instance values: they are NOT here. compose supplies them
+      # from `.env.frontdesk`, so this job writes that file instead — see the step below.
+      #
+      # WHAT THIS JOB PROVES, now that it can get past boot: each image carries every package
+      # its program imports, every module graph resolves, every configuration validates, the
+      # programs reach Postgres and Redis, the migrations apply, provisioning succeeds, and all
+      # four start and keep answering /healthz. That is precisely the class of failure that sat
+      # red for four days — first ERR_MODULE_NOT_FOUND, then a 31-character secret against a
+      # 32-character minimum, then an unmigrated database, then an unprovisioned one.
+      #
+      # WHAT IT DOES NOT PROVE: anything about the Orchestrator, or about Gmail. There is no
+      # engine in this job and the credentials are filler, so frontdesk's poll loop logs
+      # "tick failed" on every tick while staying healthy — `/healthz` is deliberately liveness
+      # only (`shared/src/health.ts` answers a static 200). This job asserts that the stack
+      # STARTS, not that it works. Do not let a green run here be read as more than that.
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      # SETUP_HOST_DIR is a read-only bind mount (tone-samples.md, facts.md). Created
-      # explicitly rather than left to the daemon, so the mount is a directory we chose.
-      - run: mkdir -p /tmp/orbit-setup
-      # --scale paperclip=0 keeps the engine out of this job on purpose. The built engine image is
-      # 8.82 GB, which does not fit a hosted runner's disk alongside the rest of the stack. Its
-      # configuration is covered statically by `pnpm posture:check` in the test job, and its boot is
-      # verified on the staging instance instead (PRD section 9, "a staging instance on the next
-      # pinned versions"). Revisit if CI moves to a larger runner.
-      - run: docker compose -f template/compose.yml up -d --build --wait --scale paperclip=0
+      # SETUP_HOST_DIR is a read-only bind mount. Created explicitly rather than left to the
+      # daemon, so the mount is a directory we chose — and now FILLED, because frontdesk reads
+      # both files at boot and refuses to start on either being missing or empty:
+      #   tone-samples.md is missing or empty in SETUP_DIR
+      # An empty directory satisfied the mount and not the program. These are the customer's
+      # own writing in a real instance; filler proves only that the files are found and read.
+      - name: SETUP_DIR and its two required files
+        run: |
+          mkdir -p /tmp/orbit-setup
+          printf 'Smoke filler. Not a real tone sample.\n' > /tmp/orbit-setup/tone-samples.md
+          printf 'Smoke filler. Not a real fact sheet.\n'  > /tmp/orbit-setup/facts.md
+      # The engine is left out of this job on purpose: its built image is 8.82 GB and does not
+      # fit a hosted runner's disk alongside the rest of the stack. Its configuration is covered
+      # statically by `pnpm posture:check` in the test job, and its boot is verified on the
+      # staging instance instead (PRD section 9). Services are now NAMED rather than scaled,
+      # because `--scale paperclip=0` still builds the engine before scaling it away.
+      - name: Data services first, so migrations run before anything reads the database
+        run: docker compose -f template/compose.yml up -d --wait postgres redis
       - name: Both databases exist and each login reaches its own (DEP-1)
         run: |
           dbs=$(docker compose -f template/compose.yml exec -T postgres psql -U postgres -tAc "select datname from pg_database where datname in ('orbit','paperclip') order by 1")
@@ -73,6 +97,58 @@ jobs:
           test "$o" = orbit || { echo "orbit_app login failed: $o"; exit 1; }
           p=$(docker compose -f template/compose.yml exec -T -e PGPASSWORD="$PAPERCLIP_DB_PASSWORD" postgres psql -h 127.0.0.1 -U paperclip_app -d paperclip -tAc "select current_database()")
           test "$p" = paperclip || { echo "paperclip_app login failed: $p"; exit 1; }
+      # WHY THIS STEP EXISTS, AND WHY IT IS NOT CHEATING. Before it, the api booted, validated
+      # its configuration, connected, and then logged
+      #   could not read the database (PrismaClientKnownRequestError)
+      # on every healthcheck, because nothing had ever applied the ORBIT migrations. The job was
+      # faithfully reproducing a deploy in which the operator step had not been run:
+      # `docs/runbooks/slice-1-local.md` applies them by hand with `pnpm db:migrate`, and neither
+      # `template/compose.yml` nor any image does it. So the honest fix is to run the step a real
+      # deploy runs, in the same way, not to relax the healthcheck.
+      #
+      # It runs as `orbit_app`, which OWNS the `orbit` database (`template/postgres/init`), so it
+      # needs no grant it would not have in production. The `dbgen` stage is reused because it is
+      # the only image here with the prisma CLI — the runtime install is `--prod`.
+      #
+      # NOT FIXED HERE, and worth a decision: the instance does not migrate itself. A customer
+      # deploy that skips the manual step produces exactly this crash loop. See TODOS.md.
+      - name: Apply ORBIT migrations — the step a real deploy runs by hand
+        run: |
+          docker build --target dbgen -t orbit-dbgen .
+          docker run --rm --network orbit-instance_data \
+            -e DATABASE_URL="postgresql://orbit_app:${ORBIT_DB_PASSWORD}@postgres:5432/orbit" \
+            orbit-dbgen pnpm --filter @orbit/db exec prisma migrate deploy
+      # Both `api` and `frontdesk` refuse to start unless there is EXACTLY ONE GmailConnection
+      # row, so a migrated-but-unprovisioned instance is still a crash loop:
+      #   expected exactly one GmailConnection row, found 0; see the runbook
+      # This is the runbook's one-time provisioning, as a script rather than a pasted snippet.
+      # It never calls Gmail — the mailbox address and history id are inputs here, which is
+      # right for CI and wrong for a real first install (see the file's header).
+      - name: Provision the instance — one workspace, owner and connection
+        run: |
+          docker run --rm --network orbit-instance_data -w /app/api \
+            -v "$PWD/ops/seed-instance.mjs:/app/ops/seed-instance.mjs:ro" \
+            -e DATABASE_URL="postgresql://orbit_app:${ORBIT_DB_PASSWORD}@postgres:5432/orbit" \
+            -e TOKEN_ENCRYPTION_KEY="$TOKEN_ENCRYPTION_KEY" \
+            -e OWNER_EMAIL=smoke@example.invalid \
+            -e GMAIL_REFRESH_TOKEN=smoke-not-a-real-refresh-token \
+            -e GMAIL_EMAIL_ADDRESS=smoke@example.invalid \
+            -e GMAIL_HISTORY_ID=1 \
+            orbit-dbgen node --import tsx /app/ops/seed-instance.mjs
+      # The four per-instance values compose deliberately keeps out of the template. They come
+      # from `.env.frontdesk`, an `env_file` with `required: false`, so putting them in this
+      # job's `env:` does nothing at all — the container never sees them. Found by rehearsing
+      # this job locally, where frontdesk went on reporting all four as missing.
+      - name: Per-instance frontdesk values, the way a real instance supplies them
+        run: |
+          cat > template/.env.frontdesk <<'EOF'
+          PAPERCLIP_API_KEY=smoke-not-a-real-key
+          PAPERCLIP_COMPANY_ID=00000000-0000-0000-0000-000000000000
+          PAPERCLIP_SCOUT_AGENT_ID=00000000-0000-0000-0000-000000000001
+          PAPERCLIP_ORBI_AGENT_ID=00000000-0000-0000-0000-000000000002
+          EOF
+      - name: The four programs
+        run: docker compose -f template/compose.yml up -d --build --wait web api worker frontdesk
       - run: curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:8081/healthz
       # A smoke job that fails without saying why costs a whole run to learn anything. This
       # one failed for four days on a missing variable and now fails on "api-1 is

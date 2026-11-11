@@ -29,6 +29,38 @@ is in `VERSIONS.md`, `CLAUDE.md` and `template/engine/README.md`.
 **Files:** `template/compose.yml`, `template/engine/*`, `template/test/engine.test.ts`,
 `ops/src/posture*.ts`, `.github/workflows/ci.yml`, `VERSIONS.md`.
 
+### An instance does not migrate itself
+
+**What:** Nothing in `template/compose.yml` or in any image applies the ORBIT migrations.
+`docs/runbooks/slice-1-local.md` has the operator run `pnpm db:migrate` by hand, which means a
+deploy that skips that step brings up an `api` that connects, fails every read with
+`could not read the database (PrismaClientKnownRequestError)`, and never becomes healthy.
+
+**How it was found:** the compose smoke job, once the image stopped crashing earlier than this.
+The job was not broken — it was faithfully reproducing a deploy where the manual step had not
+been run. CI now runs the documented step so the rest of the job can be reached, which does
+not fix the product.
+
+**The options, in increasing order of commitment:**
+
+1. **Leave it manual** and make the runbook's step impossible to miss — a preflight in
+   `pnpm stack:up` that refuses to start the programs against an unmigrated database. Honest,
+   cheap, still a step a human can skip.
+2. **A one-shot `migrate` service** in `template/compose.yml` that `api`, `worker` and
+   `frontdesk` wait on with `depends_on: { migrate: { condition: service_completed_successfully } }`.
+   Its image is the `dbgen` stage, which already has the prisma CLI, the schema and the
+   migrations. It runs as `orbit_app`, which owns the `orbit` database, so no new grant.
+3. **Migrate on boot** inside each program. Rejected on sight: three programs racing to apply
+   the same migrations is worse than the problem.
+
+**Recommendation: option 2.** It is the only one where a customer cannot deploy a broken
+instance by forgetting a command, and the build stage it needs already exists.
+
+**Not done** because it changes the deploy model, which is a decision rather than a fix.
+
+**Files:** `template/compose.yml`, `Dockerfile`, `docs/runbooks/slice-1-local.md`,
+`.github/workflows/ci.yml`.
+
 ### Stop shipping `db` into the `web` and `worker` images
 
 **What:** `Dockerfile` copies the generated `db` package into all four program images. Only
