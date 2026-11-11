@@ -34,6 +34,11 @@ COPY frontdesk/package.json frontdesk/
 COPY ops/package.json ops/
 RUN pnpm install --frozen-lockfile
 COPY db db
+# `shared` as well, because this stage is also the only image that can PROVISION an instance:
+# `ops/seed-instance.mjs` needs `@orbit/shared/token-crypto` to encrypt the refresh token, and
+# both `api` and `frontdesk` refuse to start without the GmailConnection row it creates. The
+# runtime images do not get this stage's dev dependencies, only the generated client below.
+COPY shared shared
 RUN DATABASE_URL=postgresql://unused:unused@127.0.0.1:5432/unused \
     pnpm --filter @orbit/db exec prisma generate
 
