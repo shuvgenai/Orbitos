@@ -63,11 +63,18 @@ instance by forgetting a command, and the build stage it needs already exists.
 `depends_on: { migrate: { condition: service_completed_successfully } }`. `web` does not,
 because it has no `DATABASE_URL` and reads nothing.
 
-Three behaviours were measured on Compose v5.6.1 before it shipped, because the gate is
-worthless if any of them is false: `up -d --wait migrate` returns 0 and leaves `Exited (0)`;
-a later `up` of a dependent is still satisfied by the already-completed container; and a
+Three behaviours were measured on Compose v5.6.1, and **one of them was read wrong, which
+cost a red run the same day**. What holds: `service_completed_successfully` does wait for exit
+0; a later `up` of a dependent is still satisfied by the already-completed container; and a
 migration that exits non-zero fails the whole `up` with
-`service "migrate" didn't complete successfully: exit N`. Four assertions in
+`service "migrate" didn't complete successfully: exit N`. What does **not** hold, and was
+claimed here for a few hours: `up -d --wait <one-shot>` does not wait for it. With no
+healthcheck Compose treats a *running* container as ready — it returned 0 after 3s on an 8s
+command — so the CI step's follow-up read `ExitCode` `0` off a container that had not
+finished, passed, and the next step died on `The table public.gmail_connections does not
+exist`. A check that passed by not looking, shipped in the commit that removed one. The step
+now uses `docker compose wait migrate`, which blocks and returns the real exit code. The
+product's gate was never affected. Four assertions in
 `template/test/compose.test.ts` pin the service list, the three gates, the one-shot
 properties (`restart: "no"`, no healthcheck, no ports) and the exact command — `migrate
 deploy` rather than `migrate dev` or `reset`, either of which would be destructive inside a

@@ -111,15 +111,30 @@ jobs:
       # `service_completed_successfully`. So this runs the compose service a real deploy runs,
       # and the step a human could forget no longer exists. TODOS.md option 2.
       #
-      # Compose already fails the `up` when a one-shot exits non-zero — measured, with
+      # `docker compose wait`, NOT `up --wait`. That distinction cost a red run on 2026-11-16
+      # and it is the whole point of the step:
+      #
+      #   `up -d --wait <a one-shot>` DOES NOT WAIT FOR IT TO FINISH. With no healthcheck,
+      #   Compose treats a RUNNING container as ready, so it returned 0 after 3s on an 8s
+      #   command and reported the container `Healthy` half a second after `Started`. The
+      #   exit-code check that followed then read `ps -a --format '{{.ExitCode}}'` from a
+      #   container that was still running, which is `0`. So the step passed, the migrations
+      #   had not been applied, and the next step died on
+      #     The table `public.gmail_connections` does not exist in the current database.
+      #   A check that passed by not looking, added in the commit that was removing one.
+      #
+      # `docker compose wait` blocks until the container exits and RETURNS ITS EXIT CODE —
+      # measured: 11s on the 8s command, and exit 7 on a one-shot that exits 7.
+      #
+      # The product's gate is a different mechanism and was never affected: `api`, `worker`
+      # and `frontdesk` carry `service_completed_successfully`, which does wait, and a failing
+      # migration fails their `up` with
       #   service "migrate" didn't complete successfully: exit N
-      # The explicit exit-code check stays anyway, so the assertion is visible in the job
-      # rather than implied by a command's exit status, and so a failure prints the log.
       - name: Migrate — the instance does this itself now
         run: |
-          docker compose -f template/compose.yml up -d --wait migrate
-          code=$(docker compose -f template/compose.yml ps -a --format '{{.ExitCode}}' migrate)
-          test "$code" = 0 || { docker compose -f template/compose.yml logs migrate; exit 1; }
+          docker compose -f template/compose.yml up -d migrate
+          docker compose -f template/compose.yml wait migrate \
+            || { docker compose -f template/compose.yml logs migrate; exit 1; }
       # Both `api` and `frontdesk` refuse to start unless there is EXACTLY ONE GmailConnection
       # row, so a migrated-but-unprovisioned instance is still a crash loop:
       #   expected exactly one GmailConnection row, found 0; see the runbook

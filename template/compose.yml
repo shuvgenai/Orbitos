@@ -100,11 +100,23 @@ services:
   # `orbit` database (`template/postgres/init`), so it needs no grant it would not have in
   # production — and no new secret appears here.
   #
-  # MEASURED on Compose v5.6.1 before this shipped: `up -d --wait migrate` returns 0 and leaves
-  # `Exited (0)`; a later `up` of a dependent is still satisfied by the completed container; and
-  # a migration that exits non-zero fails the whole `up` with
-  #   service "migrate" didn't complete successfully: exit N
-  # so this gate cannot pass by not looking.
+  # MEASURED on Compose v5.6.1, and one of the three things measured was read wrong the first
+  # time. What is true:
+  #
+  #   * `depends_on: { condition: service_completed_successfully }` DOES wait for exit 0, and a
+  #     one-shot that exits non-zero fails the whole `up` with
+  #       service "migrate" didn't complete successfully: exit N
+  #     That is this service's gate, and it is sound.
+  #   * A later `up` of a dependent is still satisfied by the already-completed container.
+  #   * **`up --wait` is NOT a way to wait for this service.** With no healthcheck, Compose
+  #     treats a RUNNING container as ready: `up -d --wait migrate` returned 0 after 3s on an
+  #     8s command and printed `Healthy` half a second after `Started`. Anything that then
+  #     reads `ps -a --format '{{.ExitCode}}'` gets `0` from a container still running. To wait
+  #     for this service on its own, use `docker compose wait migrate`, which blocks until it
+  #     exits and returns its exit code.
+  #
+  # `pnpm stack:up` is unaffected: it brings up everything, and the programs cannot start until
+  # this container has completed, whatever `--wait` reports about this one.
   migrate:
     build: { context: .., target: dbgen }
     restart: "no"
