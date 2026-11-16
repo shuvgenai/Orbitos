@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
 import { parse } from 'yaml';
 
@@ -88,11 +90,53 @@ test('the engine refs CI passes are digest-pinned', () => {
 // mutable: whoever owns the action can move `v5` to any commit, and it runs with this repo's
 // token. Pinned by commit SHA with the version in a trailing comment, which is how the infra
 // repo's own workflow does it, so the readable version is not lost to the hash.
+/**
+ * DISCOVERED, NOT LISTED. Until 2026-11-16 the two tests below read a hardcoded
+ * `['../../.github/workflows/ci.yml']`, so a second workflow could arrive with a floating
+ * `@v7` and both would still pass — the same shape as `image-imports.sh` reading a
+ * hardcoded one-file list, and as every other defect this month: the check read a different
+ * copy from the one that runs.
+ *
+ * The walk also covers `.github/actions/**` because a composite action's `uses:` runs with
+ * this repo's token exactly as a workflow's does.
+ *
+ * An EMPTY result is a failure, not a pass. A glob that matches nothing is indistinguishable
+ * in the output from a tree with nothing wrong in it, which is the trap this whole stage is
+ * about.
+ */
+const GITHUB_DIR = fileURLToPath(new URL('../../.github', import.meta.url));
+
+function ymlsUnder(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...ymlsUnder(p));
+    else if (/\.ya?ml$/.test(e.name)) out.push(p);
+  }
+  return out;
+}
+
+const actionFiles = (): string[] => [
+  ...ymlsUnder(join(GITHUB_DIR, 'workflows')),
+  ...ymlsUnder(join(GITHUB_DIR, 'actions')),
+];
+
+test('the workflow walk found files, so the two tests below are reading something', () => {
+  const found = actionFiles();
+  expect(
+    found.length,
+    `no workflow or action YAML found under ${GITHUB_DIR} — an empty file list makes the ` +
+      'pinning tests below vacuous, and a vacuous pass reads exactly like a clean repo',
+  ).toBeGreaterThan(0);
+});
+
 test('every workflow action is pinned by commit SHA (SEC-6)', () => {
-  const workflows = ['../../.github/workflows/ci.yml'];
+  const workflows = actionFiles();
   let seen = 0;
-  for (const rel of workflows) {
-    const text = read(rel);
+  for (const abs of workflows) {
+    const rel = relative(GITHUB_DIR, abs);
+    const text = readFileSync(abs, 'utf8');
     for (const line of text.split(/\r?\n/)) {
       const m = /^\s*-?\s*uses:\s*(\S+)/.exec(line);
       if (!m) continue;
@@ -108,9 +152,13 @@ test('every workflow action is pinned by commit SHA (SEC-6)', () => {
 // A SHA with no version comment is reproducible and unreviewable: nobody can tell whether it
 // is current without resolving it by hand.
 test('each pinned action keeps its version in a comment', () => {
-  const text = read('../../.github/workflows/ci.yml');
-  for (const line of text.split(/\r?\n/)) {
-    if (!/^\s*-?\s*uses:\s*\S+@[0-9a-f]{40}/.test(line)) continue;
-    expect(line, line.trim()).toMatch(/#\s*v?\d+\.\d+\.\d+/);
+  let seen = 0;
+  for (const abs of actionFiles()) {
+    for (const line of readFileSync(abs, 'utf8').split(/\r?\n/)) {
+      if (!/^\s*-?\s*uses:\s*\S+@[0-9a-f]{40}/.test(line)) continue;
+      seen += 1;
+      expect(line, `${relative(GITHUB_DIR, abs)}: ${line.trim()}`).toMatch(/#\s*v?\d+\.\d+\.\d+/);
+    }
   }
+  expect(seen, 'no SHA-pinned `uses:` line was read — nothing was checked').toBeGreaterThan(0);
 });

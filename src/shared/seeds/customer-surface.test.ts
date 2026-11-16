@@ -92,12 +92,23 @@ test('the build exists, so the checks below actually ran', () => {
 describe.runIf(existsSync(HTML))('the built customer bundles carry no upstream name', () => {
   it.each(['user', 'orgadmin', 'landing'])('%s loads no chunk that names one', (entry) => {
     const offenders: string[] = [];
+    let read = 0;
     for (const chunk of chunksFor(entry)) {
       const path = join(ASSETS, chunk);
       if (!existsSync(path)) continue;
+      read += 1;
       const hit = readFileSync(path, 'utf8').match(BANNED);
       if (hit) offenders.push(`${chunk}: ${hit[0]}`);
     }
+    // COUNTED, because `continue` on a missing chunk means zero readable chunks produces an
+    // empty `offenders` and a green test. Found by sweeping for the shape on 2026-11-16, not
+    // by it happening: the entry HTML names its chunks, so a build that emitted none would
+    // have passed the only check that keeps upstream names out of what a customer loads.
+    expect(
+      read,
+      `${entry}: none of its chunks could be read under ${ASSETS} — a leak check that opened ` +
+        'no files passes for the wrong reason',
+    ).toBeGreaterThan(0);
     expect(offenders).toEqual([]);
   });
 
