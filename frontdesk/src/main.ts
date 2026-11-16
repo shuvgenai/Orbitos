@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { pino } from 'pino';
 import { createPrisma } from '@orbit/db/client';
 import { ConfigError } from '@orbit/shared/config';
@@ -16,6 +14,7 @@ import { runJobLoop } from './loop.ts';
 import { advanceLeads } from './pipeline.ts';
 import { pollOnce } from './poll.ts';
 import { startFrontdeskTimers } from './schedule.ts';
+import { SetupError, readSetupInputs } from './setup.ts';
 
 const PROGRAM = 'frontdesk';
 const log = pino({ name: PROGRAM });
@@ -27,17 +26,6 @@ function fail(message: string, detail?: unknown): never {
   process.exit(1);
 }
 
-/** The owner writes these two files once (runbook step 6); an absent or empty one stops the start. */
-function readSetupFile(dir: string, name: string): string {
-  try {
-    const text = readFileSync(join(dir, name), 'utf8').trim();
-    if (text === '') throw new Error('empty');
-    return text;
-  } catch {
-    return fail(`${name} is missing or empty in SETUP_DIR`);
-  }
-}
-
 let config;
 try {
   config = loadFrontdeskConfig(process.env);
@@ -46,10 +34,16 @@ try {
   throw err;
 }
 
-const setup = {
-  toneSamples: readSetupFile(config.SETUP_DIR, 'tone-samples.md'),
-  facts: readSetupFile(config.SETUP_DIR, 'facts.md'),
-};
+// The owner writes these two files once (runbook step 6). An absent or empty one stops the
+// start rather than degrading: they go verbatim into the prompt that answers a client in the
+// owner's name. The decision and its cases are in `setup.ts` and `setup.test.ts`.
+let setup;
+try {
+  setup = readSetupInputs(config.SETUP_DIR);
+} catch (err) {
+  if (err instanceof SetupError) fail(err.message);
+  throw err;
+}
 
 const prisma = createPrisma(config.DATABASE_URL);
 // Slice 1 is one owner, one inbox: the single Gmail connection names the workspace and the owner's address.

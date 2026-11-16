@@ -77,6 +77,44 @@ services:
       timeout: 5s
       retries: 30 # first boot runs 278 migrations
 
+  # ONE-SHOT. Applies the ORBIT migrations and exits; `api`, `worker` and `frontdesk` wait on
+  # it with `service_completed_successfully`, so an instance cannot come up against an
+  # unmigrated database. Before this, `docs/runbooks/slice-1-local.md` had the operator run
+  # `pnpm db:migrate` by hand and nothing in the deploy did it — a deploy that skipped the step
+  # brought up an api that connected and then failed every read with
+  #   could not read the database (PrismaClientKnownRequestError)
+  # on every healthcheck, forever. TODOS.md option 2, and the reason the other two were not
+  # taken: a preflight is still a step a human can skip, and three programs racing to apply the
+  # same migrations is worse than the problem.
+  #
+  # It deliberately does NOT use the *program anchor: that carries `restart: unless-stopped`,
+  # which would restart this container after every successful exit, and a `/healthz` healthcheck
+  # on a container that serves nothing.
+  #
+  # `prisma migrate deploy` is the non-interactive, additive-only command — it applies pending
+  # migrations and never generates or resets. Re-running it is a no-op, which is what makes it
+  # safe on every `up`.
+  #
+  # The `dbgen` stage is the image because it is the only one with the prisma CLI: the runtime
+  # install is `--prod` and `prisma` is a devDependency. It runs as `orbit_app`, which OWNS the
+  # `orbit` database (`template/postgres/init`), so it needs no grant it would not have in
+  # production — and no new secret appears here.
+  #
+  # MEASURED on Compose v5.6.1 before this shipped: `up -d --wait migrate` returns 0 and leaves
+  # `Exited (0)`; a later `up` of a dependent is still satisfied by the completed container; and
+  # a migration that exits non-zero fails the whole `up` with
+  #   service "migrate" didn't complete successfully: exit N
+  # so this gate cannot pass by not looking.
+  migrate:
+    build: { context: .., target: dbgen }
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://orbit_app:${ORBIT_DB_PASSWORD:?}@postgres:5432/orbit
+    command: ["pnpm", "--filter", "@orbit/db", "exec", "prisma", "migrate", "deploy"]
+    networks: [data]
+    depends_on:
+      postgres: { condition: service_healthy }
+
   web:
     <<: *program
     build: { context: .., args: { APP: web } }
@@ -106,6 +144,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   worker:
     <<: *program
@@ -119,6 +158,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
   frontdesk:
     <<: *program
@@ -149,6 +189,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
 
 networks:
   data:

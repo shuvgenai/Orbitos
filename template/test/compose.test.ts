@@ -10,6 +10,9 @@ type Service = {
   read_only?: boolean;
   volumes?: string[];
   tmpfs?: string[];
+  restart?: string;
+  command?: string[];
+  depends_on?: Record<string, { condition?: string }>;
 };
 const compose = parse(readFileSync(new URL('../compose.yml', import.meta.url), 'utf8'), { merge: true }) as {
   services: Record<string, Service>;
@@ -18,16 +21,65 @@ const compose = parse(readFileSync(new URL('../compose.yml', import.meta.url), '
 const services = compose.services;
 const PROGRAMS = ['web', 'api', 'worker', 'frontdesk'];
 
-test('the stack defines the four programs, Postgres, Redis and the engine', () => {
+test('the stack defines the four programs, Postgres, Redis, the engine and the migrator', () => {
   expect(Object.keys(services).sort()).toEqual([
     'api',
     'frontdesk',
+    'migrate',
     'paperclip',
     'postgres',
     'redis',
     'web',
     'worker',
   ]);
+});
+
+/**
+ * The instance migrates itself, and these are the properties that make that true rather than
+ * decorative. Before the `migrate` service, a deploy that skipped the runbook's
+ * `pnpm db:migrate` brought up an api that connected and then failed every healthcheck with
+ * `could not read the database` — forever, because nothing ever applied the migrations.
+ *
+ * Asserted here and not only in the compose smoke job, because the smoke job catches this
+ * only when somebody reads it, and it was red and unread for four days.
+ */
+test('every program given a DATABASE_URL waits for the migrator to finish', () => {
+  // `web` is deliberately absent: compose gives it no DATABASE_URL at all.
+  //
+  // `worker` IS gated although its source reads nothing from the database today — measured
+  // 2026-11-16: zero `@orbit/db` imports and no use of `DATABASE_URL`. Compose hands it one
+  // anyway, so the day it starts reading, the gate is already there rather than being the next
+  // thing someone forgets.
+  for (const name of ['api', 'worker', 'frontdesk']) {
+    expect(services[name]!.depends_on?.migrate, name).toEqual({
+      condition: 'service_completed_successfully',
+    });
+  }
+  expect(services.web!.depends_on?.migrate).toBeUndefined();
+});
+
+test('the migrator is one-shot: it must not be restarted after it succeeds', () => {
+  // `restart: unless-stopped` comes from the *program anchor and would restart this container
+  // after every successful exit, which is why `migrate` does not use that anchor. The anchor
+  // would also attach a /healthz healthcheck to a container that serves nothing.
+  expect(services.migrate!.restart).toBe('no');
+  expect(services.migrate!.healthcheck).toBeUndefined();
+  expect(services.migrate!.ports).toBeUndefined();
+});
+
+test('the migrator applies migrations and nothing else, on the data network only', () => {
+  // `migrate deploy` is the non-interactive, additive-only command. `migrate dev` or
+  // `migrate reset` here would be a destructive operation inside a customer's deploy.
+  expect(services.migrate!.command).toEqual([
+    'pnpm',
+    '--filter',
+    '@orbit/db',
+    'exec',
+    'prisma',
+    'migrate',
+    'deploy',
+  ]);
+  expect(services.migrate!.networks).toEqual(['data']);
 });
 
 test('postgres, redis, worker and frontdesk publish no ports (SEC-1)', () => {

@@ -53,11 +53,17 @@ COPY shared shared
 # since the frontdesk services landed — the compose smoke job caught it and nobody read the
 # job. `shared` has the same shape and works only because it has always been copied here.
 #
-# TODO: `web` and `worker` do not import `@orbit/db` and should not carry it. Scoping that
-# needs per-app runtime stages and a `target:` on each service in `template/compose.yml`,
-# because COPY cannot be conditional. Deliberately deferred: this is the authorised stopgap,
-# not the answer. Removing the deep import instead was costed and rejected — see TODOS.md,
-# "Stop shipping `db` into the `web` and `worker` images", which records why.
+# `web` and `worker` do not import `@orbit/db` and carry it anyway, because COPY cannot be
+# conditional. SIZED 2026-11-16 rather than left as an intention: `/app/db` is **1.53 MB** of a
+# **919 MB** image — 0.17 %, or 3.06 MB across the two images an instance runs. The split is
+# available (neither program imports it, and neither does `shared`) and it is not worth the two
+# near-duplicate runtime stages, the four `target:` lines, and the guard that would have to bind
+# each program's import graph to its target — without which a no-db target is a tripwire that
+# re-creates the `Cannot find module …/@orbit/db/src/client.ts` crash-loop above.
+#
+# So this is not a deferred plan: closing the entry is the recommendation, and the decision is
+# the founder's. TODOS.md, "Stop shipping `db` into the `web` and `worker` images", carries the
+# measurement, the rejected alternative, and the one check worth keeping from it.
 COPY --from=dbgen /app/db db
 COPY ${APP} ${APP}
 USER node

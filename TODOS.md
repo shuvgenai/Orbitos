@@ -29,7 +29,7 @@ is in `VERSIONS.md`, `CLAUDE.md` and `template/engine/README.md`.
 **Files:** `template/compose.yml`, `template/engine/*`, `template/test/engine.test.ts`,
 `ops/src/posture*.ts`, `.github/workflows/ci.yml`, `VERSIONS.md`.
 
-### An instance does not migrate itself
+### ~~An instance does not migrate itself~~ — DONE 2026-11-16
 
 **What:** Nothing in `template/compose.yml` or in any image applies the ORBIT migrations.
 `docs/runbooks/slice-1-local.md` has the operator run `pnpm db:migrate` by hand, which means a
@@ -56,12 +56,89 @@ not fix the product.
 **Recommendation: option 2.** It is the only one where a customer cannot deploy a broken
 instance by forgetting a command, and the build stage it needs already exists.
 
-**Not done** because it changes the deploy model, which is a decision rather than a fix.
+**SHIPPED 2026-11-16, option 2 as recommended.** `template/compose.yml` has a one-shot
+`migrate` service built from the `dbgen` target, running
+`prisma migrate deploy` as `orbit_app` on the `data` network, with
+`api`, `worker` and `frontdesk` each carrying
+`depends_on: { migrate: { condition: service_completed_successfully } }`. `web` does not,
+because it has no `DATABASE_URL` and reads nothing.
 
-**Files:** `template/compose.yml`, `Dockerfile`, `docs/runbooks/slice-1-local.md`,
+Three behaviours were measured on Compose v5.6.1 before it shipped, because the gate is
+worthless if any of them is false: `up -d --wait migrate` returns 0 and leaves `Exited (0)`;
+a later `up` of a dependent is still satisfied by the already-completed container; and a
+migration that exits non-zero fails the whole `up` with
+`service "migrate" didn't complete successfully: exit N`. Four assertions in
+`template/test/compose.test.ts` pin the service list, the three gates, the one-shot
+properties (`restart: "no"`, no healthcheck, no ports) and the exact command — `migrate
+deploy` rather than `migrate dev` or `reset`, either of which would be destructive inside a
+customer deploy. Removing one gate fails that suite; watched.
+
+The CI step that used to apply migrations by hand is gone, replaced by one that runs the
+compose service. **The runbook's manual `pnpm db:migrate` step is no longer required**, and
+`docs/runbooks/slice-1-local.md` says so.
+
+**Files:** `template/compose.yml`, `template/test/compose.test.ts`,
+`docs/runbooks/slice-1-local.md`, `.github/workflows/ci.yml`.
+
+### An instance cannot provision itself either — PROPOSAL, nothing built
+
+**What:** `ops/seed-instance.mjs` takes `GMAIL_EMAIL_ADDRESS`, `GMAIL_HISTORY_ID` and
+`GMAIL_REFRESH_TOKEN` as inputs. That is right for CI and for a restore drill, and wrong for
+a first install: a real owner has no refresh token to paste, and the history id has to be read
+from Gmail *at the moment of connecting* or the Front Desk starts polling from a point that is
+not now and classifies old mail. Asked for 2026-11-16; this is the proposal, not a second
+script.
+
+**The blocking discovery, and it decides the shape.** The provisioning UI cannot be served by
+the api. `api/src/main.ts:34` and `frontdesk/src/main.ts` both refuse to start unless there is
+EXACTLY ONE `GmailConnection` row:
+
+    expected exactly one GmailConnection row, found 0; see the runbook
+
+So a setup screen hosted in the api can never run on a fresh instance — the program that would
+serve it is the program that will not boot until the thing it serves has already been done.
+Any proposal that puts first-install provisioning "in the setup UI" has to answer this first,
+and none of the three options below is free.
+
+**The flow itself, whichever option carries it.** The owner is already in the right place at
+first install: they accept the invitation, set a password and land on `#/onboarding`
+(`e2e/provision.spec.ts` walks exactly that). One more step there — *Connect your mailbox* —
+then: Google consent → the api exchanges the code for a refresh token → encrypts it with
+`TOKEN_ENCRYPTION_KEY` → calls `users.getProfile` for the CURRENT `historyId` → writes the
+workspace, the owner and the single `GmailConnection` row in one transaction. The row-writing
+half is already factored (`db/src/owner.ts`'s `createOwner`, and `seed-instance.mjs`'s
+transaction), so both paths can share it rather than drifting — which is the way to honour
+"no second seed script": `seed-instance.mjs` stays, demoted to the CI and restore path.
+
+**Where it lives — three options, increasing commitment:**
+
+1. **Setup mode in the api.** Relax the boot rule from "exactly one" to "zero or one", and when
+   it is zero the api serves the setup route and refuses every other route. Cheapest, and the
+   only option where the owner provisions without an operator. **It weakens a boot assertion**,
+   so it ships with a test that no other route answers in setup mode — otherwise an instance
+   that silently lost its connection row degrades into a half-open api instead of failing.
+2. **A one-shot `setup` service**, the same shape as `migrate`: its own container, its own port,
+   serves the setup UI, exits when the row exists, and `api`/`frontdesk` gate on it completing.
+   Leaves the api's boot rule untouched, costs a second web surface and a port in the template.
+3. **Keep it operator-run.** The owner sends the operator a consent code out of band and the
+   operator runs `seed-instance.mjs`. Honest, and it means every customer's first install needs
+   OrbitumAI in the loop.
+
+**Recommendation: option 1**, with the setup-mode route test as part of it. Option 2 is the
+same work plus a container.
+
+**Not proposed here, and genuinely the founder's call:** whose OAuth client the consent uses.
+That is BYO-per-customer versus one OrbitumAI client, it changes what the consent screen says
+and who holds the secret, and the findings are already written up in `orbitos-infra`
+`governing/google-byo-oauth-findings.md` and `governing/google-connector-feasibility.md`.
+Nothing above should be built before that is decided, because option 1 and option 2 both put
+the client id somewhere different.
+
+**Files, when it is built:** `api/src/main.ts`, `api/src/routes/*`, `src/apps/org-admin/*`,
+`db/src/owner.ts`, `ops/seed-instance.mjs`, `template/compose.yml`,
 `.github/workflows/ci.yml`.
 
-### Stop shipping `db` into the `web` and `worker` images
+### ~~Stop shipping `db` into the `web` and `worker` images~~ — RECOMMEND CLOSING, measured 2026-11-16
 
 **What:** `Dockerfile` copies the generated `db` package into all four program images. Only
 `api` and `frontdesk` import `@orbit/db`. Give the runtime two stages — one with `db`, one
@@ -89,7 +166,51 @@ still worth removing.
   the defect. **The missing `COPY` was**, together with a `prisma generate` that no image ever
   ran.
 
-**Files:** `Dockerfile`, `template/compose.yml`, `template/test/image-pins.test.ts`.
+**MEASURED 2026-11-16, and the measurement is the argument for closing this.** Sized before
+building anything, as asked:
+
+| | |
+|---|---|
+| `/app/db` inside a built image | **1.53 MB** |
+| `orbit-instance-web` total | 919,469,469 bytes |
+| `orbit-instance-api` total | 919,539,312 bytes |
+| the waste, per image | **0.17 %** |
+| the waste, per instance (2 images) | **3.06 MB of ~3.68 GB — 0.08 %** |
+
+Confirmed present rather than assumed: `ls /app/db` succeeds in both `orbit-instance-web` and
+`orbit-instance-worker`. And the split is genuinely available — `web/src` and `worker/src`
+contain **zero** `@orbit/db` imports, `shared` does not import it either (which would have put
+it in all four), and `worker` does not so much as read `DATABASE_URL`, though compose hands it
+one.
+
+**So the change is feasible, small, and not worth shipping.** 0.17 % of an image, on a product
+deployed one instance per customer, against a Dockerfile that gains two near-duplicate runtime
+stages and four `target:` lines.
+
+**And it needs more than the stages and the targets, which is the second reason to stop.** A
+no-db target is a tripwire: the day `worker` imports `@orbit/db` — and compose already gives it
+a `DATABASE_URL`, so that day is plausible — it crash-loops with exactly the error this entry
+was created by,
+
+    Cannot find module '/app/worker/node_modules/@orbit/db/src/client.ts'
+
+and nothing catches it until someone runs the stack, which is how that defect survived from the
+frontdesk services landing until the smoke job was read. Shipping the split honestly means
+shipping a guard that binds each program's import graph to its chosen target. That is a third
+moving part to buy back 3 MB.
+
+**RECOMMENDATION: close this entry.** Leave the unconditional `COPY --from=dbgen /app/db db`
+and delete the `TODO` in `Dockerfile` that promises the split, so the comment stops describing a
+plan nobody intends to execute.
+
+**One thing from the acceptance criteria is worth keeping anyway, independent of all the
+above:** a check that every `@orbit/*` subpath a program imports actually RESOLVES inside that
+program's built image. That is the check that would have caught the original crash-loop at
+build time instead of at boot, it is useful whether or not the images are ever split, and it
+costs one test. Not built here; recorded so it is not lost with this entry.
+
+**Files, if it were built:** `Dockerfile`, `template/compose.yml`,
+`template/test/image-pins.test.ts`.
 
 ### Switch Scout and Orbi to the `hermes_gateway` adapter
 

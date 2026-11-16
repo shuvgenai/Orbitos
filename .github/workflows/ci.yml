@@ -97,35 +97,41 @@ jobs:
           test "$o" = orbit || { echo "orbit_app login failed: $o"; exit 1; }
           p=$(docker compose -f template/compose.yml exec -T -e PGPASSWORD="$PAPERCLIP_DB_PASSWORD" postgres psql -h 127.0.0.1 -U paperclip_app -d paperclip -tAc "select current_database()")
           test "$p" = paperclip || { echo "paperclip_app login failed: $p"; exit 1; }
-      # WHY THIS STEP EXISTS, AND WHY IT IS NOT CHEATING. Before it, the api booted, validated
-      # its configuration, connected, and then logged
+      # THIS STEP IS NO LONGER AN OPERATOR STAND-IN, and that is the point of the change.
+      #
+      # It used to be a `docker build --target dbgen` plus a `docker run` that reproduced, by
+      # hand, the `pnpm db:migrate` the runbook tells a human to type — the step whose absence
+      # from the deploy left the api connecting and then failing every healthcheck with
       #   could not read the database (PrismaClientKnownRequestError)
-      # on every healthcheck, because nothing had ever applied the ORBIT migrations. The job was
-      # faithfully reproducing a deploy in which the operator step had not been run:
-      # `docs/runbooks/slice-1-local.md` applies them by hand with `pnpm db:migrate`, and neither
-      # `template/compose.yml` nor any image does it. So the honest fix is to run the step a real
-      # deploy runs, in the same way, not to relax the healthcheck.
+      # The job was faithfully reproducing a deploy in which that step had not been run, and
+      # running it here fixed the job without fixing the product.
       #
-      # It runs as `orbit_app`, which OWNS the `orbit` database (`template/postgres/init`), so it
-      # needs no grant it would not have in production. The `dbgen` stage is reused because it is
-      # the only image here with the prisma CLI — the runtime install is `--prod`.
+      # The instance now migrates itself: `template/compose.yml` carries a one-shot `migrate`
+      # service and `api`, `worker` and `frontdesk` wait on it with
+      # `service_completed_successfully`. So this runs the compose service a real deploy runs,
+      # and the step a human could forget no longer exists. TODOS.md option 2.
       #
-      # NOT FIXED HERE, and worth a decision: the instance does not migrate itself. A customer
-      # deploy that skips the manual step produces exactly this crash loop. See TODOS.md.
-      - name: Apply ORBIT migrations — the step a real deploy runs by hand
+      # Compose already fails the `up` when a one-shot exits non-zero — measured, with
+      #   service "migrate" didn't complete successfully: exit N
+      # The explicit exit-code check stays anyway, so the assertion is visible in the job
+      # rather than implied by a command's exit status, and so a failure prints the log.
+      - name: Migrate — the instance does this itself now
         run: |
-          docker build --target dbgen -t orbit-dbgen .
-          docker run --rm --network orbit-instance_data \
-            -e DATABASE_URL="postgresql://orbit_app:${ORBIT_DB_PASSWORD}@postgres:5432/orbit" \
-            orbit-dbgen pnpm --filter @orbit/db exec prisma migrate deploy
+          docker compose -f template/compose.yml up -d --wait migrate
+          code=$(docker compose -f template/compose.yml ps -a --format '{{.ExitCode}}' migrate)
+          test "$code" = 0 || { docker compose -f template/compose.yml logs migrate; exit 1; }
       # Both `api` and `frontdesk` refuse to start unless there is EXACTLY ONE GmailConnection
       # row, so a migrated-but-unprovisioned instance is still a crash loop:
       #   expected exactly one GmailConnection row, found 0; see the runbook
       # This is the runbook's one-time provisioning, as a script rather than a pasted snippet.
       # It never calls Gmail — the mailbox address and history id are inputs here, which is
       # right for CI and wrong for a real first install (see the file's header).
+      # STILL AN OPERATOR STAND-IN, unlike the migration step above — there is no product
+      # mechanism for first-install provisioning yet, and the proposal for one is in TODOS.md.
+      # It builds `orbit-dbgen` itself now, because the step that used to build it is gone.
       - name: Provision the instance — one workspace, owner and connection
         run: |
+          docker build --target dbgen -t orbit-dbgen .
           docker run --rm --network orbit-instance_data -w /app/api \
             -v "$PWD/ops/seed-instance.mjs:/app/ops/seed-instance.mjs:ro" \
             -e DATABASE_URL="postgresql://orbit_app:${ORBIT_DB_PASSWORD}@postgres:5432/orbit" \

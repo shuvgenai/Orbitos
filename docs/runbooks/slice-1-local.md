@@ -43,10 +43,20 @@ openssl rand -hex 32     # TOKEN_ENCRYPTION_KEY
 openssl rand -hex 32     # APPROVAL_LINK_SECRET (64 characters; the program refuses fewer than 32)
 ```
 
-Start only Postgres (`pnpm db:up` for the dev database, or the compose `postgres` service), apply
-migrations (`pnpm db:migrate`), then create the workspace, the owner and the connection once. Run this from
-the repo root with `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, `OWNER_EMAIL` and `GMAIL_REFRESH_TOKEN` in the
-environment:
+Start only Postgres (`pnpm db:up` for the dev database, or the compose `postgres` service), then create
+the workspace, the owner and the connection once. Run this from the repo root with `DATABASE_URL`,
+`TOKEN_ENCRYPTION_KEY`, `OWNER_EMAIL` and `GMAIL_REFRESH_TOKEN` in the environment:
+
+> **Migrations are no longer a step here.** As of 2026-11-16 `template/compose.yml` carries a one-shot
+> `migrate` service and `api`, `worker` and `frontdesk` wait on it with
+> `service_completed_successfully`, so `pnpm stack:up` applies them itself and a deploy cannot come up
+> against an unmigrated database. The manual `pnpm db:migrate` used to be the step before this one, and
+> skipping it produced an api that connected and then failed every healthcheck with
+> `could not read the database`. `pnpm db:migrate` still exists for the **dev** database
+> (`pnpm db:up`), which runs no compose service.
+>
+> Provisioning below is still manual, and that is a product gap rather than a preference — see
+> TODOS.md, "An instance cannot provision itself either".
 
 ```
 node --import tsx -e "
