@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 
 /**
  * PRD 15.3: the User and Org Admin apps must never contain Paperclip, Hermes, OpenClaw,
@@ -66,6 +66,28 @@ const assetFiles = (): string[] => readdirSync(ASSETS);
 
 const titleOf = (entry: string): string | undefined =>
   readFileSync(join(HTML, entry, 'index.html'), 'utf8').match(/<title>([^<]*)<\/title>/)?.[1];
+
+/**
+ * A MISSING BUILD IS A FAILURE, NOT A SKIP. Added 2026-11-16.
+ *
+ * Everything below is `runIf(existsSync(HTML))`, and `pnpm build` appeared nowhere in
+ * `.github/workflows/ci.yml` — so `dist/` never existed in CI and this entire file reported
+ * `12 skipped` on every run since it was written, while the suite went green. Measured by
+ * deleting `dist` and running it. The only check that keeps upstream names and operator-only
+ * strings out of the bundles a customer loads had never executed in CI once.
+ *
+ * `runIf` on a check like this is the same shape as `docker compose up --wait` on a one-shot:
+ * the condition that turns the check off is indistinguishable, in the output, from the check
+ * passing. So the condition stays — the tests below genuinely cannot run without a build —
+ * but its absence is now itself a red test.
+ */
+test('the build exists, so the checks below actually ran', () => {
+  expect(
+    existsSync(HTML),
+    `${HTML} is missing — run \`pnpm build\` before \`pnpm test\`. Without it the customer ` +
+      'bundle checks skip, and a skipped leak check is indistinguishable from a passing one.',
+  ).toBe(true);
+});
 
 describe.runIf(existsSync(HTML))('the built customer bundles carry no upstream name', () => {
   it.each(['user', 'orgadmin', 'landing'])('%s loads no chunk that names one', (entry) => {

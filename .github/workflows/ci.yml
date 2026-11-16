@@ -17,7 +17,36 @@ jobs:
       - run: pnpm db:up
       - run: pnpm db:generate
       - run: pnpm typecheck
+      # `pnpm lint` was in package.json and in nobody's CI. Added 2026-11-16 with the two
+      # steps below; it passes today, so it is being pinned rather than fixed.
+      - run: pnpm lint
+      # THE BUILD HAS TO RUN BEFORE THE TESTS, and this is not about build coverage.
+      #
+      # `src/shared/seeds/customer-surface.test.ts` is `describe.runIf(existsSync(dist))`. It
+      # is the only check that keeps Paperclip, Hermes, adapter, ORBIT-OS, Super Admin,
+      # /superadmin, orbitumai.com, op_shuv and the lowercase `Orbitcrew` out of the bundles a
+      # customer loads — and `pnpm build` appeared NOWHERE in this file, so `dist/` never
+      # existed here and the whole file reported `12 skipped` while the job went green.
+      # Measured 2026-11-16 by deleting dist and running it. It had never run in CI, once,
+      # since it was written.
+      #
+      # `runIf` on a check like this is the same shape as the `--wait` bug below: a condition
+      # that turns the check off is indistinguishable from the check passing.
+      - run: pnpm build
       - run: pnpm test
+      # The brand and plain-language guards, which until 2026-11-16 lived in the PRIVATE infra
+      # repo with default roots (`orbitcrew/dashboard`, `dist`) that do not exist there and
+      # never will — the dashboard is `src/apps/*`, here. They reported INCONCLUSIVE on every
+      # run they ever made. Moved rather than borrowed: this repo is public and that one is
+      # private, so a checkout would have meant a private-repo credential in public secrets.
+      #
+      # Each runs its own self-test first, because a guard that cannot fail proves nothing.
+      - name: Brand and plain-language guards — the customer surfaces
+        run: |
+          bash ci/brand-check.test.sh
+          bash ci/jargon-guard.test.sh
+          bash ci/brand-check.sh
+          bash ci/jargon-guard.sh
       - name: Posture check, engine section (FLT-7, SEC-6)
         run: pnpm posture:check
 
@@ -171,6 +200,14 @@ jobs:
       - name: The four programs
         run: docker compose -f template/compose.yml up -d --build --wait web api worker frontdesk
       - run: curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:8081/healthz
+      # Every `@orbit/*` subpath a program imports must resolve INSIDE that program's image.
+      # `api` and `frontdesk` imported `@orbit/db` from 2026-10-01 and no image carried it
+      # until 2026-11-11 — 41 days of crash-looping on
+      #   Cannot find module '/app/<app>/node_modules/@orbit/db/src/client.ts'
+      # because nothing ever read inside an image. This asks the question at build time.
+      # It runs here rather than in `test` because it is the only job with built images.
+      - name: Every @orbit import resolves inside its own image
+        run: bash ci/image-imports.sh
       # A smoke job that fails without saying why costs a whole run to learn anything. This
       # one failed for four days on a missing variable and now fails on "api-1 is
       # unhealthy", with no container output captured either time.

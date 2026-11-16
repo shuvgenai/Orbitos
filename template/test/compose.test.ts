@@ -20,6 +20,46 @@ const compose = parse(readFileSync(new URL('../compose.yml', import.meta.url), '
 };
 const services = compose.services;
 const PROGRAMS = ['web', 'api', 'worker', 'frontdesk'];
+const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+
+/**
+ * `docker compose up --wait` IS NOT A WAY TO WAIT FOR A CONTAINER THAT EXITS.
+ *
+ * Measured 2026-11-16 on Compose v5.6.1: with no healthcheck, Compose treats a RUNNING
+ * container as ready. `up -d --wait <one-shot>` returned 0 after 3s on an 8s command and
+ * printed `Healthy` half a second after `Started`. The `ps -a --format '{{.ExitCode}}'`
+ * check that followed read `0` off a container that had not finished, the CI step passed,
+ * no migrations had been applied, and the next step died on
+ *   The table `public.gmail_connections` does not exist in the current database.
+ *
+ * These two tests exist so that cannot come back. The first keeps `--wait` meaningful for
+ * every service it is used on; the second keeps the one service it is meaningless for off it.
+ */
+test('every long-running service has a healthcheck, so `--wait` means something', () => {
+  for (const [name, svc] of Object.entries(services)) {
+    const waitable = svc.healthcheck !== undefined || svc.restart === 'no';
+    expect(
+      waitable,
+      `${name}: no healthcheck and not a one-shot — \`up --wait\` would report it ready the ` +
+        'moment it starts, which is how a check passes by not looking',
+    ).toBe(true);
+  }
+});
+
+test('the migrate step waits with `compose wait`, never with `up --wait`', () => {
+  // Comment lines are stripped: this file EXPLAINS the bug at length, and the explanation
+  // quotes the command it is warning about.
+  const commands = ciWorkflow
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+
+  const waitOnMigrate = commands.match(/^.*--wait[^\n]*\bmigrate\b.*$/gm) ?? [];
+  expect(waitOnMigrate, 'a one-shot cannot be waited on with `up --wait`').toEqual([]);
+  expect(commands, 'nothing blocks on the migration finishing').toMatch(
+    /docker compose[^\n]*\bwait\b[^\n]*\bmigrate\b/,
+  );
+});
 
 test('the stack defines the four programs, Postgres, Redis, the engine and the migrator', () => {
   expect(Object.keys(services).sort()).toEqual([
