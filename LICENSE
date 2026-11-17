@@ -1,0 +1,52 @@
+OrbitCrew — Proprietary Licence
+Copyright (c) 2026 OrbitCrew. All rights reserved.
+
+NOTE: "OrbitCrew" is used above as the rights holder. If the product is sold through a
+registered company, replace it with that company's legal name before the first sale. This
+file states terms; it is not legal advice, and a paid product's terms are worth one review.
+
+This licence covers ONLY the OrbitCrew-authored material in this repository: the brand
+overlay (`orbitcrew/brand/`), the guard and CI suite (`orbitcrew/ci/`), the database
+migrations and tooling (`orbitcrew/db/`), the host scripts (`orbitcrew/dev/`), the
+deployment recipes (`docker-compose.yml`, `infra/`), and the governing documents.
+
+It does NOT cover the upstream projects OrbitCrew packages. Paperclip and Hermes Agent are
+licensed separately and permissively by their own authors; see THIRD-PARTY-NOTICES.md.
+Nothing here restricts any right you hold in those projects under their own licences, and
+nothing here is a sublicence of them.
+
+GRANT
+Subject to payment of the applicable fee, the purchaser is granted a non-exclusive,
+non-transferable licence to install, run and modify this software for the purpose of
+operating their own OrbitCrew instance, including for commercial purposes within their own
+organisation, for an unlimited number of that organisation's own users.
+
+PERMITTED
+  - Running one or more instances for the purchaser's own organisation.
+  - Modifying the software for the purchaser's own use.
+  - Making backups, including off-site copies.
+  - Internal technical documentation and training material.
+
+NOT PERMITTED WITHOUT A SEPARATE WRITTEN AGREEMENT
+  - Redistributing, reselling, sublicensing, renting or lending this software, modified or
+    not, in source or built form, including as part of another product.
+  - Operating it as a hosted or managed service for third parties.
+  - Publishing the brand overlay, the guard suite or the migrations as your own work, or
+    removing these notices.
+
+NO WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+CUSTOMER DATA
+OrbitCrew sends no telemetry. The seller receives no customer data by operation of this
+software, and has no access to a purchaser's instance unless the purchaser grants it.
+
+MODEL PROVIDER KEYS
+No model provider credential is included. The purchaser supplies their own
+ANTHROPIC_API_KEY and is responsible for their own agreement with that provider and for
+all usage charged to it.
