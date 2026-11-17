@@ -62,6 +62,18 @@ for app in "${APPS[@]}"; do
         | grep -v "import[[:space:]]\+type" \
         | grep -oE "'@orbit/[^']+'" | tr -d "'" | sort -u)"
 
+    # A MISSING SOURCE TREE IS NOT "NO IMPORTS". `grep ... 2>/dev/null` over a path that
+    # does not exist yields nothing, which printed "no @orbit/* imports" and continued --
+    # and with all four programs in that state the final line read
+    #     image-imports: PASS - 0 import(s) resolve inside their own image
+    # a pass produced by reading no source, in the guard written to close a 41-day defect.
+    # Found by sweeping for the shape on 2026-11-16.
+    if [ ! -d "$app/src" ]; then
+        printf 'image-imports: INCONCLUSIVE -- %s/src does not exist, so nothing was read\n' "$app" >&2
+        printf '               for %s. Renamed, or run from the wrong directory. NOT a pass.\n' "$app" >&2
+        exit 2
+    fi
+
     if [ -z "$specs" ]; then
         printf '  %-10s no @orbit/* imports\n' "$app"
         continue
@@ -96,6 +108,14 @@ if [ "$fail" -gt 0 ]; then
     printf '\nimage-imports: FAIL — %d of %d import(s) do not resolve inside their image.\n' "$fail" "$checked" >&2
     printf 'The program will crash-loop on start. Check the COPY lines in Dockerfile.\n' >&2
     exit 1
+fi
+
+# And zero is not a pass either. Every program here imports at least one `@orbit/*` package;
+# a run that checked none of them has verified nothing, however green it looks.
+if [ "$checked" -eq 0 ]; then
+    printf '\nimage-imports: INCONCLUSIVE -- not one @orbit/* import was checked across %d\n' "${#APPS[@]}" >&2
+    printf 'program(s). The imports moved, or the source was not read. NOT a pass.\n' >&2
+    exit 2
 fi
 
 printf '\nimage-imports: PASS — %d import(s) resolve inside their own image.\n' "$checked"
