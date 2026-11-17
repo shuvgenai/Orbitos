@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 import { createPrisma, type PrismaClient } from '../src/client.ts';
@@ -173,5 +175,76 @@ describe('the FD-12 guard, which is the reason for the owner split', () => {
     )) as { rolsuper: boolean; rolbypassrls: boolean }[];
     expect(row!.rolsuper).toBe(false);
     expect(row!.rolbypassrls).toBe(false);
+  });
+});
+
+/**
+ * THE ROUTE GUARD. FD-38 stage S2c, and the piece S1 deliberately deferred.
+ *
+ * At S1 this could not be written: no product table carried RLS, so a guard would have had to
+ * allowlist every existing Prisma caller -- a list that reads as a rule while asserting
+ * almost nothing. Now the org model exists and NOTHING references it yet, so the rule can be
+ * absolute from the start. That is the cheapest a guard like this will ever be: there is
+ * nothing to grandfather in, and the first file that gets it wrong is caught on the commit
+ * that writes it.
+ *
+ * THE RULE. A file that names one of the adopted tables must reach it through
+ * `withIdentity`. Querying them on a bare client is not a style mistake: the policies are
+ * keyed on `request.jwt.claims`, so a query outside the wrapper carries no identity, matches
+ * nothing, and returns an empty result that looks exactly like "this office has no data".
+ * The failure is silent in the worst direction -- it reads as absence, not as a refusal.
+ */
+describe('nothing reaches the org model except through withIdentity', () => {
+  const SEP = String.fromCharCode(92); // a backslash, written so no escape can be mangled
+  const ROOTS = ['db/src', 'api/src', 'frontdesk/src', 'worker/src', 'ops/src', 'shared/src', 'src'];
+  const MODELS = /orbitcrew\.(orgs|departments|profiles|profile_authorities)\b/;
+
+  // The test that exercises the policies directly, and nothing else. The migration is not
+  // under any source root, so it needs no exemption.
+  const ALLOWED = new Set(['db/test/org-model.test.ts']);
+
+  const walk = (dir: string): string[] => {
+    let out: string[] = [];
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return out;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === 'node_modules' || e.name === 'generated') continue;
+        out = out.concat(walk(p));
+      } else if (/\.(ts|tsx|mts|mjs|js)$/.test(e.name)) {
+        out.push(p);
+      }
+    }
+    return out;
+  };
+
+  const sources = ROOTS.flatMap(walk).concat(['db/test/org-model.test.ts']);
+
+  test('the walk read something, so the two rules below are not vacuous', () => {
+    expect(sources.length).toBeGreaterThan(50);
+  });
+
+  test('every file naming an adopted table also uses withIdentity', () => {
+    const offenders = sources.filter((f) => {
+      const norm = f.split(SEP).join('/');
+      if (ALLOWED.has(norm)) return false;
+      const body = readFileSync(f, 'utf8');
+      return MODELS.test(body) && !body.includes('withIdentity');
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  test('and the guard itself can see a violation when there is one', () => {
+    // A guard that has never matched anything is a guard nobody has tested. This proves the
+    // detector works on a known-bad string without needing a file planted on disk.
+    const bad = "await prisma.$queryRaw`select * from orbitcrew.profiles`";
+    expect(MODELS.test(bad) && !bad.includes('withIdentity')).toBe(true);
+    const good = "await withIdentity(prisma, id, (tx) => tx.$queryRaw`select * from orbitcrew.profiles`)";
+    expect(MODELS.test(good) && !good.includes('withIdentity')).toBe(false);
   });
 });
