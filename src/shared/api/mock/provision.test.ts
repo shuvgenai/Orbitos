@@ -267,7 +267,17 @@ describe('the invitation (PRD A-04)', () => {
   it('says the same thing for an unknown token as for a tampered one', async () => {
     const { token } = await issue();
     const unknown = await customer().getInvite('0'.repeat(64));
-    const tampered = await customer().getInvite(`${token.slice(0, -1)}f`);
+    // The replacement character must DIFFER from the one it replaces. This was a flat `f`,
+    // and the token is 32 random bytes hex-encoded (`lib/invite.ts:44`), so ONE RUN IN
+    // SIXTEEN produced a token already ending in `f` -- making the "tampered" token
+    // byte-identical to the real one, which getInvite then accepted, correctly. Measured at
+    // a 6.25% failure rate; it went red on CI run 44019627536 in a commit that touched only
+    // a shell guard and a markdown file. That is the worst shape a test can have: on 15 runs
+    // in 16 it is not testing tampering at all, and on the sixteenth it fails for a reason
+    // unrelated to the change under test, which is how a real signal gets ignored.
+    const swapped = `${token.slice(0, -1)}${token.slice(-1) === 'f' ? 'e' : 'f'}`;
+    expect(swapped).not.toBe(token); // the tamper must actually change something
+    const tampered = await customer().getInvite(swapped);
     expect(unknown.ok).toBe(false);
     expect(tampered.ok).toBe(false);
     if (!unknown.ok && !tampered.ok) expect(unknown.problems).toEqual(tampered.problems);
