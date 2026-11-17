@@ -15,7 +15,8 @@ One container holds both programs. Paperclip's `hermes_local` adapter spawns a l
 binary, so a Hermes on another host or in another container is unreachable (Eng v3 D3).
 
 Every value here was measured against the pinned images, not read from documentation. The
-measurements are in `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`.
+measurements are in `docs/superpowers/spikes/2026-09-30-engine-spike-log.md`, which moved to
+the private infra repo on 2026-11-17 along with the other internal documents.
 
 ## Shape
 

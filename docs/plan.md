@@ -19,6 +19,7 @@ the harness. Those claims were re-run individually on a fresh office before bein
 down here, and the two that changed shape under a clean run say so.
 
 Also read, because sections 4 and 6 depend on them: `ORBIT_OS_PRD_v9_0.md` §7, §15 and
+(now in the private infra repo, see CLAUDE.md)
 Appendix A and C; `docs/auth-three-portals-build-prompt.md` (Prompt 1.5, D1–D6); `DESIGN.md`
 and `design/tokens.css`; the root `package.json`, `tsconfig.json` and `pnpm-workspace.yaml`.
 

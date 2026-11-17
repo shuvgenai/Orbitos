@@ -47,7 +47,12 @@ port and `VERSIONS.md` for the record.
 ## Read in this order
 
 1. **`ORBIT_OS_PRD_v9_0.md`** — the spec. §7 access roles and authorities, §15 design,
-   naming and screens.
+   naming and screens. **It is no longer in this repository.** It and the other internal
+   strategy documents moved to the PRIVATE infra repo on 2026-11-17, because this one is
+   public and was publishing the roadmap and the internal reviews to anyone who looked.
+   Read it at `orbitos-infra/ORBIT_OS_PRD_v9_0.md` (the copy there is byte-identical to the
+   one that was here), with the older specs under `orbitos-infra/docs/specs/`, the reviews
+   under `docs/reviews/` and the superseded versions under `docs/archive/`.
 2. **`ORBIT-OS_Claude_Code_Build_Prompts.md`** — the build plan. Its *shared spec* section
    carries the types, validation rules, seed data and screen behaviour, and is referenced
    by every phase rather than pasted into each one.

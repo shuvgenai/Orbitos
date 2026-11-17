@@ -1,8 +1,11 @@
-# Orbitcrew (ORBIT-OS)
+# OrbitCrew (ORBIT-OS)
 
-Owner-first lead replies, one dedicated instance per customer. The build is specified in
-`ORBIT_OS_PRD_v6_2.md`, which is the single source of truth; `TODOS.md` holds deferred work and
-`DESIGN.md` the visual tokens.
+Owner-first lead replies, one dedicated instance per customer. `TODOS.md` holds deferred work
+and `DESIGN.md` the visual tokens.
+
+The governing spec is **not in this repository**. It and the internal reviews live in the
+private infra repo, because this one is public: publishing the roadmap and the internal
+critique alongside the code was not a decision anybody made.
 
 ## Running the db tests on Windows + WSL2 Docker
 
