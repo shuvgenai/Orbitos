@@ -74,7 +74,12 @@ describe('structure — read from the catalogue, not from a comment', () => {
     // A guard with nothing to read is not a guard that passed: if the schema were empty, or
     // renamed, every assertion below would be vacuously true.
     expect(rows.length, 'no tables found in the orbitcrew schema').toBeGreaterThan(0);
-    expect(rows.map((r) => r.relname).sort()).toEqual([...TABLES].sort());
+    // CONTAINS the four, rather than EQUALS them. This read `toEqual([...TABLES])` until S3
+    // added `audit_log` and broke it -- a true statement about S2b that became false the
+    // moment the schema legitimately grew. The property worth guarding is not "these four
+    // tables exist and no others", it is "every table here is protected", which the loop
+    // below asserts over whatever is actually present.
+    for (const t of TABLES) expect(rows.map((r) => r.relname)).toContain(t);
 
     for (const r of rows) {
       expect(r.relrowsecurity, `${r.relname} does not have RLS enabled`).toBe(true);
@@ -97,8 +102,14 @@ describe('structure — read from the catalogue, not from a comment', () => {
     const rows = (await admin.$queryRawUnsafe(
       `select tablename, policyname from pg_policies where schemaname = 'orbitcrew' order by 1,2`,
     )) as { tablename: string; policyname: string }[];
-    expect(rows).toHaveLength(9);
-    expect(rows.map((r) => `${r.tablename}.${r.policyname}`)).toEqual([
+    // The nine the org model ships. `toContain` rather than a length check, for the same
+    // reason as the table list above: S3 added audit_log_admin_select and a count of exactly
+    // nine turned into a false statement about a schema that had correctly grown. A policy
+    // disappearing still fails this; a policy being ADDED does not, which is the right way
+    // round.
+    const names = rows.map((r) => `${r.tablename}.${r.policyname}`);
+    expect(rows.length).toBeGreaterThanOrEqual(9);
+    for (const p of [
       'departments.departments_admin_write',
       'departments.departments_member_select',
       'orgs.orgs_admin_update',
@@ -108,7 +119,9 @@ describe('structure — read from the catalogue, not from a comment', () => {
       'profiles.profiles_admin_update',
       'profiles.profiles_member_select',
       'profiles.profiles_self_update',
-    ]);
+    ]) {
+      expect(names, `policy ${p} is missing`).toContain(p);
+    }
   });
 
   test('the identity functions and the access trigger exist', async () => {
