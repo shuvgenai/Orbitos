@@ -73,6 +73,13 @@ jobs:
     env:
       POSTGRES_PASSWORD: smoke
       ORBIT_DB_PASSWORD: smoke
+      # Added 2026-11-17 with the owner-role split (FD-38 addendum). DELIBERATELY DIFFERENT
+      # from ORBIT_DB_PASSWORD: orbit_owner owns the database and runs the migrations,
+      # orbit_app is the runtime and owns nothing, and giving them one credential would undo
+      # the separation that keeps the access-immutability guard meaningful. Compose requires
+      # it with ${VAR:?}, so omitting it fails at interpolation before a container starts --
+      # which is how this block went red for days once before.
+      ORBIT_OWNER_PASSWORD: smoke-owner
       PAPERCLIP_DB_PASSWORD: smoke
       RESEND_API_KEY: smoke
       GMAIL_CLIENT_ID: smoke

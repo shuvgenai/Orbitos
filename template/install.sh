@@ -28,6 +28,10 @@
 #   Memory  8 GB works; 16 GB is comfortable. Eight containers, and the engine applies 278
 #           upstream migrations on first boot.
 #   Ports   3100, 8080 and 8081, free on 127.0.0.1.
+#   Roles   The instance uses THREE database roles, not two: orbit_owner owns the orbit
+#           database and runs migrations, orbit_app is the runtime and owns nothing, and
+#           paperclip_app is the engine. Separating the first two is what keeps the
+#           access-immutability guard meaningful (FD-38 addendum).
 #   Tools   Docker Engine with Compose v2, bash, openssl (or /dev/urandom), and one of
 #           lsof, ss or netstat for the port check.
 #
@@ -218,6 +222,11 @@ gen_hex() {
 
 POSTGRES_PASSWORD="$(gen_hex 24)"
 ORBIT_DB_PASSWORD="$(gen_hex 24)"
+# The OWNER role, FD-38 addendum 2026-11-17. It owns the orbit database and runs the
+# migrations; ORBIT_DB_PASSWORD belongs to the RUNTIME, which owns nothing. Two roles and
+# not one, because a runtime that owns what it queries reopens FD-12: measured, a plain
+# UPDATE promoted a row to admin with the guard never firing.
+ORBIT_OWNER_PASSWORD="$(gen_hex 24)"
 PAPERCLIP_DB_PASSWORD="$(gen_hex 24)"
 PAPERCLIP_AUTH_SECRET="$(gen_hex 32)"
 PAPERCLIP_SIGNING_SECRET="$(gen_hex 32)"
@@ -227,7 +236,7 @@ TOKEN_ENCRYPTION_KEY="$(gen_hex 32)"
 # The api enforces a 32-character MINIMUM at boot, one layer deeper than compose. A
 # 31-character value got past interpolation and died at boot on 2026-11-10. 64 here.
 APPROVAL_LINK_SECRET="$(gen_hex 32)"
-ok "7 secrets generated locally (none leaves this machine, none is printed)"
+ok "8 secrets generated locally (none leaves this machine, none is printed)"
 
 [ "${#TOKEN_ENCRYPTION_KEY}" -eq 64 ] || die "stage 2: the generated TOKEN_ENCRYPTION_KEY is ${#TOKEN_ENCRYPTION_KEY} characters, not 64. The api would refuse to boot on it."
 [ "${#APPROVAL_LINK_SECRET}" -ge 32 ] || die "stage 2: the generated APPROVAL_LINK_SECRET is under the api's 32-character minimum."
@@ -336,6 +345,7 @@ umask 077
     printf '# and must never be committed, pasted into a ticket, or copied to another instance.\n'
     printf 'POSTGRES_PASSWORD=%s\n'         "$POSTGRES_PASSWORD"
     printf 'ORBIT_DB_PASSWORD=%s\n'         "$ORBIT_DB_PASSWORD"
+    printf 'ORBIT_OWNER_PASSWORD=%s\n'      "$ORBIT_OWNER_PASSWORD"
     printf 'PAPERCLIP_DB_PASSWORD=%s\n'     "$PAPERCLIP_DB_PASSWORD"
     printf 'RESEND_API_KEY=%s\n'            "$RESEND_API_KEY"
     printf 'GMAIL_CLIENT_ID=%s\n'           "$GMAIL_CLIENT_ID"
@@ -372,7 +382,7 @@ fi
 # this installer does not start, because compose interpolates the WHOLE file while parsing
 # it. A missing one fails at interpolation before a single container starts.
 missing=""
-for v in POSTGRES_PASSWORD ORBIT_DB_PASSWORD PAPERCLIP_DB_PASSWORD RESEND_API_KEY \
+for v in POSTGRES_PASSWORD ORBIT_DB_PASSWORD ORBIT_OWNER_PASSWORD PAPERCLIP_DB_PASSWORD RESEND_API_KEY \
          GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET TOKEN_ENCRYPTION_KEY ANTHROPIC_API_KEY \
          PAPERCLIP_REF HERMES_REF PAPERCLIP_PUBLIC_URL PAPERCLIP_AUTH_SECRET \
          PAPERCLIP_SIGNING_SECRET ENGINE_ANTHROPIC_API_KEY APPROVAL_LINK_SECRET \
@@ -380,7 +390,7 @@ for v in POSTGRES_PASSWORD ORBIT_DB_PASSWORD PAPERCLIP_DB_PASSWORD RESEND_API_KE
     grep -q "^$v=." "$env_file" || missing="$missing $v"
 done
 [ -z "$missing" ] || die "stage 3: these came out empty:$missing. Compose would fail at interpolation before starting anything."
-ok "all 18 required variables are present and non-empty"
+ok "all 19 required variables are present and non-empty"
 
 # ---------------------------------------------------------------------------
 say "4/8  Data services"
@@ -409,7 +419,26 @@ check_login() { # check_login role password database
     ok "$1 reaches $3"
 }
 check_login orbit_app "$ORBIT_DB_PASSWORD" orbit
+check_login orbit_owner "$ORBIT_OWNER_PASSWORD" orbit
 check_login paperclip_app "$PAPERCLIP_DB_PASSWORD" paperclip
+
+# THE OWNERSHIP BOUNDARY, CHECKED AT INSTALL TIME RATHER THAN ASSUMED.
+#
+# The trigger that closed FD-12 admits a change to `access` only when `current_user` is the
+# schema owner. If the RUNTIME role owned the schema that test would pass on every request
+# and the guard would admit everything -- measured, a plain UPDATE promoted a row to admin
+# with the guard never firing. So the single fact that makes the guard meaningful is that
+# `orbit_app` is NOT the owner, and it earns a line here: an instance whose init script was
+# edited, or whose volume predates this change, would otherwise look installed and be
+# quietly unguarded.
+owner="$("${DC[@]}" exec -T postgres psql -U postgres -d orbit -tAc \
+    "select pg_get_userbyid(nspowner) from pg_namespace where nspname='public'" \
+    2>/dev/null | tr -d '\r\n ')"
+case "$owner" in
+    orbit_owner) ok "schema public is owned by orbit_owner, so orbit_app is a guest in it" ;;
+    orbit_app)   die "stage 5: schema public is owned by orbit_app, the RUNTIME role. The access-immutability guard would admit every request. This volume predates the owner-role split (FD-38 addendum): a fresh install is needed, or the ownership moved by hand." ;;
+    *)           die "stage 5: schema public is owned by '$owner', which is neither orbit_owner nor orbit_app. Something has changed this database outside the installer." ;;
+esac
 
 # ---------------------------------------------------------------------------
 say "6/8  Migrations — the instance applies its own"

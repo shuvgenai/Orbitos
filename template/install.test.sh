@@ -97,6 +97,10 @@ case "$cmd" in
       # The two psql calls: the database list, then each login.
       case "$*" in
         *pg_database*) printf 'orbit\npaperclip\n'; exit 0 ;;
+        # The schema-owner probe. STUB_OWNER lets a case simulate the dangerous topology --
+        # the runtime role owning the schema -- which is the thing the installer now refuses.
+        *nspowner*)    echo "${STUB_OWNER:-orbit_owner}"; exit 0 ;;
+        *orbit_owner*) echo orbit; exit 0 ;;
         *orbit_app*)   echo orbit; exit 0 ;;
         *paperclip_app*) echo paperclip; exit 0 ;;
       esac
@@ -325,15 +329,37 @@ d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
   want 2 "the disk warning names the 25 GB requirement" "$d" "ABOUT 25 GB" )
 rm -rf "$d"
 
-# 18. The written .env carries all 18 variables, and the engine refs are the pinned
+# 21. THE OWNERSHIP BOUNDARY. If the runtime role owns the schema, the trigger that
+#     closed FD-12 compares current_user against itself and admits every request --
+#     measured, a plain UPDATE promoted a row to admin with the guard never firing. An
+#     instance in that state looks installed and is quietly unguarded, so the installer
+#     must refuse it rather than carry on.
+d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
+( good_env "$s"; export PATH="$b:$PATH"; export STUB_MODE=ok; export STUB_OWNER=orbit_app
+  want 1 "the RUNTIME role owning the schema is refused, not installed around" "$d" "would admit every request" )
+rm -rf "$d"
+
+# 22. ...and an owner it does not recognise at all is refused too, rather than assumed
+#     benign. Something has edited the database outside the installer.
+d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
+( good_env "$s"; export PATH="$b:$PATH"; export STUB_MODE=ok; export STUB_OWNER=somebody_else
+  want 1 "an unrecognised schema owner is refused" "$d" "outside the installer" )
+rm -rf "$d"
+
+# 18. The written .env carries all 19 variables, and the engine refs are the pinned
 #     digests rather than anything typed.
 d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
 (
   good_env "$s"; export PATH="$b:$PATH"; export STUB_MODE=ok
   cd "$d" && bash template/install.sh --non-interactive >/dev/null 2>&1
   n="$(grep -cE '^[A-Z_]+=.' template/.env || true)"
-  if [ "$n" -ne 18 ]; then
-      printf '  FAIL  the rendered .env has %s variables, not 18\n' "$n"; exit 1
+  if [ "$n" -ne 19 ]; then
+      printf '  FAIL  the rendered .env has %s variables, not 19\n' "$n"; exit 1
+  fi
+  if [ "$(grep '^ORBIT_DB_PASSWORD=' template/.env)" = "$(grep '^ORBIT_OWNER_PASSWORD=' template/.env | sed 's/OWNER_//')" ]; then
+      printf '  FAIL  the runtime and owner roles were given the SAME password\n'
+      printf '        That puts orbit_app and orbit_owner on one credential and undoes\n'
+      printf '        the ownership split the FD-38 addendum exists for.\n'; exit 1
   fi
   if ! grep -q '^PAPERCLIP_REF=.*@sha256:' template/.env; then
       printf '  FAIL  PAPERCLIP_REF in .env is not a digest pin\n'; exit 1
@@ -344,7 +370,7 @@ d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
   if grep -q '^PAPERCLIP_PUBLIC_URL=http://localhost' template/.env; then
       printf '  FAIL  PAPERCLIP_PUBLIC_URL is localhost; the container healthcheck probes 127.0.0.1 and the Host header must match\n'; exit 1
   fi
-  printf '  ok    the rendered .env has 18 variables, digest-pinned refs and a 64-hex key\n'
+  printf '  ok    the rendered .env has 19 variables, digest-pinned refs and a 64-hex key\n'
 ) && scored_pass || scored_fail
 rm -rf "$d"
 
@@ -355,8 +381,8 @@ if [ "$f" -eq 0 ]; then
     # A run that asserted nothing is not a pass either. Without this, deleting every
     # case above would report success -- the same shape as a guard that passes by not
     # looking, which is the defect this whole repo is organised around.
-    if [ "$p" -lt 20 ]; then
-        printf 'install.test: FAILED -- only %s assertion(s) ran; at least 20 are expected.\n' "$p"
+    if [ "$p" -lt 22 ]; then
+        printf 'install.test: FAILED -- only %s assertion(s) ran; at least 22 are expected.\n' "$p"
         exit 1
     fi
     printf 'install.test: PASS -- %s assertion(s); install.sh fails on every path tested.\n' "$p"

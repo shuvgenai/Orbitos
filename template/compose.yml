@@ -23,6 +23,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       ORBIT_DB_PASSWORD: ${ORBIT_DB_PASSWORD:?}
+      # The owner role, added 2026-11-17 by the FD-38 addendum. `orbit_owner` owns the orbit
+      # database and runs the migrations; `orbit_app` is the runtime and owns nothing. They
+      # must be different roles, or the trigger that closed FD-12 admits every request --
+      # proven in docs/superpowers/spikes/2026-11-17-ownership-topology.mjs.
+      ORBIT_OWNER_PASSWORD: ${ORBIT_OWNER_PASSWORD:?}
       PAPERCLIP_DB_PASSWORD: ${PAPERCLIP_DB_PASSWORD:?}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -121,7 +126,14 @@ services:
     build: { context: .., target: dbgen }
     restart: "no"
     environment:
-      DATABASE_URL: postgresql://orbit_app:${ORBIT_DB_PASSWORD:?}@postgres:5432/orbit
+      # RUNS AS orbit_owner, NOT orbit_app, since 2026-11-17. The comment above about "no new
+      # secret" described the old arrangement and was true of it: migrate reused the runtime's
+      # credential. The FD-38 addendum trades that property away deliberately, because the
+      # runtime owning what it queries reopens FD-12 -- a plain UPDATE promoted a row to admin
+      # with the guard never firing, measured. Objects created here are therefore owned by
+      # orbit_owner, and orbit_app reaches their ROWS through the default privileges granted
+      # in postgres/init/01-databases.sh.
+      DATABASE_URL: postgresql://orbit_owner:${ORBIT_OWNER_PASSWORD:?}@postgres:5432/orbit
     command: ["pnpm", "--filter", "@orbit/db", "exec", "prisma", "migrate", "deploy"]
     networks: [data]
     depends_on:
