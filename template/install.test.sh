@@ -271,6 +271,21 @@ d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
   want 2 "the end names the four per-instance values as step 2" "$d" "PAPERCLIP_COMPANY_ID" )
 rm -rf "$d"
 
+# 19. Docker's disk could not be measured -- it must SAY SO, not imply it checked. The stub
+#     answers nothing for `docker info`, which is exactly the macOS/Windows case: Docker keeps
+#     its images in a VM and no host path reflects them.
+d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
+( good_env "$s"; export PATH="$b:$PATH"; export STUB_MODE=ok
+  want 2 "an unmeasurable Docker disk is reported, not silently passed" "$d" "could not measure Docker" )
+rm -rf "$d"
+
+# 20. ...and it states the actual requirement rather than just admitting ignorance, because a
+#     warning the reader cannot act on is noise.
+d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
+( good_env "$s"; export PATH="$b:$PATH"; export STUB_MODE=ok
+  want 2 "the disk warning names the 25 GB requirement" "$d" "ABOUT 25 GB" )
+rm -rf "$d"
+
 # 18. The written .env carries all 18 variables, and the engine refs are the pinned
 #     digests rather than anything typed.
 d="$(mkrepo)"; s="$(mksetup "$d")"; b="$(mkstub "$d" ok)"
@@ -301,8 +316,8 @@ if [ "$f" -eq 0 ]; then
     # A run that asserted nothing is not a pass either. Without this, deleting every
     # case above would report success -- the same shape as a guard that passes by not
     # looking, which is the defect this whole repo is organised around.
-    if [ "$p" -lt 18 ]; then
-        printf 'install.test: FAILED -- only %s assertion(s) ran; at least 18 are expected.\n' "$p"
+    if [ "$p" -lt 20 ]; then
+        printf 'install.test: FAILED -- only %s assertion(s) ran; at least 20 are expected.\n' "$p"
         exit 1
     fi
     printf 'install.test: PASS -- %s assertion(s); install.sh fails on every path tested.\n' "$p"

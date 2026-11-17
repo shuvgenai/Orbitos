@@ -6,6 +6,43 @@
 #   bash template/install.sh --force             # overwrite an existing template/.env
 #   bash template/install.sh --skip-engine       # do not build the 8.82 GB engine image
 #
+# WHAT THIS MACHINE NEEDS
+#   Disk    ~25 GB free IN DOCKER'S STORAGE, not on the disk holding this checkout -- they
+#           are different filesystems, and on macOS and Windows Docker's lives inside a VM.
+#
+#           Measured with `docker system df -v`, not estimated:
+#             engine image              ~8.82 GB   (the big one; built here, not pulled)
+#             four program images        ~920 MB   TOTAL, not each -- web, worker, api and
+#                                                  frontdesk share one base, and their
+#                                                  UNIQUE layers are 17-38 KB apiece
+#             orbit-dbgen (migrations)   ~1.17 GB  (850 MB unique)
+#             Postgres + Redis           ~0.5 GB
+#             volumes, once in use       ~190 MB and grows with your data
+#           ----------------------------------------------------------------------------
+#             steady state after install  ~12 GB
+#             peak during the first build ~20 GB   build cache is the part people forget
+#
+#           25 GB leaves real headroom; below that the engine build is the step that dies.
+#           `docker system df` shows what is there now, `docker system prune` reclaims the
+#           build cache afterwards and is safe once the images exist.
+#   Memory  8 GB works; 16 GB is comfortable. Eight containers, and the engine applies 278
+#           upstream migrations on first boot.
+#   Ports   3100, 8080 and 8081, free on 127.0.0.1.
+#   Tools   Docker Engine with Compose v2, bash, openssl (or /dev/urandom), and one of
+#           lsof, ss or netstat for the port check.
+#
+# LINUX, macOS AND WINDOWS
+#   Linux   Docker Engine. Nothing special.
+#   macOS   Works on bash 3.2, which is what /bin/bash is -- no bash 4 syntax is used here.
+#           `stat`, `netstat` and the port check all have BSD paths. Docker Desktop is fine
+#           but needs a PAID SUBSCRIPTION for companies over 250 employees or $10M revenue;
+#           Colima, OrbStack and Rancher Desktop avoid that and provide the same `docker`
+#           plus Compose v2 this script uses. NOT YET RUN END TO END ON macOS -- the BSD
+#           paths are written and reviewed, not exercised on real hardware.
+#   Windows Run it inside WSL2, not Git Bash or PowerShell. Note that `chmod 0600` on a
+#           Windows drive is a no-op, which stage 3 detects and warns about rather than
+#           claiming the credentials file is protected.
+#
 # WHAT THIS DOES, AND WHERE IT STOPS. It renders `template/.env`, brings up the data
 # services, proves both databases and both logins, applies the migrations, builds the
 # engine and waits for it to answer. It then STOPS, because the two remaining steps
@@ -81,31 +118,88 @@ ok "compose file and engine pins are readable"
 
 # Ports. 3100 is the engine, 8080 the web surface, 8081 the api. A port already held is the
 # most likely reason a first install dies halfway, and it is cheap to catch up front.
+# 0 = busy, 1 = free, 2 = COULD NOT TELL. The third value is the point.
+#
+# This read `ss` then `netstat -ltn`, and on macOS that is a check that passes by not
+# looking: BSD netstat has no `-l` and no `-t`, so it errors, `2>/dev/null` swallows it,
+# grep matches nothing, and every port is reported free. The installer would then sail into
+# stage 4 and fail at `docker compose up` with a port-binding error instead of the clear
+# message this stage exists to give. `lsof` is tried first because it is present on macOS by
+# default and answers the same way everywhere.
 port_busy() {
-    if command -v ss >/dev/null 2>&1; then
-        ss -ltn 2>/dev/null | grep -qE "[:.]$1[[:space:]]"
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+        return 1
+    elif command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -qE "[:.]$1[[:space:]]" && return 0
+        return 1
     elif command -v netstat >/dev/null 2>&1; then
-        netstat -ltn 2>/dev/null | grep -qE "[:.]$1[[:space:]]"
-    else
+        # GNU first; if those flags are rejected (BSD/macOS), fall back to the portable form.
+        if netstat -ltn >/dev/null 2>&1; then
+            netstat -ltn 2>/dev/null | grep -qE "[:.]$1[[:space:]]" && return 0
+            return 1
+        fi
+        netstat -an -p tcp 2>/dev/null | grep -qE "[:.]$1[[:space:]]+.*LISTEN" && return 0
         return 1
     fi
+    return 2
 }
+unchecked_ports=0
 for p in 3100 8080 8081; do
-    if port_busy "$p"; then
-        nope "port $p is already in use. OrbitCrew needs 3100 (engine), 8080 (web) and 8081 (api) on 127.0.0.1. Stop whatever holds $p, or change the published port in $compose_file."
-    fi
+    # `rc=0; cmd || rc=$?` and NOT a bare `port_busy "$p"`. Under `set -e` a bare call that
+    # returns 1 -- which here means "the port is FREE", the good outcome -- kills the script
+    # on the spot. It was previously inside an `if`, which is exempt; moving to a three-way
+    # result made it a plain command and took 14 of 18 self-test assertions down with it.
+    rc=0
+    port_busy "$p" || rc=$?
+    case "$rc" in
+        0) nope "port $p is already in use. OrbitCrew needs 3100 (engine), 8080 (web) and 8081 (api) on 127.0.0.1. Stop whatever holds $p, or change the published port in $compose_file." ;;
+        2) unchecked_ports=1 ;;
+    esac
 done
-ok "ports 3100, 8080 and 8081 are free"
-
-# Disk. The engine image is about 8.82 GB built and needs room for layers on the way there.
-avail_kb="$(df -Pk "$root" 2>/dev/null | awk 'NR==2{print $4}')"
-if [ -n "${avail_kb:-}" ] && [ "$avail_kb" -lt 31457280 ]; then
-    if [ "$SKIP_ENGINE" -eq 0 ]; then
-        nope "$(( avail_kb / 1048576 )) GB free where this checkout lives; the engine build needs roughly 30 GB of headroom. Free space, or re-run with --skip-engine to install everything else first."
-    fi
-    info "low disk ($(( avail_kb / 1048576 )) GB), but --skip-engine was given"
+if [ "$unchecked_ports" -eq 1 ]; then
+    warn "could not check whether ports 3100, 8080 and 8081 are free -- no lsof, ss or netstat here."
+    printf '          That is NOT the same as finding them free. If one is taken, stage 4 fails\n'
+    printf '          at the port binding rather than here.\n'
 else
-    ok "disk headroom looks sufficient"
+    ok "ports 3100, 8080 and 8081 are free"
+fi
+
+# Disk. MEASURE THE FILESYSTEM DOCKER USES, NOT THE ONE THE CHECKOUT IS ON. This checked
+# `df` on the repository path, which is the wrong volume nearly everywhere: measured on the
+# development host, the checkout's filesystem reported 88.5 GB free while Docker's actual
+# store had 913.9 GB. On macOS and Windows the gap is worse than wrong-by-a-bit -- Docker
+# keeps its images inside a Linux VM disk image, so no host path reflects them at all.
+#
+# Requirement: about 25 GB free. Measured with `docker system df -v` rather than estimated:
+# the engine is ~8.82 GB, the four program images are ~920 MB TOTAL (not each -- they share
+# one base and their unique layers are 17-38 KB apiece), orbit-dbgen ~1.17 GB, Postgres and
+# Redis ~0.5 GB. That is ~12 GB steady state; the first build peaks nearer 20 GB because of
+# BUILD CACHE, which is the part people forget. 25 GB leaves real headroom.
+#
+# An earlier version of this file said 30 GB and "~920 MB each". Both were wrong in the same
+# direction -- guessed high rather than measured -- and the second overstated the program
+# images by about 2.8 GB.
+docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+if [ -n "$docker_root" ] && [ -d "$docker_root" ]; then
+    avail_kb="$(df -Pk "$docker_root" 2>/dev/null | awk 'NR==2{print $4}')"
+    if [ -n "${avail_kb:-}" ] && [ "$avail_kb" -lt 26214400 ]; then
+        if [ "$SKIP_ENGINE" -eq 0 ]; then
+            nope "$(( avail_kb / 1048576 )) GB free on Docker's storage ($docker_root); the engine build needs roughly 25 GB including build cache. Free space (\`docker system prune\` reclaims build cache), or re-run with --skip-engine."
+        fi
+        info "low Docker disk ($(( avail_kb / 1048576 )) GB), but --skip-engine was given"
+    else
+        ok "Docker storage has $(( ${avail_kb:-0} / 1048576 )) GB free, on $docker_root"
+    fi
+else
+    # Docker in a VM -- macOS and Windows. Its disk is not visible from this shell, so this
+    # cannot be measured here, and saying nothing would read as "checked and fine".
+    warn "could not measure Docker's free disk from here."
+    printf '          Docker stores images inside a VM on macOS and Windows, so no path on this\n'
+    printf '          machine reflects them. ALLOW ABOUT 25 GB in the Docker VM: the engine image\n'
+    printf '          is ~8.82 GB, the four program images ~920 MB each, and build cache can add\n'
+    printf '          15 GB or more. Docker Desktop: Settings > Resources > Virtual disk limit.\n'
+    printf '          Check what is there now with: docker system df\n'
 fi
 
 # ---------------------------------------------------------------------------
