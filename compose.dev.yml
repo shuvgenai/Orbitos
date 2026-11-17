@@ -13,6 +13,12 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: orbit_test
       ORBIT_DB_PASSWORD: orbit_dev
+      # The owner role, FD-38 addendum 2026-11-17. This file mounts the SAME init script as
+      # the instance template, so it needs the same variables. Without this one the script
+      # aborts and no roles are created at all, which surfaces as
+      #   28P01 password authentication failed
+      # and reads like a wrong password rather than like a script that never ran.
+      ORBIT_OWNER_PASSWORD: owner_dev
       PAPERCLIP_DB_PASSWORD: paperclip_dev
     ports: ["127.0.0.1:${ORBIT_DB_HOST_PORT:-5432}:5432"]
     volumes:
