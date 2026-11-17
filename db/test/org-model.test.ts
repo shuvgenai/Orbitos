@@ -78,10 +78,18 @@ describe('structure — read from the catalogue, not from a comment', () => {
 
     for (const r of rows) {
       expect(r.relrowsecurity, `${r.relname} does not have RLS enabled`).toBe(true);
-      // FORCE is what subjects the table's OWNER to its own policies. Without it the owner --
-      // a real login here, which runs migrations and will run SECURITY DEFINER functions --
-      // reads every row while the policies sit there looking like security.
-      expect(r.relforcerowsecurity, `${r.relname} is not FORCEd`).toBe(true);
+      // FORCE MUST NOT BE SET, and this assertion is the inverse of the one that shipped in
+      // S2b. FORCE subjects a table's OWNER to its own policies -- and every policy here
+      // calls orbitcrew.current_org(), a SECURITY DEFINER function that SELECTs from
+      // `profiles`, one of the guarded tables. Under FORCE that SELECT fires the policy, the
+      // policy calls the function, and Postgres gives up:
+      //     54001 stack depth limit exceeded
+      // Measured with one variable changed at a time: FORCE off + plain owner works, FORCE on
+      // + plain owner recurses, FORCE on + SUPERUSER owner works -- and the third is what
+      // this suite has, which is why S2b passed while production would have failed.
+      // Removed by migration 20261117000200. What replaces it is the ownership split: the
+      // runtime does not own these tables, so RLS binds it either way.
+      expect(r.relforcerowsecurity, `${r.relname} is FORCEd, which recurses in production`).toBe(false);
     }
   });
 
@@ -247,4 +255,86 @@ describe('nothing reaches the org model except through withIdentity', () => {
     const good = "await withIdentity(prisma, id, (tx) => tx.$queryRaw`select * from orbitcrew.profiles`)";
     expect(MODELS.test(good) && !good.includes('withIdentity')).toBe(false);
   });
+});
+
+/**
+ * THE REGRESSION GUARD FOR THE DEFECT S2b SHIPPED.
+ *
+ * S2b put FORCE on every table, every test passed, and production would have failed on the
+ * first query with `54001 stack depth limit exceeded`. The suite could not see it because
+ * `DATABASE_URL` connects as `postgres`: the migration ran as a superuser, so the schema is
+ * owned by one, and a SECURITY DEFINER function owned by a superuser bypasses RLS -- the
+ * recursion never forms.
+ *
+ * So the environment hid the bug, and no assertion about the real schema could have caught
+ * it while the real schema is owned by a superuser. This block therefore BUILDS THE
+ * PRODUCTION ARRANGEMENT -- a plain, non-superuser owner -- and proves the pattern both ways
+ * round. It is the only test here that can fail for this reason, and it is the reason it
+ * exists.
+ */
+describe('a policy that calls a SECURITY DEFINER helper reading the guarded table', () => {
+  const S = 'force_regress';
+  const OWNER = 'force_regress_owner';
+  const CLIENT = 'force_regress_client';
+  const ORG = '11111111-1111-1111-1111-111111111111';
+  const ME = '22222222-2222-2222-2222-222222222222';
+
+  /** Build the arrangement with FORCE on or off, query it as a plain client, return the error. */
+  async function trial(force: boolean): Promise<string | null> {
+    await admin.$executeRawUnsafe(`drop schema if exists ${S} cascade`);
+    for (const r of [OWNER, CLIENT]) {
+      await admin.$executeRawUnsafe(`drop owned by ${r}`).catch(() => undefined);
+      await admin.$executeRawUnsafe(`drop role if exists ${r}`).catch(() => undefined);
+      await admin.$executeRawUnsafe(`create role ${r} login password '${r}_pw'`);
+    }
+    await admin.$executeRawUnsafe(`create schema ${S} authorization ${OWNER}`);
+    await admin.$executeRawUnsafe(`grant usage on schema ${S} to ${CLIENT}`);
+    await admin.$executeRawUnsafe(
+      `create table ${S}.profiles (id uuid primary key, org_id uuid)`);
+    await admin.$executeRawUnsafe(`alter table ${S}.profiles owner to ${OWNER}`);
+    await admin.$executeRawUnsafe(
+      `create function ${S}.current_org() returns uuid language sql stable
+       security definer set search_path to '${S}','pg_temp' as
+       $f$ select p.org_id from ${S}.profiles p
+            where p.id = nullif(current_setting('app.uid', true), '')::uuid $f$`);
+    await admin.$executeRawUnsafe(`alter function ${S}.current_org() owner to ${OWNER}`);
+    await admin.$executeRawUnsafe(`alter table ${S}.profiles enable row level security`);
+    if (force) await admin.$executeRawUnsafe(`alter table ${S}.profiles force row level security`);
+    await admin.$executeRawUnsafe(
+      `create policy member_select on ${S}.profiles for select using (org_id = ${S}.current_org())`);
+    await admin.$executeRawUnsafe(`grant select on ${S}.profiles to ${CLIENT}`);
+    await admin.$executeRawUnsafe(`grant execute on all functions in schema ${S} to ${CLIENT}`);
+    await admin.$executeRawUnsafe(`insert into ${S}.profiles values ($1,$2)`, ME, ORG);
+
+    const u = new URL(process.env.DATABASE_URL!);
+    u.username = CLIENT;
+    u.password = `${CLIENT}_pw`;
+    const c = createPrisma(u.toString());
+    let err: string | null = null;
+    try {
+      await c.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`select set_config('app.uid', '${ME}', true)`);
+        await tx.$queryRawUnsafe(`select id from ${S}.profiles`);
+      });
+    } catch (e) {
+      err = String(e);
+    }
+    await c.$disconnect();
+    await admin.$executeRawUnsafe(`drop schema if exists ${S} cascade`);
+    for (const r of [OWNER, CLIENT]) {
+      await admin.$executeRawUnsafe(`drop owned by ${r}`).catch(() => undefined);
+      await admin.$executeRawUnsafe(`drop role if exists ${r}`).catch(() => undefined);
+    }
+    return err;
+  }
+
+  test('works when the owner is a plain role and FORCE is OFF — the shipped arrangement', async () => {
+    expect(await trial(false)).toBeNull();
+  }, 60_000);
+
+  test('RECURSES when FORCE is ON, which is the defect S2b shipped and this suite hid', async () => {
+    const err = await trial(true);
+    expect(err, 'FORCE no longer recurses -- re-read migration 20261117000200 before relying on it').not.toBeNull();
+    expect(err).toMatch(/stack depth|recursion/i);
+  }, 60_000);
 });
