@@ -29,9 +29,29 @@ command -v grep >/dev/null 2>&1 || die "grep not found"
 # `dist` is not a default here either, deliberately: the BUILT bundles are checked by
 # `src/shared/seeds/customer-surface.test.ts`, which greps the chunks each customer entry
 # actually loads. This guard reads the SOURCE, so a leak is caught before it is built.
+# `template/engine/instructions` and `README.md` were added 2026-11-17, and each closed a live
+# defect this guard could not see:
+#
+#   * `template/engine/instructions/scout.md` is AGENT PROSE — it ships inside the engine image
+#     and Scout reads it as its instructions. It opened "## Orbit""crew: how you answer a lead"
+#     (wrong casing) and told the agent that upstream "records it on the issue for you". Scout
+#     drafts customer-facing email, so an upstream name in its instructions is a name it can
+#     speak back to a stranger. Same reasoning as the infra repo's `agent-prose` conf paths:
+#     a skill file is prose that executes.
+#   * `README.md` is the front page of a PUBLIC repo the product is sold from, so it is not
+#     "internal, not built UI" the way the governing docs are. Its first line carried the exact
+#     casing FD-5 calls a defect to correct, in the first line a buyer reads.
+#
+# DELIBERATELY NOT ADDED: `template/engine/hermes/*.yaml`. Measured 2026-11-17 — those two files
+# carry 9 occurrences of the upstream display names, every one a YAML COMMENT referencing a real
+# upstream identifier (a CONFIGURABLE_TOOLSETS registry, where an agent's issue actions come
+# from). Hermes discards comments when it parses the file, so no agent ever reads them, and the
+# PRD forbids renaming those identifiers. Adding that root would produce 9 findings that must
+# NOT be fixed, which is how a guard gets switched off.
 ROOTS=("$@")
 if [ "${#ROOTS[@]}" -eq 0 ]; then
-    ROOTS=(src/apps/user src/apps/org-admin src/apps/landing dashboards)
+    ROOTS=(src/apps/user src/apps/org-admin src/apps/landing dashboards \
+           template/engine/instructions README.md)
 fi
 
 # Capitalized display names that must never reach a customer-visible surface.
