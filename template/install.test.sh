@@ -154,11 +154,50 @@ want() {
 printf 'install.test: proving install.sh fails when it should\n\n'
 
 # ---------------------------------------------------------------------------
-# 1. docker absent entirely. A PATH with the bare minimum and no docker.
+# 1. docker absent entirely.
+#
+# This used to set PATH=/usr/bin:/bin and SKIP if docker turned up there. That works on a
+# developer machine, where docker lives inside WSL and is not on the Git Bash PATH -- and it
+# SILENTLY SKIPS on a GitHub runner, where docker IS /usr/bin/docker. So the one case proving
+# the installer refuses to run without docker would never have executed in CI, which is the
+# only place it matters. A skip that depends on the environment is the same defect as a guard
+# that turns itself off -- and wiring this file into CI is precisely what would have hidden it.
+#
+# The docker-free PATH is therefore BUILT: a directory of symlinks to the tools install.sh
+# actually uses, with no docker among them. A tool missing from this list makes the case fail
+# loudly rather than skip, which is the right direction to fail in.
+# Two environments need different tricks, so the PATH is CONSTRUCTED and then CHECKED:
+#
+#   Linux / CI  -- docker is /usr/bin/docker, so a symlink directory holding only the tools
+#                  install.sh uses is the way to exclude it.
+#   Git Bash    -- those symlinks do not run: a Windows binary resolves its DLLs beside
+#                  itself, so a symlinked `bash` outside /usr/bin fails to start. There,
+#                  /usr/bin:/bin is already docker-free, because docker lives in WSL.
+#
+# Whichever is used, the last word is the same assertion: if docker is STILL reachable on
+# the constructed PATH, this case FAILS. It never skips, which is what the previous version
+# did on exactly the machine that matters.
 d="$(mkrepo)"; s="$(mksetup "$d")"
-( good_env "$s"; export PATH="/usr/bin:/bin"; export STUB_MODE=ok
-  command -v docker >/dev/null 2>&1 && { printf '  SKIP  docker is on the minimal PATH; cannot test its absence\n'; exit 0; }
-  want 3 "docker missing is exit 3, not a silent continue" "$d" "docker is not on PATH" )
+nodocker="$d/nodocker"; mkdir -p "$nodocker"
+for t in bash sh env grep sed awk mktemp cat rm mkdir ln head tail wc tr cut sort uniq \
+         df date od stat openssl dirname basename sleep; do
+    src="$(command -v "$t" 2>/dev/null || true)"
+    if [ -n "$src" ]; then ln -sf "$src" "$nodocker/$t" 2>/dev/null || true; fi
+done
+if PATH="$nodocker" "$nodocker/bash" -c 'exit 0' 2>/dev/null; then
+    testpath="$nodocker"
+else
+    testpath="/usr/bin:/bin"
+fi
+if PATH="$testpath" command -v docker >/dev/null 2>&1; then
+    printf '  FAIL  docker missing is exit 3, not a silent continue\n'
+    printf '        could not build a docker-free PATH (docker is still reachable on %s).\n' "$testpath"
+    printf '        This case must not be skipped -- that is the defect it tests for.\n'
+    scored_fail
+else
+    ( good_env "$s"; export PATH="$testpath"; export STUB_MODE=ok
+      want 3 "docker missing is exit 3, not a silent continue" "$d" "docker is not on PATH" )
+fi
 rm -rf "$d"
 
 # 2. docker present, daemon dead.

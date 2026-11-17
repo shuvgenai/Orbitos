@@ -49,6 +49,24 @@ jobs:
           bash ci/jargon-guard.sh
       - name: Posture check, engine section (FLT-7, SEC-6)
         run: pnpm posture:check
+      # The customer installer. Until 2026-11-17 this was the only program in the repo with
+      # NO automated reader: `template/install.sh` is the first thing a buyer runs, and its
+      # self-test executed only when somebody typed the command. That is the shape of a guard
+      # nobody runs, in the file where a mistake costs a paying customer their first hour.
+      #
+      # It stubs `docker` on PATH, so it needs no daemon and builds nothing: ~90s, and it
+      # asserts the installer FAILS on every path it should -- missing docker, a dead daemon,
+      # a busy port, an existing .env, a failing migration, an engine that never answers --
+      # plus the one that keeps it honest: a fully successful run still exits 2, never 0,
+      # because provisioning cannot be automated yet.
+      #
+      # FOR ANYONE EDITING THAT FILE: case 1 (docker absent) used to SKIP when docker was on
+      # PATH, which is true of every GitHub runner and false on the Windows dev machine. Wired
+      # in unchanged, it would have passed here while never running -- the exact defect this
+      # repo keeps finding. It now BUILDS a docker-free PATH and fails if it cannot. Verified
+      # in WSL, where docker is /usr/bin/docker just as it is here: 20 assertions, none skipped.
+      - name: The customer installer can still fail
+        run: bash template/install.test.sh
 
   compose-smoke:
     runs-on: ubuntu-24.04
