@@ -12,6 +12,11 @@ export default async function setup(): Promise<void> {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   await client.query('DROP SCHEMA IF EXISTS ledger CASCADE');
+  // Added with FD-38 S2b. The org model lives in its own schema, and a schema this function
+  // does not drop survives between runs -- so an edited migration would be tested against the
+  // objects the PREVIOUS version left behind, and a policy removed from the file would go on
+  // passing because the old one was still there. Rebuilt every run, like the others.
+  await client.query('DROP SCHEMA IF EXISTS orbitcrew CASCADE');
   await client.query('DROP SCHEMA IF EXISTS public CASCADE');
   await client.query('CREATE SCHEMA public');
   await client.end();

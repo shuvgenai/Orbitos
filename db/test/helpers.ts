@@ -62,3 +62,44 @@ export function withOwner(prisma: PrismaClient, workspaceId: string, email: stri
     },
   });
 }
+
+/**
+ * A plain, non-superuser login for testing row-level security.
+ *
+ * THE SUITE'S OWN CONNECTION CANNOT TEST RLS. `DATABASE_URL` connects as `postgres`, and a
+ * superuser is never restrained by a policy -- FORCE or not. A test that used it would pass
+ * while proving nothing, which is the failure mode this repo keeps finding. Every RLS test
+ * from FD-38 S2 onward needs a role like this, so it lives here rather than being
+ * rediscovered per file.
+ *
+ * The role owns nothing, which is the second half: a table's OWNER also bypasses its policies
+ * unless the table is FORCEd, and the access-immutability trigger compares `current_user`
+ * against the schema owner. A test role that happened to own something would quietly
+ * reproduce the FD-12 hole instead of catching it.
+ */
+export async function makeProbeRole(
+  admin: PrismaClient,
+  name: string,
+  password: string,
+): Promise<void> {
+  // DROP OWNED BY first: a plain `drop role` fails while any grant still references it, and
+  // a role left behind makes the next run's `create role` fail.
+  await admin.$executeRawUnsafe(`drop owned by ${name}`).catch(() => undefined);
+  await admin.$executeRawUnsafe(`drop role if exists ${name}`).catch(() => undefined);
+  await admin.$executeRawUnsafe(`create role ${name} login password '${password}'`);
+  await admin.$executeRawUnsafe(`grant usage on schema public to ${name}`);
+}
+
+export async function dropProbeRole(admin: PrismaClient, name: string): Promise<void> {
+  await admin.$executeRawUnsafe(`drop owned by ${name}`).catch(() => undefined);
+  await admin.$executeRawUnsafe(`drop role if exists ${name}`).catch(() => undefined);
+}
+
+/** The same connection string as the suite, re-pointed at `name` and pinned to one connection. */
+export function probeUrl(name: string, password: string): string {
+  const u = new URL(process.env.DATABASE_URL!);
+  u.username = name;
+  u.password = password;
+  u.searchParams.set('connection_limit', '1');
+  return u.toString();
+}
